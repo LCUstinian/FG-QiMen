@@ -1,0 +1,56 @@
+# Sample password dictionary for FG-QiMen credential tests.
+# FG-QiMen 凭据测试用密码字典。
+#
+# One password per line. Lines starting with '#' are comments.
+# 每行一个密码。以 '#' 开头的行是注释。
+#
+# HARD RULE: FG-QiMen uses these ONLY for authentication. On a hit it
+# writes the (user, pass) pair to creds.txt and STOPS. No post-auth
+# action is ever taken.
+#
+# 硬性原则：FG-QiMen 仅用此字典做认证。命中后只把 (user, pass) 写入
+# creds.txt 然后停止。绝不做任何认证后动作。
+
+# Top common passwords / 常见弱口令
+123456
+password
+admin
+root
+toor
+qwerty
+letmein
+welcome
+monkey
+dragon
+111111
+123123
+abc123
+test
+guest
+iloveyou
+princess
+sunshine
+master
+passw0rd
+P@ssw0rd
+P@ssword
+Password1
+Changeme
+changeit
+default
+secret
+12345
+1234
+1
+
+# Service-default passwords / 服务默认密码
+vagrant
+ubuntu
+raspberry
+postgres
+mysql
+oracle
+tomcat
+manager
+nagios
+zabbix

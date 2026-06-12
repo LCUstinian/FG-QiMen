@@ -1,0 +1,25 @@
+# Sample username dictionary for FG-QiMen credential tests.
+# FG-QiMen 凭据测试用用户名字典。
+#
+# One username per line. Lines starting with '#' are comments.
+# 每行一个用户名。以 '#' 开头的行是注释。
+
+root
+admin
+administrator
+user
+test
+guest
+ubuntu
+centos
+www
+www-data
+git
+postgres
+mysql
+oracle
+redis
+mssql
+ftp
+pi
+vagrant

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(curl -s -L \"https://api.github.com/repos/LCUstinian/FG-QiMen\")",
+      "Bash(curl -s -L \"https://api.github.com/repos/shadow1ng/fscan\")",
+      "Bash(curl -s -L \"https://api.github.com/repos/shadow1ng/fscan/contents/\")",
+      "Bash(ls -la \"d:/Go/fscan-main\" 2>/dev/null)",
+      "Read(//d/Go/fscan-main/**)",
+      "Bash(go version *)",
+      "Bash(go mod *)",
+      "Bash(go get *)",
+      "Bash(go build *)",
+      "Bash(./fg-qimen.exe --help)",
+      "Bash(./fg-qimen.exe version *)",
+      "Bash(./fg-qimen.exe projects *)",
+      "Bash(curl -sI http://127.0.0.1:18080/)",
+      "Bash(timeout 15 ./fg-qimen.exe -p test1 -H 127.0.0.1 --ports 18080 -t 5)",
+      "Bash(./fg-qimen.exe -p test1 -H 127.0.0.1 --ports 18080 -t 5 --shutdown-timeout 3s)"
+    ]
+  }
+}

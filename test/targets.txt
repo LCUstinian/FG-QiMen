@@ -1,0 +1,19 @@
+# Sample target list for FG-QiMen tests.
+# FG-QiMen 测试用目标列表。
+#
+# Lines starting with '#' are comments. Inline comments after '#' are
+# stripped. Blank lines are ignored.
+# 以 '#' 开头的行是注释。'#' 后的行内注释会被去除。空行被忽略。
+#
+# Replace these with your authorized lab targets before running real scans.
+# 在跑真实扫描前，请换成你已授权的实验室目标。
+
+# Loopback (safe for smoke tests) / 回环地址（安全烟测）
+127.0.0.1
+::1
+
+# Common private ranges (comment out if not authorized)
+# 常见私网段（未授权请注释）
+# 192.168.1.0/24
+# 10.0.0.0/24
+# 172.16.0.0/24

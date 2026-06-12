@@ -1,0 +1,32 @@
+# Build artifacts / 构建产物
+release/
+*.exe
+!test/**/*.exe
+fg-qimen
+fg-qimen.exe
+
+# Go workspace / Go 工作区
+*.test
+coverage.txt
+*.cover
+
+# Scan-run outputs (gitignored) / 扫描运行产物（gitignored）
+runs/
+
+# Test data (committed) lives under test/ — do NOT ignore.
+# Test 数据（提交进仓库）放在 test/ —— 不要忽略。
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs / 日志
+*.log
+
+# Local environment / 本地环境
+.env
+.env.local
