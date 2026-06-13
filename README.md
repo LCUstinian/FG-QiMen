@@ -97,12 +97,12 @@ fg-qimen projects list
 | `winrm` | 5985, 5986 | ✅ (GET /wsman probe) | ✅ (HTTP Basic + WSMan SOAP) |
 
 18 plugins covering enterprise-internal services. Credential
-testing covers **11 services** in v0.1 (SSH + FTP + MySQL + Redis +
+testing covers **14 services** in v0.1 (SSH + FTP + MySQL + Redis +
 Memcached + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch +
 VNC + Telnet + Oracle + WinRM), with full no-exploit enforcement
 (`creds.txt` is the only side-effect).
 
-18 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **11 个服务**（SSH +
+18 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **14 个服务**（SSH +
 FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL +
 Elasticsearch + VNC + Telnet + Oracle + WinRM），完整"不做漏洞利用"约束
 （`creds.txt` 是唯一副作用）。
