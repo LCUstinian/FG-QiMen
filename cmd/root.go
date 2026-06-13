@@ -32,15 +32,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/LCUstinian/FG-QiMen/common"
-	"github.com/LCUstinian/FG-QiMen/core"
-	_ "github.com/LCUstinian/FG-QiMen/core/cred/protocols" // register SSH/FTP/MySQL authenticators
-	"github.com/LCUstinian/FG-QiMen/tui"
-	"github.com/LCUstinian/FG-QiMen/workspace"
+	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/core"
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/cred/protocols" // register SSH/FTP/MySQL authenticators
+	"github.com/LCUstinian/FG-QiMen/internal/tui"
+	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 
 	// Register all built-in plugins via their init() funcs.
 	// 通过 init() 注册所有内置插件。
-	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted"
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted"
 )
 
 // Global flags, populated by Cobra and consumed by BuildConfig.

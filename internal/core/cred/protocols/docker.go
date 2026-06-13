@@ -1,0 +1,123 @@
+// Package protocols: Docker daemon authenticator.
+//
+// Strategy: GET /images/json with HTTP Basic auth. 200 = hit, 401 =
+// miss. The Docker daemon (/var/run/docker.sock on local) opens
+// 2375 (plaintext) and 2376 (TLS). We support both via plain
+// http.Client (TLS verification skipped — internal cluster
+// convention).
+//
+// We do NOT issue any privileged call (no container create, no
+// image pull, no exec, no volume mount). Just the auth probe.
+//
+// HARD RULE: on a hit we return. We do NOT enumerate containers,
+// pull images, or run anything.
+//
+// 包 protocols：Docker 守护进程认证器。
+// 策略：GET /images/json 加 HTTP Basic auth。200 = 命中，401 = miss。
+// Docker 守护进程（本地 /var/run/docker.sock）开 2375（明文）和
+// 2376（TLS）。我们通过标准 http.Client 支持两者（跳过 TLS 验证
+// ——内网集群惯例）。
+//
+// 我们不跑任何特权调用（不创建容器、不拉镜像、不 exec、不挂载卷）。
+// 只做认证探测。
+//
+// 硬性原则：命中即返回。不枚举容器、不拉镜像、不跑任何东西。
+package protocols
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/core/cred"
+)
+
+// DockerAuthenticator authenticates against Docker daemon via HTTP
+// Basic auth probe. / DockerAuthenticator 通过 HTTP Basic 认证探测
+// 对 Docker 守护进程认证。
+//
+// DefaultPorts returns 2375/2376 (plaintext / TLS Docker daemon).
+// / DefaultPorts 返 2375/2376（明文 / TLS Docker daemon）。
+type DockerAuthenticator struct{}
+
+// NewDockerAuthenticator returns a default Docker authenticator.
+// NewDockerAuthenticator 返回默认配置的 Docker 认证器。
+func NewDockerAuthenticator() *DockerAuthenticator { return &DockerAuthenticator{} }
+
+// Name implements cred.Authenticator. / Name 实现 cred.Authenticator。
+func (a *DockerAuthenticator) Name() string { return "docker" }
+
+// DefaultPorts implements cred.Authenticator. / DefaultPorts 实现 cred.Authenticator。
+func (a *DockerAuthenticator) DefaultPorts() []int {
+	return []int{2375, 2376}
+}
+
+// Authenticate implements cred.Authenticator. Tries each cred in
+// order; returns the first hit. / Authenticate 实现 cred.Authenticator。
+// 按顺序尝试每个 cred；首个命中返回 Hit。
+func (a *DockerAuthenticator) Authenticate(ctx context.Context, host string, port int, creds []cred.Cred, timeout time.Duration) (*cred.Hit, error) {
+	if len(creds) == 0 {
+		return nil, nil
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	for i, c := range creds {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if c.Method != "" && c.Method != cred.AuthPassword {
+			continue
+		}
+		ok, err := a.probe(ctx, addr, c.User, c.Pass, timeout)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return &cred.Hit{
+				Cred:     c,
+				Attempts: i + 1,
+				Time:     time.Now(),
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+// probe sends one GET /images/json with Basic auth. Returns
+// (true, nil) on a hit, (false, nil) on a miss, (false, err) on
+// network failure.
+//
+// probe 跑一次 GET /images/json 加 Basic auth。命中返 (true, nil)，
+// miss 返 (false, nil)，网络错返 (false, err)。
+func (a *DockerAuthenticator) probe(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
+	tr := &http.Transport{
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		ResponseHeaderTimeout: timeout,
+		DisableKeepAlives:     true,
+	}
+	client := &http.Client{Transport: tr, Timeout: timeout}
+	url := fmt.Sprintf("http://%s/images/json", addr)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("User-Agent", "fg-qimen/0.1")
+	if user != "" || pass != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	// 200 = hit. 401 / 403 = miss. / 200 = 命中。401 / 403 = miss。
+	return resp.StatusCode == http.StatusOK, nil
+}
+
+// init registers the Docker authenticator. / init 注册 Docker 认证器。
+func init() {
+	cred.Register(NewDockerAuthenticator())
+}

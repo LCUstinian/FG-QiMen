@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/LCUstinian/FG-QiMen/workspace"
+	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 )
 
 var projectsCmd = &cobra.Command{
