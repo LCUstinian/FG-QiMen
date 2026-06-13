@@ -50,4 +50,7 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/pop3"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/imap"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/snmp"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rsync"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/docker"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rabbitmq"
 )

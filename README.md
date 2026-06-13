@@ -100,19 +100,22 @@ fg-qimen projects list
 | `socks5` | 1080 | ✅ (SOCKS5 VER 5 greeting) | ✅ (RFC 1928/1929 user/pass) |
 | `ldap` (cred) | 389, 636 | – (already Identify via `ldap` row above) | ✅ (simple bind via go-ldap/ldap/v3) |
 | `snmp` | 161 (UDP) | ✅ (v2c GET sysDescr) | ✅ (community string via gosnmp; UDP) |
+| `rsync` | 873, 8873 | ✅ (`@RSYNCD:` greeting) | ✅ (USERNAME + MD5 challenge-response) |
+| `docker` | 2375, 2376 | ✅ (GET /_ping + /info version) | ✅ (HTTP Basic to /images/json) |
+| `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 protocol header + Start) | ✅ (AMQP PLAIN via raw frame) |
 
-23 plugins / authenticators covering enterprise-internal services.
-Credential testing covers **19 services** in v0.1 (SSH + FTP + MySQL +
-Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch
-+ VNC + Telnet + Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP +
-SNMPv2c), with full no-exploit enforcement (`creds.txt` is the only
-side-effect).
+26 plugins / authenticators covering enterprise-internal + cloud-native
+services. Credential testing covers **22 services** in v0.1 (SSH + FTP +
+MySQL + Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL +
+Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 + IMAP + SOCKS5 +
+LDAP + SNMPv2c + Rsync + Docker + RabbitMQ), with full no-exploit
+enforcement (`creds.txt` is the only side-effect).
 
-23 个插件/认证器覆盖企业内网常见服务。v0.1 凭据测试覆盖 **19 个服务**
+26 个插件/认证器覆盖企业内网 + 云原生服务。v0.1 凭据测试覆盖 **22 个服务**
 （SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB +
 PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
-IMAP + SOCKS5 + LDAP + SNMPv2c），完整"不做漏洞利用"约束（`creds.txt`
-是唯一副作用）。
+IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ），完整
+"不做漏洞利用"约束（`creds.txt` 是唯一副作用）。
 
 ### Credential testing (v0.1) / 凭据测试
 
