@@ -1,18 +1,22 @@
 // Package alive implements host discovery (liveness probing).
 // Package alive 实现主机发现（存活探测）。
 //
-// Three probe strategies are provided, in pluggable order:
+// Five probe strategies are provided, in pluggable order:
 //   - TCP-ping  : connect to a small set of well-known ports
 //   - ICMP echo : raw socket ICMP_ECHO_REQUEST
 //   - System    : shell out to the OS `ping` command
+//   - ARP       : OS ARP table lookup (LAN-only; bypasses firewalls)
+//   - NetBIOS   : NBNS query to UDP 137 (LAN-only; bypasses firewalls)
 //
 // The Discovery orchestrator runs the probes in the configured order
 // and returns a Hit as soon as any one succeeds (first-match).
 //
-// 三种探测策略按可配置顺序运行：
+// 五种探测策略按可配置顺序运行：
 //   - TCP-ping  : 连接一组常见端口
 //   - ICMP echo : raw socket ICMP_ECHO_REQUEST
 //   - System    : 调系统 `ping` 命令
+//   - ARP       : OS ARP 表查询（仅 LAN；绕过防火墙）
+//   - NetBIOS   : NBNS 查询到 UDP 137（仅 LAN；绕过防火墙）
 //
 // Discovery 调度器按顺序跑，任一成功即返回 Hit（first-match）。
 package alive
@@ -28,9 +32,11 @@ import (
 type Method string
 
 const (
-	MethodTCP    Method = "tcp"    // TCP-ping / TCP connect
-	MethodICMP   Method = "icmp"   // ICMP echo via raw socket
-	MethodSystem Method = "system" // system `ping` command
+	MethodTCP     Method = "tcp"     // TCP-ping / TCP connect
+	MethodICMP    Method = "icmp"    // ICMP echo via raw socket
+	MethodSystem  Method = "system"  // system `ping` command
+	MethodARP     Method = "arp"     // ARP table lookup (LAN-only)
+	MethodNetBIOS Method = "netbios" // NetBIOS Name Service (UDP 137)
 )
 
 // Hit is the result of a successful probe — host is considered alive.
