@@ -21,9 +21,9 @@ type ScanItem struct {
 	// Banner is the raw bytes (as a string) received right after the
 	// port open (up to 256 bytes). Empty if the probe did not
 	// capture one. Plugins can use this for service fingerprinting
-	// (e.g. portfinger).
+	// (e.g. fingerprint).
 	// / Banner 是端口开放后立即收到的原始字节（最多 256 字节，存为
-	// 字符串）；未捕获则为空。插件可拿来跑服务指纹识别（如 portfinger）。
+	// 字符串）；未捕获则为空。插件可拿来跑服务指纹识别（如 fingerprint）。
 	Banner string
 }
 

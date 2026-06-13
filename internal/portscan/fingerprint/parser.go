@@ -3,7 +3,7 @@
 //
 // nmap-service-probes parser. See README's attribution section for
 // upstream lineage.
-package portfinger
+package fingerprint
 
 import (
 	"fmt"
@@ -31,15 +31,15 @@ func (p *Probe) getDirectiveSyntax(data string) Directive {
 // 解析一个 Probe 块的第一行。
 func (p *Probe) parseProbeInfo(probeStr string) error {
 	if len(probeStr) < 4 {
-		return fmt.Errorf("portfinger: probe line too short: %q", probeStr)
+		return fmt.Errorf("fingerprint: probe line too short: %q", probeStr)
 	}
 	proto := probeStr[:4]
 	if proto != "TCP " && proto != "UDP " {
-		return fmt.Errorf("portfinger: invalid protocol %q", proto)
+		return fmt.Errorf("fingerprint: invalid protocol %q", proto)
 	}
 	other := probeStr[4:]
 	if other == "" {
-		return fmt.Errorf("portfinger: empty probe name")
+		return fmt.Errorf("fingerprint: empty probe name")
 	}
 	d := p.getDirectiveSyntax(other)
 	p.Name = d.DirectiveName
@@ -57,7 +57,7 @@ func (p *Probe) fromString(data string) error {
 	data = strings.TrimSpace(data)
 	lines := strings.Split(data, "\n")
 	if len(lines) == 0 {
-		return fmt.Errorf("portfinger: empty block")
+		return fmt.Errorf("fingerprint: empty block")
 	}
 	if err := p.parseProbeInfo(lines[0]); err != nil {
 		return err
@@ -130,7 +130,7 @@ func (v *VScan) parseProbesFromContent(content string) error {
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
-		return fmt.Errorf("portfinger: empty probe file")
+		return fmt.Errorf("fingerprint: empty probe file")
 	}
 
 	excludeCount := 0
@@ -139,13 +139,13 @@ func (v *VScan) parseProbesFromContent(content string) error {
 			excludeCount++
 		}
 		if excludeCount > 1 {
-			return fmt.Errorf("portfinger: duplicate Exclude directive")
+			return fmt.Errorf("fingerprint: duplicate Exclude directive")
 		}
 	}
 
 	first := lines[0]
 	if !strings.HasPrefix(first, "Exclude ") && !strings.HasPrefix(first, "Probe ") {
-		return fmt.Errorf("portfinger: first line must be Exclude or Probe")
+		return fmt.Errorf("fingerprint: first line must be Exclude or Probe")
 	}
 
 	if excludeCount == 1 {

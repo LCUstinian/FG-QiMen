@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
-	"github.com/LCUstinian/FG-QiMen/internal/core/scan/portfinger"
+	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
@@ -41,11 +41,11 @@ import (
 // （core/cred）。
 //
 // Stage 0 of each iteration: Nmap-style banner fingerprinting via
-// portfinger.MatchBanner. Runs before plugins so the identified
+// fingerprint.MatchBanner. Runs before plugins so the identified
 // service is in the result stream. Plugins can still run after to
 // add protocol-specific detail (e.g. webtitle on http ports).
 //
-// 每轮迭代的 stage 0：Nmap 风格 banner 指纹（portfinger.MatchBanner）。
+// 每轮迭代的 stage 0：Nmap 风格 banner 指纹（fingerprint.MatchBanner）。
 // 在 plugin 之前跑，识别结果先进结果流。plugin 仍可随后跑补协议细节
 // （如 http 端口的 webtitle）。
 func runPluginWorker(
@@ -56,7 +56,7 @@ func runPluginWorker(
 ) {
 	creds := loadCreds(sess)
 	// Lazy VScan. Built on first banner we see. / 懒 VScan。
-	var vscan *portfinger.VScan
+	var vscan *fingerprint.VScan
 	vscanOnce := sync.Once{}
 
 	for {
@@ -67,10 +67,10 @@ func runPluginWorker(
 			if !ok {
 				return
 			}
-			// Stage 0: portfinger banner match (always on).
-			// / Stage 0：portfinger banner 匹配（始终跑）。
+			// Stage 0: fingerprint banner match (always on).
+			// / Stage 0：fingerprint banner 匹配（始终跑）。
 			if item.Banner != "" {
-				vscanOnce.Do(func() { vscan = portfinger.NewVScan() })
+				vscanOnce.Do(func() { vscan = fingerprint.NewVScan() })
 				if vscan != nil {
 					if svc, ver, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
 						r := &types.Result{

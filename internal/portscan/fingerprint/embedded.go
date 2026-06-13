@@ -12,7 +12,7 @@
 // https://nmap.org/data/LICENSE）。我们 //go:embed 引入并在 init 时
 // 解析；不会以我们自己的许可证再分发。
 
-package portfinger
+package fingerprint
 
 import _ "embed"
 

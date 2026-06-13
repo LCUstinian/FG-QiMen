@@ -3,7 +3,7 @@
 //
 // nmap-service-probes match-engine (regex / softmatch / version
 // extraction). See README's attribution section for upstream lineage.
-package portfinger
+package fingerprint
 
 import (
 	"fmt"
@@ -48,7 +48,7 @@ func (p *Probe) parseMatchDirective(data, prefix string, isSoft bool) (Match, er
 	d := p.getDirectiveSyntax(matchText)
 	parts := strings.Split(d.DirectiveStr, d.Delimiter)
 	if len(parts) == 0 {
-		return m, fmt.Errorf("portfinger: invalid %s directive", prefix)
+		return m, fmt.Errorf("fingerprint: invalid %s directive", prefix)
 	}
 	pattern := parts[0]
 	versionInfo := strings.Join(parts[1:], "")

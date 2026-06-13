@@ -4,8 +4,8 @@
 // Nmap-style service fingerprinting types. See README's attribution
 // section for upstream lineage.
 
-// Package portfinger implements Nmap-style service fingerprinting.
-// Package portfinger 实现 Nmap 风格服务指纹识别。
+// Package fingerprint implements Nmap-style service fingerprinting.
+// Package fingerprint 实现 Nmap 风格服务指纹识别。
 //
 // We embed nmap-service-probes.txt (Nmap Public Source License) and
 // parse the Probes / match / softmatch grammar at init time. The
@@ -15,7 +15,7 @@
 // 我们 //go:embed nmap-service-probes.txt（Nmap Public Source License）
 // 并在 init 时解析 Probes / match / softmatch 语法。匹配引擎接收捕获
 // 到的 banner（或任何响应字节）并返回匹配的服务名 + 版本信息。
-package portfinger
+package fingerprint
 
 import "fmt"
 
@@ -73,7 +73,7 @@ func NewVScan() *VScan {
 	if err := v.parseProbesFromContent(embeddedProbes); err != nil {
 		// Logged via the simple stderr writer; v0.1 doesn't fail
 		// startup on parse errors. / v0.1 解析失败不阻止启动。
-		fmt.Fprintf(probeLogWriter(), "portfinger: parse error: %v\n", err)
+		fmt.Fprintf(probeLogWriter(), "fingerprint: parse error: %v\n", err)
 	}
 	v.parseProbesToMapKName()
 	v.SetUsedProbes()

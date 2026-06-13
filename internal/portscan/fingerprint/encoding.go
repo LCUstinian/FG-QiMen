@@ -3,7 +3,7 @@
 //
 // Probe payload encoding helpers. See README's attribution section
 // for upstream lineage.
-package portfinger
+package fingerprint
 
 import (
 	"encoding/hex"

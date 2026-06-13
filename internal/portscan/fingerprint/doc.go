@@ -1,6 +1,6 @@
 // ProbeLogWriter / helpers used by types.go.
 // ProbeLogWriter / types.go 用到的小工具。
-package portfinger
+package fingerprint
 
 import (
 	"fmt"
