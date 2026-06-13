@@ -103,19 +103,23 @@ fg-qimen projects list
 | `rsync` | 873, 8873 | ✅ (`@RSYNCD:` greeting) | ✅ (USERNAME + MD5 challenge-response) |
 | `docker` | 2375, 2376 | ✅ (GET /_ping + /info version) | ✅ (HTTP Basic to /images/json) |
 | `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 protocol header + Start) | ✅ (AMQP PLAIN via raw frame) |
+| `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write to coils/registers) |
+| `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
 
-26 plugins / authenticators covering enterprise-internal + cloud-native
-services. Credential testing covers **22 services** in v0.1 (SSH + FTP +
-MySQL + Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL +
-Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 + IMAP + SOCKS5 +
-LDAP + SNMPv2c + Rsync + Docker + RabbitMQ), with full no-exploit
-enforcement (`creds.txt` is the only side-effect).
+28 plugins / authenticators covering enterprise-internal + cloud-native
++ industrial control services. Credential testing covers **24 services**
+in v0.1 (SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB
++ PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
+IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ + Modbus +
+IPMI v2.0), with full no-exploit enforcement (`creds.txt` is the only
+side-effect).
 
-26 个插件/认证器覆盖企业内网 + 云原生服务。v0.1 凭据测试覆盖 **22 个服务**
-（SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB +
-PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
-IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ），完整
-"不做漏洞利用"约束（`creds.txt` 是唯一副作用）。
+28 个插件/认证器覆盖企业内网 + 云原生 + 工业控制服务。v0.1 凭据测试
+覆盖 **24 个服务**（SSH + FTP + MySQL + Redis + Memcached + MongoDB +
+MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet + Oracle +
+WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker +
+RabbitMQ + Modbus + IPMI v2.0），完整"不做漏洞利用"约束（`creds.txt`
+是唯一副作用）。
 
 ### Credential testing (v0.1) / 凭据测试
 

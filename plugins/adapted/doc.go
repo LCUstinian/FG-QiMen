@@ -53,4 +53,6 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rsync"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/docker"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rabbitmq"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/modbus"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/ipmi"
 )
