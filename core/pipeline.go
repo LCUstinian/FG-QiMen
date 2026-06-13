@@ -195,6 +195,14 @@ func runResultSink(ctx context.Context, sess *common.Session, in <-chan *common.
 				if r.Cred != nil {
 					_ = sess.Out.WriteCred(r)
 				}
+				// Typed side-channel: if a plugin stashed a
+				// *common.RDPFingerprint in Extra, dual-write it
+				// to rdp.json / rdp.txt. / 类型化旁路：如果插件把
+				// *common.RDPFingerprint 放在 Extra 里，双写到
+				// rdp.json / rdp.txt。
+				if rdpFP, ok := r.Extra.(*common.RDPFingerprint); ok {
+					_ = sess.Out.WriteRDP(*rdpFP)
+				}
 			}
 			if sess.Store != nil {
 				hash := common.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
