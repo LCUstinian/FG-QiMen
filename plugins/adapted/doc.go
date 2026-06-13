@@ -46,4 +46,5 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/vnc"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/telnet"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/oracle"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/winrm"
 )
