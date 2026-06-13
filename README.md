@@ -71,7 +71,7 @@ fg-qimen projects list
 - `result.txt` — human-readable lines
 - `result.json` — NDJSON (one JSON object per line)
 - `creds.txt` — credential hits (only; never any post-auth action)
-- `rdp.json` / `rdp.txt` — RDP deep fingerprint (planned v0.2)
+- `rdp.json` / `rdp.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
 
 ### Plugins (v0.1) / 插件
 
@@ -82,23 +82,25 @@ fg-qimen projects list
 | `webtitle` | 80, 443, 8080, 8443 | ✅ (FingerprintHub 3139 rules + favicon) | – |
 | `redis` | 6379, 6380 | ✅ (PING / PONG) | ✅ (RESP AUTH, 4/4 unit tests) |
 | `mongodb` | 27017, 27018 | ✅ (OP_MSG hello) | ✅ (SCRAM-SHA-256 via OP_MSG) |
-| `postgresql` | 5432, 5433 | ✅ (StartupMessage) | – (v0.2+) |
+| `postgresql` | 5432, 5433, 5434 | ✅ (StartupMessage) | ✅ (lib/pq via `db.PingContext`) |
 | `mssql` | 1433, 1434, 2433 | ✅ (TDS via go-mssqldb) | ✅ (TDS Login7 via go-mssqldb) |
 | `smb` | 445, 139 | ✅ (SMB magic) | ✅ (SMB2 Session Setup NTLMv2 via go-smb2) |
 | `smtp` | 25, 465, 587, 2525 | ✅ (EHLO via net/smtp) | – (v0.2+) |
 | `snmp` | 161, 162 | ✅ (sysDescr.0 raw) | – (v0.2+) |
 | `ldap` | 389, 636 | ✅ (BindRequest + SearchRequest) | – (v0.2+) |
 | `memcached` | 11211, 11212 | ✅ (text "version\r\n") | ✅ (ASCII "auth" probe, 4/4 unit tests) |
-| `elasticsearch` | 9200, 9300 | ✅ (HTTP GET /) | – (v0.2+) |
+| `elasticsearch` | 9200, 9300 | ✅ (HTTP GET /) | ✅ (HTTP Basic auth probe) |
+| `rdp` | 3389 | ✅ (TPKT/X.224/MCS 4-step, extracts hostname+build+NLA) | – (v0.3+, NLA cred test is explicit deferral) |
 
-13 plugins covering enterprise-internal services. Credential
-testing covers **5 services** in v0.1 (SSH + Redis + Memcached +
-MongoDB + MSSQL + SMB), with full no-exploit enforcement
-(`creds.txt` is the only side-effect).
+14 plugins covering enterprise-internal services. Credential
+testing covers **7 services** in v0.1 (SSH + FTP + MySQL + Redis +
+Memcached + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch),
+with full no-exploit enforcement (`creds.txt` is the only
+side-effect).
 
-13 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **5 个服务**（SSH +
-Redis + Memcached + MongoDB + MSSQL + SMB），完整"不做漏洞利用"约束
-（`creds.txt` 是唯一副作用）。
+14 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **7 个服务**（SSH +
+FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL +
+Elasticsearch），完整"不做漏洞利用"约束（`creds.txt` 是唯一副作用）。
 
 ### Credential testing (v0.1) / 凭据测试
 
