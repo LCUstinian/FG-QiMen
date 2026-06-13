@@ -5,7 +5,7 @@ package fingerprint_test
 import (
 	"testing"
 
-	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
 )
 
 // TestMatchAll_Hardcoded verifies that hardcoded rules fire when the

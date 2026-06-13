@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/rdp"
+	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/remote/rdp"
 	"github.com/LCUstinian/FG-QiMen/internal/common"
 )
 

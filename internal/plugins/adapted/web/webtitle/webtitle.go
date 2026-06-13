@@ -50,7 +50,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
-	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
 )
 
 var (
