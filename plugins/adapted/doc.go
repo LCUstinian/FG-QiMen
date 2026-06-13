@@ -44,4 +44,5 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/elasticsearch"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rdp"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/vnc"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/telnet"
 )
