@@ -34,7 +34,12 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/core"
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/cred/protocols" // register SSH/FTP/MySQL authenticators
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database"  // register PG/MySQL/MSSQL/Oracle/MongoDB/ES/Redis/Memcached
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/email"     // register POP3/IMAP
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/filestorage" // register NFS/SMB/Rsync
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/messaging"  // register RabbitMQ
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"    // register SNMP/LDAP/Modbus/BACnet/Docker/SOCKS5
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/remote"     // register SSH/FTP/Telnet/VNC/WinRM/IPMI
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
 	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 

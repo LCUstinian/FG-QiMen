@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/common"
-	"github.com/LCUstinian/FG-QiMen/internal/core/cred"
+	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan/portfinger"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 )
@@ -118,10 +118,10 @@ func runPluginWorker(
 				// Credential / 凭据测试
 				if (sess.Config.Mode == common.ModeCrack || sess.Config.Mode == common.ModeLinked) &&
 					p.Modes()&plugins.ModeCredential != 0 && len(creds) > 0 {
-					// Defer credential testing to the central cred.Scheduler
+					// Defer credential testing to the central credential.Scheduler
 					// via dispatchCred (sync, one-target inline call). The
 					// plugin's own Credential method is bypassed to avoid
-					// duplicate logic. / 凭据测试走中央 cred.Scheduler
+					// duplicate logic. / 凭据测试走中央 credential.Scheduler
 					// （sync，单 target 内联调用）。绕过 plugin 自己的
 					// Credential 方法以避免重复逻辑。
 					dispatchCred(ctx, sess, p.Name(), item.Host, item.Port, creds, out)
@@ -141,17 +141,17 @@ func dispatchCred(
 	commonCreds []common.Cred,
 	out chan<- *common.Result,
 ) {
-	auth, ok := cred.LookupAuthenticator(serviceName)
+	auth, ok := credential.LookupAuthenticator(serviceName)
 	if !ok || auth == nil {
 		return
 	}
-	// Translate common.Cred → cred.Cred at the boundary. The two types
+	// Translate common.Cred → credential.Cred at the boundary. The two types
 	// carry the same payload but live in different packages to avoid
 	// a common/cred import cycle. / 在边界把 common.Cred 翻译成
-	// cred.Cred。两个类型内容一样但在不同包以避免 common/cred 循环引用。
-	creds := make([]cred.Cred, len(commonCreds))
+	// credential.Cred。两个类型内容一样但在不同包以避免 common/cred 循环引用。
+	creds := make([]credential.Cred, len(commonCreds))
 	for i, c := range commonCreds {
-		creds[i] = cred.Cred{User: c.User, Pass: c.Pass, Method: cred.AuthMethod(c.AuthType)}
+		creds[i] = credential.Cred{User: c.User, Pass: c.Pass, Method: credential.AuthMethod(c.AuthType)}
 	}
 	hit, err := auth.Authenticate(ctx, host, port, creds, 3*time.Second)
 	if err != nil || hit == nil {
@@ -227,7 +227,7 @@ func loadCreds(sess *common.Session) []common.Cred {
 	out := make([]common.Cred, 0, len(users)*len(passes))
 	for _, u := range users {
 		for _, p := range passes {
-			out = append(out, common.Cred{User: u, Pass: p, AuthType: string(cred.AuthPassword)})
+			out = append(out, common.Cred{User: u, Pass: p, AuthType: string(credential.AuthPassword)})
 		}
 	}
 	return out

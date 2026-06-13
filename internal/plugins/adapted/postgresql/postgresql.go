@@ -39,10 +39,10 @@ func (p *Plugin) Ports() []int { return []int{5432, 5433} }
 // Credential() is implemented in core/cred/protocols/postgresql.go
 // (PostgreSQLAuthenticator via lib/pq). The plugin's Credential method
 // is a no-op stub because the pipeline routes cred testing through
-// the central cred.Scheduler (see core/pipeline.go dispatchCred).
+// the central credential.Scheduler (see core/pipeline.go dispatchCred).
 // / Credential() 实现在 core/cred/protocols/postgresql.go
 // (PostgreSQLAuthenticator via lib/pq)。plugin 的 Credential 方法是
-// 空 stub，因为管线把凭据测试路由到中央 cred.Scheduler
+// 空 stub，因为管线把凭据测试路由到中央 credential.Scheduler
 // (见 core/pipeline.go dispatchCred)。
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 

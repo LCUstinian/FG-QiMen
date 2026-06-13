@@ -43,10 +43,10 @@ func (p *Plugin) Ports() []int { return []int{9200, 9300} }
 // Credential() is implemented in core/cred/protocols/elasticsearch.go
 // (ElasticsearchAuthenticator via HTTP Basic). The plugin's Credential
 // method stays as a no-op stub because the pipeline routes cred testing
-// through the central cred.Scheduler. / Credential() 实现在 core/cred/
+// through the central credential.Scheduler. / Credential() 实现在 core/cred/
 // protocols/elasticsearch.go (ElasticsearchAuthenticator via HTTP Basic)。
 // plugin 的 Credential 方法是空 stub，因为管线把凭据测试路由到中央
-// cred.Scheduler。
+// credential.Scheduler。
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。

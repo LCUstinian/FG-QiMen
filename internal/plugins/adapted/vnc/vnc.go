@@ -37,9 +37,9 @@ func (p *Plugin) Ports() []int { return []int{5900, 5901, 5902, 5903, 5904, 5905
 // Modes returns Identify + Credential. / Modes 返回 Identify + Credential。
 //
 // Credential() lives in core/cred/protocols/vnc.go. The plugin's
-// Credential method is a no-op stub; pipeline routes via cred.Scheduler.
+// Credential method is a no-op stub; pipeline routes via credential.Scheduler.
 // / Credential() 在 core/cred/protocols/vnc.go。plugin 的 Credential
-// 方法是空 stub；管线走 cred.Scheduler。
+// 方法是空 stub；管线走 credential.Scheduler。
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
