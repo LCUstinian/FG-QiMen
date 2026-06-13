@@ -32,7 +32,7 @@ type Method string
 const (
 	MethodTCPConnect Method = "tcp-connect" // full TCP handshake
 	MethodTCPSYN     Method = "tcp-syn"     // SYN scan (v0.2; needs raw socket)
-	MethodUDP        Method = "udp"         // UDP probe (v0.2)
+	MethodUDP        Method = "udp"         // UDP probe (NewUDPProbe in udp_probe.go)
 )
 
 // State is the result state of a port. / State 是端口的结果状态。
