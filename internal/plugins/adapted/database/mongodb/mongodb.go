@@ -15,8 +15,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies MongoDB servers via the OP_MSG hello. / Plugin 通过 OP_MSG hello 识别 MongoDB 服务。
@@ -37,7 +37,7 @@ func (p *Plugin) Ports() []int { return []int{27017, 27018} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -57,7 +57,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //     - flagBits: 4 字节
 //     - section: 1 字节（0 = body）
 //     - body: BSON 文档
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -72,8 +72,8 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	body := bsonDoc(map[string]any{"hello": int32(1), "$db": "admin"})
 	msg := make([]byte, 16+4+1+len(body))
 	binary.LittleEndian.PutUint32(msg[12:16], 2013) // opCode
-	msg[16] = 0                                      // flagBits
-	msg[20] = 0                                      // section type
+	msg[16] = 0                                     // flagBits
+	msg[20] = 0                                     // section type
 	copy(msg[21:], body)
 	binary.LittleEndian.PutUint32(msg[0:4], uint32(len(msg)))
 
@@ -95,12 +95,12 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	// / 简化：在 body 中扫 "version\0" 字节序列。
 	bs := resp[20:n]
 	if v := extractBSONString(bs, "version"); v != "" {
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "mongodb",
 			Banner: "MongoDB " + v, Time: time.Now(),
 		}
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "mongodb",
 		Banner: "MongoDB", Time: time.Now(),
 	}

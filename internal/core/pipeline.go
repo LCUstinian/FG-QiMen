@@ -5,14 +5,14 @@
 // (core/alive, core/scan). This file holds the smaller glue:
 //   - runPluginWorker : consumes ScanItems, dispatches Identify + Credential
 //   - runResultSink   : writes results to Output + bbolt
-//   - loadCreds       : builds []common.Cred from cfg
+//   - loadCreds       : builds []types.Cred from cfg
 //   - pushStats       : periodic UI.Stats pusher
 //
 // 主要的阶段（alive、端口扫描）独立成包（core/alive、core/scan）。
 // 本文件做较小的装配：
 //   - runPluginWorker : 消费 ScanItem，分发 Identify + Credential
 //   - runResultSink   : 写结果到 Output + bbolt
-//   - loadCreds       : 从 cfg 构造 []common.Cred
+//   - loadCreds       : 从 cfg 构造 []types.Cred
 //   - pushStats       : 周期性 UI.Stats 推送
 package core
 
@@ -24,10 +24,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan/portfinger"
+	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // runPluginWorker is the consumer that fans ScanItems out to the
@@ -48,9 +50,9 @@ import (
 // （如 http 端口的 webtitle）。
 func runPluginWorker(
 	ctx context.Context,
-	sess *common.Session,
-	in <-chan common.ScanItem,
-	out chan<- *common.Result,
+	sess *session.Session,
+	in <-chan types.ScanItem,
+	out chan<- *types.Result,
 ) {
 	creds := loadCreds(sess)
 	// Lazy VScan. Built on first banner we see. / 懒 VScan。
@@ -71,7 +73,7 @@ func runPluginWorker(
 				vscanOnce.Do(func() { vscan = portfinger.NewVScan() })
 				if vscan != nil {
 					if svc, ver, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
-						r := &common.Result{
+						r := &types.Result{
 							Host:    item.Host,
 							Port:    item.Port,
 							Service: svc,
@@ -93,8 +95,8 @@ func runPluginWorker(
 					continue
 				}
 				// Identify / 识别
-				if sess.Config.Mode == common.ModeScan || sess.Config.Mode == common.ModeLinked {
-					hash := common.HashKey(item.Host, fmt.Sprintf("%d", item.Port), p.Name(), "identify")
+				if sess.Config.Mode == types.ModeScan || sess.Config.Mode == types.ModeLinked {
+					hash := types.HashKey(item.Host, fmt.Sprintf("%d", item.Port), p.Name(), "identify")
 					if sess.State.Seen(hash) {
 						continue
 					}
@@ -116,7 +118,7 @@ func runPluginWorker(
 					}
 				}
 				// Credential / 凭据测试
-				if (sess.Config.Mode == common.ModeCrack || sess.Config.Mode == common.ModeLinked) &&
+				if (sess.Config.Mode == types.ModeCrack || sess.Config.Mode == types.ModeLinked) &&
 					p.Modes()&plugins.ModeCredential != 0 && len(creds) > 0 {
 					// Defer credential testing to the central credential.Scheduler
 					// via dispatchCred (sync, one-target inline call). The
@@ -135,19 +137,19 @@ func runPluginWorker(
 // dispatchCred 通过 core/cred 跑单 target 凭据测试。
 func dispatchCred(
 	ctx context.Context,
-	sess *common.Session,
+	sess *session.Session,
 	serviceName, host string,
 	port int,
-	commonCreds []common.Cred,
-	out chan<- *common.Result,
+	commonCreds []types.Cred,
+	out chan<- *types.Result,
 ) {
 	auth, ok := credential.LookupAuthenticator(serviceName)
 	if !ok || auth == nil {
 		return
 	}
-	// Translate common.Cred → credential.Cred at the boundary. The two types
+	// Translate types.Cred → credential.Cred at the boundary. The two types
 	// carry the same payload but live in different packages to avoid
-	// a common/cred import cycle. / 在边界把 common.Cred 翻译成
+	// a common/cred import cycle. / 在边界把 types.Cred 翻译成
 	// credential.Cred。两个类型内容一样但在不同包以避免 common/cred 循环引用。
 	creds := make([]credential.Cred, len(commonCreds))
 	for i, c := range commonCreds {
@@ -158,12 +160,12 @@ func dispatchCred(
 		return
 	}
 	sess.State.Counters.Creds.Add(1)
-	r := &common.Result{
+	r := &types.Result{
 		Host:    host,
 		Port:    port,
 		Service: serviceName,
 		Time:    time.Now(),
-		Cred: &common.Cred{
+		Cred: &types.Cred{
 			User:     hit.Cred.User,
 			Pass:     hit.Cred.Pass,
 			AuthType: string(hit.Cred.Method),
@@ -178,7 +180,7 @@ func dispatchCred(
 
 // runResultSink consumes Results and writes them to Output + bbolt.
 // runResultSink 消费 Result 并写入 Output + bbolt。
-func runResultSink(ctx context.Context, sess *common.Session, in <-chan *common.Result) {
+func runResultSink(ctx context.Context, sess *session.Session, in <-chan *types.Result) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -196,19 +198,19 @@ func runResultSink(ctx context.Context, sess *common.Session, in <-chan *common.
 					_ = sess.Out.WriteCred(r)
 				}
 				// Typed side-channel: if a plugin stashed a
-				// *common.RDPFingerprint in Extra, dual-write it
+				// *output.RDPFingerprint in Extra, dual-write it
 				// to rdp.json / rdp.txt. / 类型化旁路：如果插件把
-				// *common.RDPFingerprint 放在 Extra 里，双写到
+				// *output.RDPFingerprint 放在 Extra 里，双写到
 				// rdp.json / rdp.txt。
-				if rdpFP, ok := r.Extra.(*common.RDPFingerprint); ok {
+				if rdpFP, ok := r.Extra.(*output.RDPFingerprint); ok {
 					_ = sess.Out.WriteRDP(*rdpFP)
 				}
 			}
 			if sess.Store != nil {
-				hash := common.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
+				hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
 				_ = sess.Store.PutResult(hash, r)
 				if r.Cred != nil {
-					chash := common.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
+					chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
 					_ = sess.Store.PutCred(chash, r)
 				}
 			}
@@ -216,18 +218,18 @@ func runResultSink(ctx context.Context, sess *common.Session, in <-chan *common.
 	}
 }
 
-// loadCreds builds the []common.Cred from cfg (inline users/passes).
-// loadCreds 从 cfg（内联 users/passes）构造 []common.Cred。
-func loadCreds(sess *common.Session) []common.Cred {
+// loadCreds builds the []types.Cred from cfg (inline users/passes).
+// loadCreds 从 cfg（内联 users/passes）构造 []types.Cred。
+func loadCreds(sess *session.Session) []types.Cred {
 	users := sess.Config.Users
 	passes := sess.Config.Passes
 	if len(users) == 0 || len(passes) == 0 {
 		return nil
 	}
-	out := make([]common.Cred, 0, len(users)*len(passes))
+	out := make([]types.Cred, 0, len(users)*len(passes))
 	for _, u := range users {
 		for _, p := range passes {
-			out = append(out, common.Cred{User: u, Pass: p, AuthType: string(credential.AuthPassword)})
+			out = append(out, types.Cred{User: u, Pass: p, AuthType: string(credential.AuthPassword)})
 		}
 	}
 	return out
@@ -255,7 +257,7 @@ func nowOrZero(t time.Time) time.Time {
 // Exits when ctx is canceled.
 //
 // pushStats 周期性把当前计数器快照推给 UI。ctx 取消时退出。
-func pushStats(ctx context.Context, sess *common.Session, interval time.Duration) {
+func pushStats(ctx context.Context, sess *session.Session, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

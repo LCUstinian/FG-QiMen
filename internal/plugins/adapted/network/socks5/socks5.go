@@ -14,8 +14,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies SOCKS5 proxies. / Plugin 识别 SOCKS5 代理。
@@ -36,13 +36,13 @@ func (p *Plugin) Ports() []int { return []int{1080} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends the SOCKS5 greeting and checks for a 5.0 response.
 // / Identify 发 SOCKS5 greeting 并检查 5.0 响应。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -63,7 +63,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if sel[0] != 0x05 {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "socks5",
 		Banner: "SOCKS5", Time: time.Now(),
 	}

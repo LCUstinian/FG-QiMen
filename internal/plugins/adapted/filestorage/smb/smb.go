@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies SMB servers via the NetBIOS+SMB magic header. /
@@ -41,13 +41,13 @@ func (p *Plugin) Ports() []int { return []int{445, 139} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify opens a TCP connection and reads the initial SMB banner.
 // Identify 开 TCP 连并读初始 SMB banner。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -84,7 +84,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	// / 找 SMB2 magic 或 SMB1 magic。
 	for i := 4; i+4 < n; i++ {
 		if resp[i] == 0xfe && string(resp[i+1:i+4]) == "SMB" {
-			return &common.Result{
+			return &types.Result{
 				Host: host, Port: port, Service: "smb",
 				Banner: "SMBv2/v3", Time: time.Now(),
 			}
@@ -92,7 +92,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		if (resp[i] == 0xff) && i+4 < n {
 			tail := string(resp[i+1 : i+4])
 			if tail == "SMB" || strings.HasPrefix(tail, "SMB") {
-				return &common.Result{
+				return &types.Result{
 					Host: host, Port: port, Service: "smb",
 					Banner: "SMBv1", Time: time.Now(),
 				}

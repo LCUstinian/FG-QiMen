@@ -48,9 +48,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 var (
@@ -79,7 +79,7 @@ func (p *WebTitlePlugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub (v0.1 webtitle is identify-only).
 // / Credential 空实现（v0.1 webtitle 仅识别）。
-func (p *WebTitlePlugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *WebTitlePlugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -87,7 +87,7 @@ func (p *WebTitlePlugin) Credential(ctx context.Context, host string, port int, 
 // dance: probe + collect + match.
 //
 // Identify 实现 plugins.Plugin。跑完整的 webtitle 流程：探测 + 收集 + 匹配。
-func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	timeout := 5 * time.Second
 	if d, ok := ctx.Deadline(); ok {
 		if left := time.Until(d); left > 0 && left < timeout {
@@ -160,7 +160,7 @@ func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *c
 
 	// Build the banner. / 构造 banner。
 	banner := buildBanner(displayURL, statusCode, contentLen, title, server, uniq)
-	return &common.Result{
+	return &types.Result{
 		Host:    host,
 		Port:    port,
 		Service: "http",

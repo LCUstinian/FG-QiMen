@@ -18,8 +18,8 @@ import (
 
 	_ "github.com/microsoft/go-mssqldb" // register driver / 注册驱动
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies MSSQL servers via go-mssqldb. / Plugin 通过 go-mssqldb 识别 MSSQL 服务。
@@ -40,7 +40,7 @@ func (p *Plugin) Ports() []int { return []int{1433, 1434} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -49,7 +49,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // run a query.
 //
 // Identify 用无效凭据开 TDS 连接（驱动握手时会返回服务器版本）。不实际跑查询。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	// Disable encryption for the simple probe (login packet is
 	// encrypted with self-signed certs otherwise). / 关加密（否则登录
@@ -68,7 +68,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if err := row.Scan(&ver); err == nil {
 		// Successful query = auth somehow worked. Still report.
 		// / 成功 = 某种程度 auth 过了。仍上报。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "mssql",
 			Banner: "MSSQL: " + firstLine(ver), Time: time.Now(),
 		}
@@ -82,7 +82,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		strings.Contains(errStr, "denied") || strings.Contains(errStr, "login") {
 		// Even on auth failure, we've confirmed it's MSSQL.
 		// / 即使 auth 失败，也确认是 MSSQL。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "mssql",
 			Banner: "MSSQL", Time: time.Now(),
 		}

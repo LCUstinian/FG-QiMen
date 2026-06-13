@@ -1,28 +1,32 @@
-// ui.go — UI abstraction so core/plugins don't depend on TUI vs text.
-// ui.go — UI 抽象层，使 core/plugins 不依赖 TUI 或纯文本具体实现。
-package common
+// ui.go — UI abstraction. Implementations live alongside in this
+// package (textui.go) or in internal/tui (Bubbletea).
+//
+// ui.go — UI 抽象。实现位于本包（textui.go）或 internal/tui（Bubbletea）。
+package ui
+
+import "github.com/LCUstinian/FG-QiMen/internal/types"
 
 // UI is the interface through which core/plugins report events to the
 // user. Two implementations:
 //   - tui.Program (Bubbletea)  — TUI mode
-//   - log-only fallback        — plain text mode
+//   - TextUI                    — plain text mode
 //
 // UI 是 core/plugins 向用户报告事件的接口。两种实现：
 //   - tui.Program (Bubbletea)  —— TUI 模式
-//   - log-only fallback        —— 纯文本模式
+//   - TextUI                    —— 纯文本模式。
 type UI interface {
 	// Banner displays the startup banner (TUI) or summary (text).
 	// Banner 显示启动 banner（TUI）或摘要（文本）。
-	Banner(cfg *Config)
+	Banner(cfg *types.Config)
 	// Stats pushes an updated counter snapshot. Called periodically.
 	// Stats 推送最新的计数器快照。周期性调用。
-	Stats(s *State)
+	Stats(s *types.State)
 	// Event pushes a single live result event.
 	// Event 推送单个实时结果事件。
-	Event(r *Result)
+	Event(r *types.Result)
 	// CredFound highlights a credential hit.
 	// CredFound 高亮显示凭据命中。
-	CredFound(r *Result)
+	CredFound(r *types.Result)
 	// Done signals end of scan and prints/shows final summary.
 	// Done 通知扫描结束，打印/显示最终摘要。
 	Done(summary string)
@@ -32,11 +36,11 @@ type UI interface {
 // nopUI 是单元测试和零值使用的空实现 UI。
 type nopUI struct{}
 
-func (nopUI) Banner(*Config)    {}
-func (nopUI) Stats(*State)      {}
-func (nopUI) Event(*Result)     {}
-func (nopUI) CredFound(*Result) {}
-func (nopUI) Done(string)       {}
+func (nopUI) Banner(*types.Config) {}
+func (nopUI) Stats(*types.State)   {}
+func (nopUI) Event(*types.Result)  {}
+func (nopUI) CredFound(*types.Result) {}
+func (nopUI) Done(string)          {}
 
 // NopUI returns a no-op UI.
 // NopUI 返回一个空实现 UI。

@@ -1,6 +1,6 @@
 // target.go — target type and unique key derivation.
 // target.go — 目标类型与唯一键派生。
-package common
+package types
 
 import "strings"
 

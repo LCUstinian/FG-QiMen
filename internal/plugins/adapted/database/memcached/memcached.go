@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies memcached via the text protocol. / Plugin 通过文本协议识别 memcached。
@@ -38,13 +38,13 @@ func (p *Plugin) Ports() []int { return []int{11211, 11212} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends "version\r\n" and parses the VERSION response. /
 // Identify 发 "version\r\n" 并解析 VERSION 响应。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -65,7 +65,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if !strings.HasPrefix(line, "VERSION ") {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "memcached",
 		Banner: "memcached " + strings.TrimPrefix(line, "VERSION "),
 		Time:   time.Now(),

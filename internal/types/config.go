@@ -1,11 +1,11 @@
-// Package common holds shared types and helpers for FG-QiMen.
-// Package common 存放 FG-QiMen 共享的类型与辅助函数。
+// Package types holds shared data types for FG-QiMen.
+// Package types 存放 FG-QiMen 共享的数据类型。
 //
 // All terminal output strings in this package are English-only; comments
 // are bilingual (Chinese + English).
 //
 // 本包的所有终端输出字符串均为纯英文；注释为中英双语。
-package common
+package types
 
 import (
 	"errors"

@@ -13,7 +13,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/store"
 )
 
 // Mode distinguishes the two work modes.
@@ -155,11 +155,11 @@ func (p *Project) Stats() (string, error) {
 	return fmt.Sprintf("  seen hashes:  %d\n  results:      %d\n  creds:        %d", t, r, c), nil
 }
 
-// AsStore wraps p.DB into a common.Store (for incremental state).
-// AsStore 把 p.DB 包装为 common.Store（用于增量状态）。
-func (p *Project) AsStore() *common.Store {
+// AsStore wraps p.DB into a store.Store (for incremental state).
+// AsStore 把 p.DB 包装为 store.Store（用于增量状态）。
+func (p *Project) AsStore() *store.Store {
 	if p == nil || p.DB == nil {
 		return nil
 	}
-	return common.NewStore(p.DB)
+	return store.NewStore(p.DB)
 }

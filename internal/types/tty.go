@@ -1,6 +1,6 @@
 // tty.go — TTY detection for TUI auto-fallback.
 // tty.go — TTY 检测，用于 TUI 自动降级。
-package common
+package types
 
 import "os"
 

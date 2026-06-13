@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // HTTPPlugin implements Identify (HTTP probe + title + Server header).
@@ -58,7 +58,7 @@ var titleRegex = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 // and status code on success.
 //
 // Identify 执行 HTTP GET，成功时返回带 title、server、状态码的 *Result。
-func (p *HTTPPlugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *HTTPPlugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	timeout := 3 * time.Second
 	if d, ok := ctx.Deadline(); ok {
 		if left := time.Until(d); left > 0 && left < timeout {
@@ -129,7 +129,7 @@ func (p *HTTPPlugin) Identify(ctx context.Context, host string, port int) *commo
 		}
 	}
 
-	return &common.Result{
+	return &types.Result{
 		Host:    host,
 		Port:    port,
 		Service: "http",
@@ -166,6 +166,6 @@ func collapseWS(s string) string {
 //
 // Credential 在 v0.1 是空实现。v0.2+ 可能加 HTTP Basic auth 测试；
 // 当前返回 nil。
-func (p *HTTPPlugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *HTTPPlugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }

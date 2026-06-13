@@ -1,6 +1,6 @@
 // result.go — Result / Cred / ScanItem types flowing through the pipeline.
 // result.go — 管线中流转的 Result / Cred / ScanItem 类型。
-package common
+package types
 
 import "time"
 
@@ -31,16 +31,16 @@ type ScanItem struct {
 // Result 是插件（Identify 或 Credential）发出的单个结果。
 //
 // Extra is a typed side-channel: a plugin can set it to any structured
-// payload it wants to pass to the result sink (e.g. *RDPFingerprint from
-// the RDP plugin). The pipeline type-asserts known shapes (RDPFingerprint
+// payload it wants to pass to the result sink (e.g. *output.RDPFingerprint from
+// the RDP plugin). The pipeline type-asserts known shapes (output.RDPFingerprint
 // → rdp.json/rdp.txt) and silently ignores unknown types. Was `string`
 // before; repurposed to `any` because no consumer was using the string
 // form (verified by `grep -rE "\.Extra\s*="`) and the structured
 // side-channel is needed for v0.1 RDP deep fingerprint.
 //
 // Extra 是类型化旁路：插件可以塞任何结构化 payload 传给 result sink
-// （如 RDP 插件的 *RDPFingerprint）。管线对已知类型做 type-assert
-// （RDPFingerprint → rdp.json/rdp.txt），未知类型静默忽略。原本
+// （如 RDP 插件的 *output.RDPFingerprint）。管线对已知类型做 type-assert
+// （output.RDPFingerprint → rdp.json/rdp.txt），未知类型静默忽略。原本
 // 是 `string`；改为 `any` 是因为代码库无人用 string 形式
 // （grep -rE "\.Extra\s*=" 验证），且 v0.1 RDP 深指纹需要结构化旁路。
 type Result struct {

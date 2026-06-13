@@ -21,10 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // RunScan is the main entry point for a single scan invocation.
@@ -35,7 +36,7 @@ import (
 //   - ModeCrack: skip port scan, run credential tests against known ports
 //
 // 它根据 cfg.Mode 装配管线。
-func RunScan(ctx context.Context, sess *common.Session) (int, error) {
+func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	cfg := sess.Config
 	if cfg == nil {
 		return 0, fmt.Errorf("nil config")
@@ -44,7 +45,7 @@ func RunScan(ctx context.Context, sess *common.Session) (int, error) {
 	sess.UI.Banner(cfg)
 
 	// Expand targets. / 展开目标。
-	targets, err := common.ExpandTargets(cfg.Host, cfg.HostsFile)
+	targets, err := types.ExpandTargets(cfg.Host, cfg.HostsFile)
 	if err != nil {
 		return 0, fmt.Errorf("expand targets: %w", err)
 	}
@@ -72,8 +73,8 @@ func RunScan(ctx context.Context, sess *common.Session) (int, error) {
 	// Channel sizes / 通道容量
 	const itemsBuf = 1024
 
-	items := make(chan common.ScanItem, itemsBuf)
-	results := make(chan *common.Result, itemsBuf)
+	items := make(chan types.ScanItem, itemsBuf)
+	results := make(chan *types.Result, itemsBuf)
 
 	var wg sync.WaitGroup
 
@@ -114,7 +115,7 @@ func RunScan(ctx context.Context, sess *common.Session) (int, error) {
 				}
 				sess.State.Counters.Ports.Add(1)
 				select {
-				case items <- common.ScanItem{
+				case items <- types.ScanItem{
 					Host:   r.Host,
 					Port:   r.Port,
 					Banner: r.Banner,
@@ -163,9 +164,9 @@ func RunScan(ctx context.Context, sess *common.Session) (int, error) {
 	return 0, nil
 }
 
-// targetAddrs extracts the address strings from a []common.Target.
-// targetAddrs 从 []common.Target 提取地址字符串。
-func targetAddrs(targets []common.Target) []string {
+// targetAddrs extracts the address strings from a []types.Target.
+// targetAddrs 从 []types.Target 提取地址字符串。
+func targetAddrs(targets []types.Target) []string {
 	out := make([]string, len(targets))
 	for i, t := range targets {
 		out[i] = t.Addr
@@ -175,7 +176,7 @@ func targetAddrs(targets []common.Target) []string {
 
 // summaryString builds a one-line summary printed at end of scan.
 // summaryString 构建扫描结束时打印的单行摘要。
-func summaryString(sess *common.Session) string {
+func summaryString(sess *session.Session) string {
 	c := sess.State.Snapshot()
 	return fmt.Sprintf(
 		"[*] Done. alive=%d ports=%d results=%d creds=%d errors=%d",

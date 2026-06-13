@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies Redis servers via PING / PONG. / Plugin 通过 PING / PONG 识别 Redis 服务。
@@ -41,12 +41,12 @@ func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 // Credential is a no-op stub; Redis credential testing lives in
 // core/cred/protocols in v0.2+. / Credential 空 stub；Redis 凭据
 // 测试在 v0.2+ 的 core/cred/protocols 里。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends PING and parses the response. / Identify 发 PING 并解析响应。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -67,7 +67,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if !strings.HasPrefix(resp, "+PONG") && !strings.HasPrefix(resp, "-NOAUTH") {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "redis",
 		Banner: "redis: " + resp, Time: time.Now(),
 	}

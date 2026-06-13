@@ -32,15 +32,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/core"
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database"  // register PG/MySQL/MSSQL/Oracle/MongoDB/ES/Redis/Memcached
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/email"     // register POP3/IMAP
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database"    // register PG/MySQL/MSSQL/Oracle/MongoDB/ES/Redis/Memcached
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/email"       // register POP3/IMAP
 	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/filestorage" // register NFS/SMB/Rsync
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/messaging"  // register RabbitMQ
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"    // register SNMP/LDAP/Modbus/BACnet/Docker/SOCKS5
-	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/remote"     // register SSH/FTP/Telnet/VNC/WinRM/IPMI
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/messaging"   // register RabbitMQ
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"     // register SNMP/LDAP/Modbus/BACnet/Docker/SOCKS5
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/remote"      // register SSH/FTP/Telnet/VNC/WinRM/IPMI
+	"github.com/LCUstinian/FG-QiMen/internal/output"
+	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
+	"github.com/LCUstinian/FG-QiMen/internal/ui"
 	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 
 	// Register all built-in plugins via their init() funcs.
@@ -222,7 +225,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Build session from cfg + project + state.
 	// 从 cfg + project + state 构建 session。
-	sess, err := common.NewSession(ctx, cfg, cfg.Project)
+	sess, err := session.NewSession(ctx, cfg, cfg.Project)
 	if err != nil {
 		return fmt.Errorf("session error: %w", err)
 	}
@@ -231,16 +234,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// Wire logger (silent flag suppresses to file-only; -v adds debug).
 	// 装配 logger（silent 抑制控制台；-v 开启 debug）。
 	if !cfg.Silent {
-		sess.Log = common.NewStderrLogger()
+		sess.Log = types.NewStderrLogger()
 	} else {
-		sess.Log = common.DiscardLogger{}
+		sess.Log = types.DiscardLogger{}
 	}
 
 	// Wire UI: TUI mode if stdout is a TTY and -no-tui/-silent are not set.
 	// Otherwise, plain text mode (NopUI; results are still in the file sinks).
 	// 装配 UI：stdout 是 TTY 且未传 -no-tui/-silent 时进 TUI 模式；
 	// 否则纯文本模式（结果仍在文件汇中输出）。
-	useTUI := common.IsTerminalStdout() && !cfg.NoTUI && !cfg.Silent
+	useTUI := types.IsTerminalStdout() && !cfg.NoTUI && !cfg.Silent
 	if useTUI {
 		prog := tui.NewProgram(cfg)
 		sess.UI = prog
@@ -251,7 +254,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}()
 		defer prog.Quit()
 	} else {
-		sess.UI = common.NewTextUI()
+		sess.UI = ui.NewTextUI()
 	}
 
 	// Wire bbolt store from project (nil in ephemeral mode).
@@ -275,7 +278,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// Open output files. Defaults are project-relative for project mode,
 	// or current directory for ephemeral.
 	// 打开输出文件。默认在项目目录下（项目模式）或当前目录（即扫即走）。
-	out, err := common.OpenOutput(common.OutputConfig{
+	out, err := output.OpenOutput(output.OutputConfig{
 		ResultTXTPath:  resolveOutputPath(cfg, flagOutputTXT, "result.txt"),
 		ResultJSONPath: resolveOutputPath(cfg, flagOutputJSON, "result.json"),
 		CredsPath:      resolveOutputPath(cfg, "", "creds.txt"),
@@ -295,12 +298,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 // buildConfig collects the global flag values into a Config struct.
 // buildConfig 把全局 flag 值汇总成 Config 结构。
-func buildConfig() (*common.Config, error) {
-	cfg := &common.Config{
+func buildConfig() (*types.Config, error) {
+	cfg := &types.Config{
 		Host:            flagHost,
 		HostsFile:       flagHostsFile,
 		Project:         flagProject,
-		Mode:            common.RunMode(flagMode),
+		Mode:            types.RunMode(flagMode),
 		Resume:          flagResume,
 		NoState:         flagNoState,
 		Ports:           flagPorts,
@@ -329,7 +332,7 @@ func buildConfig() (*common.Config, error) {
 
 // openProject opens a project workspace (ephemeral or persistent).
 // openProject 打开项目工作区（即扫即走 / 增量扫描）。
-func openProject(cfg *common.Config) (*workspace.Project, error) {
+func openProject(cfg *types.Config) (*workspace.Project, error) {
 	return workspace.Open(cfg.Project)
 }
 
@@ -342,7 +345,7 @@ func openProject(cfg *common.Config) (*workspace.Project, error) {
 //   - 项目模式：./runs/projects/<name>/<file>
 //   - 即扫即走：./runs/default/<file>
 //   - 显式 -o / -j：原样返回
-func resolveOutputPath(cfg *common.Config, flagValue, defaultName string) string {
+func resolveOutputPath(cfg *types.Config, flagValue, defaultName string) string {
 	if flagValue != "" {
 		return flagValue
 	}

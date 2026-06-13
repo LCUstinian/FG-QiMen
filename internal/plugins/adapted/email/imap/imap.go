@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies IMAP servers. / Plugin 识别 IMAP 服务。
@@ -41,12 +41,12 @@ func (p *Plugin) Ports() []int { return []int{143, 993} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify reads the IMAP greeting. / Identify 读 IMAP greeting。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -64,7 +64,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if !strings.HasPrefix(line, "* OK") {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "imap",
 		Banner: "IMAP: " + line, Time: time.Now(),
 	}

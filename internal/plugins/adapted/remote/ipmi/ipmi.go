@@ -13,8 +13,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies IPMI BMCs. / Plugin 识别 IPMI BMC。
@@ -35,13 +35,13 @@ func (p *Plugin) Ports() []int { return []int{623} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify probes IPMI via RMCP+ Session Open. / Identify 通过
 // RMCP+ Session Open 探 IPMI。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "udp", addr)
@@ -63,7 +63,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		return nil
 	}
 	if buf[7] == 0x12 { // RAKP message tag
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "ipmi",
 			Banner: "IPMI v2.0 (BMC)", Time: time.Now(),
 		}

@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies Elasticsearch via HTTP GET /.
@@ -50,14 +50,14 @@ func (p *Plugin) Ports() []int { return []int{9200, 9300} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify does HTTP GET / and parses the JSON response's
 // "version.number" / "lucene_version" fields. / Identify 跑 HTTP GET /
 // 并解析 JSON 响应的 "version.number" / "lucene_version" 字段。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	tr := &http.Transport{
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		ResponseHeaderTimeout: 3 * time.Second,
@@ -89,7 +89,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		if lucene != "" {
 			banner += " (lucene " + lucene + ")"
 		}
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "elasticsearch",
 			Banner: banner, Time: time.Now(),
 		}

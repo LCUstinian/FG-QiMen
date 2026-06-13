@@ -18,8 +18,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies RabbitMQ / AMQP 0-9-1 brokers. / Plugin 识别
@@ -41,13 +41,13 @@ func (p *Plugin) Ports() []int { return []int{5672} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends the AMQP protocol header and reads Connection.Start.
 // / Identify 发 AMQP 协议头并读 Connection.Start。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -83,7 +83,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if class != 0x000a || method != 0x000b {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "rabbitmq",
 		Banner: "RabbitMQ AMQP 0-9-1", Time: time.Now(),
 	}

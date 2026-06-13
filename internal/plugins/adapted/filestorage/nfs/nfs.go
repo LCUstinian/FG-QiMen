@@ -14,8 +14,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies NFS / ONC RPC servers. / Plugin 识别 NFS / ONC RPC
@@ -37,12 +37,12 @@ func (p *Plugin) Ports() []int { return []int{2049} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends RPC NULL call. / Identify 发 RPC NULL 调用。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -59,11 +59,11 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	var xid [4]byte
 	binary.BigEndian.PutUint32(xid[:], 0x12345678)
 	body = append(body, xid[:]...)
-	body = append(body, 0, 0, 0, 0) // msg type = CALL
-	body = append(body, 0, 0, 0, 2) // RPC version
-	body = append(body, 0, 0, 0, 0) // program = NULL
-	body = append(body, 0, 0, 0, 0) // program version
-	body = append(body, 0, 0, 0, 0) // procedure = NULL
+	body = append(body, 0, 0, 0, 0)             // msg type = CALL
+	body = append(body, 0, 0, 0, 2)             // RPC version
+	body = append(body, 0, 0, 0, 0)             // program = NULL
+	body = append(body, 0, 0, 0, 0)             // program version
+	body = append(body, 0, 0, 0, 0)             // procedure = NULL
 	body = append(body, 0, 0, 0, 0, 0, 0, 0, 0) // AUTH_NULL cred
 	body = append(body, 0, 0, 0, 0, 0, 0, 0, 0) // AUTH_NULL verifier
 	fragLen := uint32(len(body)) | 0x80000000
@@ -78,7 +78,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if len(buf) < 12 || buf[11] != 1 {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "nfs",
 		Banner: "NFS (ONC RPC)", Time: time.Now(),
 	}

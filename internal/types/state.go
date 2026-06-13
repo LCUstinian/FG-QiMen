@@ -10,7 +10,7 @@
 //   - sync.Map 保存已见 hash（内存去重，热路径无锁）
 //   - 可选 *bbolt.DB 用于持久化（仅项目模式）
 //   - atomic 计数器统计事件/结果
-package common
+package types
 
 import (
 	"crypto/sha1"

@@ -2,8 +2,8 @@
 //
 // Orchestrates a 4-step handshake (X.224 CR → X.224 CC → MCS Connect-
 // Initial → MCS Connect-Response), parses the serverCore data from
-// the GCC Conference Create Response, and returns a common.Result
-// with Extra = *common.RDPFingerprint so the pipeline can dual-write
+// the GCC Conference Create Response, and returns a types.Result
+// with Extra = *output.RDPFingerprint so the pipeline can dual-write
 // to rdp.json / rdp.txt via runResultSink (see core/pipeline.go).
 //
 // HARD RULE: this plugin performs IDENTIFICATION ONLY. It never
@@ -14,7 +14,7 @@
 // 包 rdp — RDP 深指纹 Identify 插件。
 // 编排 4 步握手（X.224 CR → X.224 CC → MCS Connect-Initial → MCS
 // Connect-Response），从 GCC Conference Create Response 抽 serverCore
-// 数据，返带 Extra = *common.RDPFingerprint 的 common.Result，让管线
+// 数据，返带 Extra = *output.RDPFingerprint 的 types.Result，让管线
 // 通过 runResultSink 双写到 rdp.json / rdp.txt（见 core/pipeline.go）。
 //
 // 硬性原则：本插件只做识别。绝不跑 Attach / Login / Session Setup。
@@ -30,8 +30,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin is the RDP deep fingerprint Identify plugin. / Plugin 是 RDP
@@ -59,7 +60,7 @@ func (p *Plugin) Ports() []int { return []int{3389} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -69,7 +70,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //
 // Identify 实现 plugins.Plugin。跑 4 步握手，抽 serverCore，返带
 // Extra（持结构化 RDPFingerprint）的 Result。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	conn, err := dialRDP(ctx, host, port, 3*time.Second)
 	if err != nil {
 		return nil
@@ -77,7 +78,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 
-	fp := common.RDPFingerprint{
+	fp := output.RDPFingerprint{
 		Host:     host,
 		Port:     port,
 		ScanTime: time.Now(),
@@ -136,7 +137,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	fp.OSVersion = sc.VersionToOSName()
 	fp.Domain = "" // serverCore doesn't include the AD domain; v0.2+
 
-	return &common.Result{
+	return &types.Result{
 		Host:    host,
 		Port:    port,
 		Service: "rdp",

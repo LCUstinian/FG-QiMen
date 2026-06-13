@@ -20,7 +20,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Mode is a bitfield of plugin capabilities.
@@ -54,7 +54,7 @@ type Plugin interface {
 	// Identify performs passive / active service identification. Returns
 	// nil if the service could not be identified.
 	// Identify 执行被动/主动服务识别。无法识别时返回 nil。
-	Identify(ctx context.Context, host string, port int) *common.Result
+	Identify(ctx context.Context, host string, port int) *types.Result
 	// Credential tests user:pass authentication. On hit returns a *Result
 	// with Cred set; on miss returns nil.
 	//
@@ -65,7 +65,7 @@ type Plugin interface {
 	//
 	// Credential 接收的 creds 列表由 core/pipeline.go 构造（笛卡尔积
 	// users × passes）；插件负责按服务的并发安全方式逐个测试。
-	Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result
+	Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result
 }
 
 var (

@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies SMTP servers via EHLO. / Plugin 通过 EHLO 识别 SMTP 服务。
@@ -38,7 +38,7 @@ func (p *Plugin) Ports() []int { return []int{25, 465, 587, 2525} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -47,7 +47,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //
 // Identify 开 TCP 连接，读 220 问候，发 EHLO。返回服务器问候 + 首个
 // EHLO 行。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -66,7 +66,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		if n < 4 || buf[0] != '2' || buf[1] != '2' || buf[2] != '0' {
 			return nil
 		}
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "smtp",
 			Banner: fmt.Sprintf("smtp: %s", trim(string(buf[:n]))), Time: time.Now(),
 		}
@@ -80,7 +80,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	// 状态里有首个 EHLO 行。
 	// Fall back to the connection for a basic banner.
 	// / 回退到连接获取基础 banner。
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "smtp",
 		Banner: fmt.Sprintf("smtp: EHLO ok port=%d", port), Time: time.Now(),
 	}

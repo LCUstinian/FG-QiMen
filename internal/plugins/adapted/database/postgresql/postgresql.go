@@ -16,8 +16,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies PostgreSQL servers. / Plugin 识别 PostgreSQL 服务。
@@ -47,7 +47,7 @@ func (p *Plugin) Ports() []int { return []int{5432, 5433} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -60,7 +60,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // PostgreSQL v3 线格式：
 //   - 前端 → 后端 StartupMessage：int32 长度 + int32 协议(3,0) + kv 对
 //   - 后端 → 前端：'R' 认证成功，'E' 错误响应
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -73,7 +73,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	// Build StartupMessage: length, protocol=3.0, user, database, \0.
 	// / 构造 StartupMessage：长度、协议=3.0、user、database、\0。
 	body := []byte{}
-	body = append(body, 0, 0, 0, 0) // placeholder length
+	body = append(body, 0, 0, 0, 0)             // placeholder length
 	body = append(body, 0x00, 0x03, 0x00, 0x00) // protocol 3.0
 	body = append(body, "user\x00postgres\x00"...)
 	body = append(body, "database\x00postgres\x00"...)
@@ -94,7 +94,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		// just the type byte proves it's PostgreSQL.
 		// / AuthenticationOk（无 body）或 AuthenticationCleartextPassword
 		// （body int32=3 然后 0x00）。我们不关心 body，仅类型字节证明是 PG。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "postgresql",
 			Banner: "PostgreSQL", Time: time.Now(),
 		}
@@ -102,7 +102,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		// ErrorResponse — could be a server that rejected the user/db.
 		// Still proves it's PostgreSQL. / ErrorResponse——可能是服务
 		// 拒了 user/db。仍证明是 PostgreSQL。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "postgresql",
 			Banner: "PostgreSQL (auth error)", Time: time.Now(),
 		}

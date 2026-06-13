@@ -11,7 +11,7 @@
 //
 // Store 是对 workspace.Project 拥有的 *bolt.DB 的薄包装；生命周期由
 // project 管理，不由 Store 自己管理。
-package common
+package store
 
 import (
 	"encoding/json"

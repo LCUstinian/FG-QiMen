@@ -26,8 +26,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies WinRM endpoints. / Plugin 识别 WinRM 端点。
@@ -48,14 +48,14 @@ func (p *Plugin) Ports() []int { return []int{5985, 5986} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify probes the WinRM endpoint with a GET /wsman. A 200, 401,
 // or 405 indicates a WinRM listener. / Identify 用 GET /wsman 探 WinRM
 // 端点。200 / 401 / 405 即 WinRM 监听器。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	tr := &http.Transport{
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -80,7 +80,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		if resp.StatusCode == http.StatusOK ||
 			resp.StatusCode == http.StatusUnauthorized ||
 			resp.StatusCode == http.StatusMethodNotAllowed {
-			return &common.Result{
+			return &types.Result{
 				Host: host, Port: port, Service: "winrm",
 				Banner: fmt.Sprintf("WinRM %s", scheme), Time: time.Now(),
 			}

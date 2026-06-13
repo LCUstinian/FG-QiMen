@@ -1,5 +1,5 @@
-// tui/program.go — Bubbletea program wrapper implementing common.UI.
-// tui/program.go — Bubbletea program 包装，实现 common.UI。
+// tui/program.go — Bubbletea program wrapper implementing ui.UI.
+// tui/program.go — Bubbletea program 包装，实现 ui.UI。
 package tui
 
 import (
@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // ─────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ import (
 // ─────────────────────────────────────────────────────────────────────
 
 type statsMsg struct {
-	view    common.CountersView
+	view    types.CountersView
 	elapsed string
 }
 
@@ -72,15 +72,15 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (d dispatcher) View() string { return d.inner.View() }
 
 // ─────────────────────────────────────────────────────────────────────
-// Program wraps tea.Program and implements common.UI.
-// Program 包装 tea.Program 并实现 common.UI。
+// Program wraps tea.Program and implements ui.UI.
+// Program 包装 tea.Program 并实现 ui.UI。
 // ─────────────────────────────────────────────────────────────────────
 
 // Program is a thin wrapper around a *tea.Program that satisfies the
-// common.UI interface. All UI methods are safe for concurrent use; they
+// ui.UI interface. All UI methods are safe for concurrent use; they
 // send messages into the bubbletea event loop.
 //
-// Program 是 *tea.Program 的薄包装，实现 common.UI 接口。所有 UI 方法
+// Program 是 *tea.Program 的薄包装，实现 ui.UI 接口。所有 UI 方法
 // 都并发安全；它们向 bubbletea 事件循环发送消息。
 type Program struct {
 	p   *tea.Program
@@ -99,7 +99,7 @@ type Program struct {
 // 我们禁用 bubbletea 的默认 signal handler，因为父级（cmd/root.go）已经
 // 拥有 SIGINT 驱动的关闭逻辑。仍然可以通过调用 Done() 或 Quit() 让
 // program 退出。
-func NewProgram(cfg *common.Config) *Program {
+func NewProgram(cfg *types.Config) *Program {
 	d := &dispatcher{inner: NewModel(cfg)}
 	p := tea.NewProgram(*d, tea.WithoutSignalHandler(), tea.WithAltScreen())
 	return &Program{
@@ -120,25 +120,25 @@ func (p *Program) Run() (tea.Model, error) {
 // Quit 向 bubbletea 发送 quit 消息，然后阻塞到退出。
 func (p *Program) Quit() { p.p.Quit() }
 
-// Banner implements common.UI by sending a refresh message that
+// Banner implements ui.UI by sending a refresh message that
 // triggers a redraw.
-// Banner 实现 common.UI——发送 refresh 触发重绘。
-func (p *Program) Banner(cfg *common.Config) {
+// Banner 实现 ui.UI——发送 refresh 触发重绘。
+func (p *Program) Banner(cfg *types.Config) {
 	p.p.Send(refreshMsg{})
 }
 
-// Stats implements common.UI by pushing a fresh counters snapshot.
-// Stats 实现 common.UI——推送最新计数器快照。
-func (p *Program) Stats(s *common.State) {
+// Stats implements ui.UI by pushing a fresh counters snapshot.
+// Stats 实现 ui.UI——推送最新计数器快照。
+func (p *Program) Stats(s *types.State) {
 	if s == nil {
 		return
 	}
 	p.p.Send(statsMsg{view: s.Snapshot(), elapsed: time.Since(p.ran).Round(time.Second).String()})
 }
 
-// Event implements common.UI — push a non-cred live event.
-// Event 实现 common.UI——推送非凭据类的实时事件。
-func (p *Program) Event(r *common.Result) {
+// Event implements ui.UI — push a non-cred live event.
+// Event 实现 ui.UI——推送非凭据类的实时事件。
+func (p *Program) Event(r *types.Result) {
 	if r == nil {
 		return
 	}
@@ -152,9 +152,9 @@ func (p *Program) Event(r *common.Result) {
 	})
 }
 
-// CredFound implements common.UI — push a high-priority cred event.
-// CredFound 实现 common.UI——推送高优先级凭据事件。
-func (p *Program) CredFound(r *common.Result) {
+// CredFound implements ui.UI — push a high-priority cred event.
+// CredFound 实现 ui.UI——推送高优先级凭据事件。
+func (p *Program) CredFound(r *types.Result) {
 	if r == nil || r.Cred == nil {
 		return
 	}
@@ -168,8 +168,8 @@ func (p *Program) CredFound(r *common.Result) {
 	})
 }
 
-// Done implements common.UI by setting the final summary and quitting.
-// Done 实现 common.UI——设置最终摘要并退出。
+// Done implements ui.UI by setting the final summary and quitting.
+// Done 实现 ui.UI——设置最终摘要并退出。
 func (p *Program) Done(summary string) {
 	p.mu.Lock()
 	// (we keep the summary in dispatcher state via doneMsg)

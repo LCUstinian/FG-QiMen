@@ -15,8 +15,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies Modbus TCP devices. / Plugin 识别 Modbus TCP 设备。
@@ -37,13 +37,13 @@ func (p *Plugin) Ports() []int { return []int{502} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify probes Modbus TCP via Read Device Identification.
 // / Identify 通过 Read Device Identification 探 Modbus TCP。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -71,7 +71,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if resp[7] != 0x2b || resp[8] != 0x0e {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "modbus",
 		Banner: "Modbus TCP", Time: time.Now(),
 	}

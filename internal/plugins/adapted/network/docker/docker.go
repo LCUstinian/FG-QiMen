@@ -20,8 +20,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies Docker daemons. / Plugin 识别 Docker 守护进程。
@@ -42,13 +42,13 @@ func (p *Plugin) Ports() []int { return []int{2375, 2376} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify GETs /_ping and /info to confirm Docker daemon presence
 // + version. / Identify GET /_ping 和 /info 确认 Docker daemon 在 + 版本。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	tr := &http.Transport{DisableKeepAlives: true}
 	client := &http.Client{Transport: tr, Timeout: 3 * time.Second}
@@ -69,7 +69,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	resp2, err := client.Do(req)
 	if err != nil {
 		// Still a hit, just no version. / 仍是命中，只是无版本。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "docker",
 			Banner: "Docker", Time: time.Now(),
 		}
@@ -87,7 +87,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	} else if info.APIVersion != "" {
 		banner = "Docker API " + info.APIVersion
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "docker",
 		Banner: banner, Time: time.Now(),
 	}

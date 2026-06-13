@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/remote/rdp"
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 )
 
 // fakeRDPServer handles one RDP client connection: reads the X.224 CR,
@@ -97,11 +97,11 @@ func buildX224CC(selectedProto uint32) []byte {
 	// X.224 CC body: length(1) + CC(1) + DST(2) + SRC(2) + Class(1) + proto(4)
 	// / X.224 CC body：length(1) + CC(1) + DST(2) + SRC(2) + Class(1) + proto(4)
 	body := []byte{
-		10,    // length of remaining X.224 PDU
-		0xD0,  // CC
-		0, 1,  // DST-REF
-		0, 2,  // SRC-REF
-		0x00,  // Class Option
+		10,   // length of remaining X.224 PDU
+		0xD0, // CC
+		0, 1, // DST-REF
+		0, 2, // SRC-REF
+		0x00, // Class Option
 	}
 	var proto [4]byte
 	binary.LittleEndian.PutUint32(proto[:], selectedProto)
@@ -179,11 +179,11 @@ func TestRDPPlugin_HYBRID_FullFingerprint(t *testing.T) {
 	if res.Service != "rdp" {
 		t.Errorf("Service = %q, want rdp", res.Service)
 	}
-	// Extra should hold a populated *common.RDPFingerprint.
-	// / Extra 应含一个填好的 *common.RDPFingerprint。
-	rdpFP, ok := res.Extra.(*common.RDPFingerprint)
+	// Extra should hold a populated *output.RDPFingerprint.
+	// / Extra 应含一个填好的 *output.RDPFingerprint。
+	rdpFP, ok := res.Extra.(*output.RDPFingerprint)
 	if !ok {
-		t.Fatalf("Extra type = %T, want *common.RDPFingerprint", res.Extra)
+		t.Fatalf("Extra type = %T, want *output.RDPFingerprint", res.Extra)
 	}
 	if rdpFP.ServerName != "WIN-SRV-01" {
 		t.Errorf("ServerName = %q, want WIN-SRV-01", rdpFP.ServerName)
@@ -205,7 +205,7 @@ func TestRDPPlugin_PlainRDP_NoNLA(t *testing.T) {
 	if res == nil {
 		t.Fatalf("Identify returned nil")
 	}
-	rdpFP := res.Extra.(*common.RDPFingerprint)
+	rdpFP := res.Extra.(*output.RDPFingerprint)
 	if rdpFP.NLASupported {
 		t.Errorf("NLASupported = true, want false (selectedProto=RDP)")
 	}

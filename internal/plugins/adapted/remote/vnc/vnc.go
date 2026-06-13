@@ -16,8 +16,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies VNC servers. / Plugin 识别 VNC 服务。
@@ -43,14 +43,14 @@ func (p *Plugin) Ports() []int { return []int{5900, 5901, 5902, 5903, 5904, 5905
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify reads the RFB ProtocolVersion banner (12 bytes:
 // "RFB xxx.yyy\n"). / Identify 读 RFB ProtocolVersion banner（12 字节：
 // "RFB xxx.yyy\n"）。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -67,7 +67,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if string(buf[0:4]) != "RFB " {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "vnc",
 		Banner: fmt.Sprintf("VNC %s", string(buf[4:11])),
 		Time:   time.Now(),

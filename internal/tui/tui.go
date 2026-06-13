@@ -23,7 +23,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // maxLiveEvents caps how many events the TUI remembers for display.
@@ -51,7 +51,7 @@ type Model struct {
 	height int
 
 	// Stats snapshot / 统计快照
-	counters common.CountersView
+	counters types.CountersView
 	elapsed  string
 	mode     string
 	project  string
@@ -68,7 +68,7 @@ type Model struct {
 
 // NewModel constructs a fresh dashboard model.
 // NewModel 构造一个新的 dashboard model。
-func NewModel(cfg *common.Config) Model {
+func NewModel(cfg *types.Config) Model {
 	mode := "scan"
 	if cfg != nil {
 		mode = string(cfg.Mode)

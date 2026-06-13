@@ -20,8 +20,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // TNS Connect packet layout (Oracle networking spec): / TNS Connect
@@ -73,13 +73,13 @@ func (p *Plugin) Ports() []int { return []int{1521, 1526, 2483} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends a TNS Connect packet and reads the response type.
 // / Identify 发 TNS Connect 包并读响应类型。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -108,7 +108,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	}
 	pktType := hdr[4]
 	if pktType == tnsPacketTypeAccept {
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "oracle",
 			Banner: "Oracle TNS (Accept)", Time: time.Now(),
 		}
@@ -117,7 +117,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		// Server replied Refuse — still proves it's an Oracle TNS
 		// listener (just one we can't auth to). / 服务器返 Refuse
 		// ——仍证明它是 Oracle TNS 监听器（只是我们没权限连）。
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "oracle",
 			Banner: "Oracle TNS (Refuse)", Time: time.Now(),
 		}
@@ -149,18 +149,18 @@ func buildTNSConnect(service string) []byte {
 	hdr[5] = 0 // reserved
 	hdr[6] = 0 // header checksum placeholder
 	hdr[7] = 0
-	hdr[8] = 0x0A  // version major (10g+)
-	hdr[9] = 0x02  // version minor
-	hdr[10] = 0x41 // service options
+	hdr[8] = 0x0A                                // version major (10g+)
+	hdr[9] = 0x02                                // version minor
+	hdr[10] = 0x41                               // service options
 	binary.BigEndian.PutUint16(hdr[11:13], 8192) // SDU
 	binary.BigEndian.PutUint16(hdr[13:15], 8192) // MTU
-	hdr[15] = 0x07 // NT protocol characteristics
-	hdr[16] = 0x00 // line turnaround
-	hdr[17] = 0x00 // charset high
-	hdr[18] = 0x01 // charset low
-	hdr[19] = 0x00 // line turnaround (again)
-	hdr[20] = 0x04 // connect flags 1
-	binary.BigEndian.PutUint16(hdr[21:23], 0) // connect flags 2
+	hdr[15] = 0x07                               // NT protocol characteristics
+	hdr[16] = 0x00                               // line turnaround
+	hdr[17] = 0x00                               // charset high
+	hdr[18] = 0x01                               // charset low
+	hdr[19] = 0x00                               // line turnaround (again)
+	hdr[20] = 0x04                               // connect flags 1
+	binary.BigEndian.PutUint16(hdr[21:23], 0)    // connect flags 2
 	// Total: 22 hdr + len(data) bytes. / 共 22 + len(data) 字节。
 	total := uint16(22 + len(data))
 	hdr[0] = byte(total >> 8)

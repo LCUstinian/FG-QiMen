@@ -1,6 +1,6 @@
 // network.go — target parsing (IP / CIDR / range / file).
 // network.go — 目标解析（IP / CIDR / 范围 / 文件）。
-package common
+package types
 
 import (
 	"bufio"

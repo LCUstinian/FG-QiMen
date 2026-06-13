@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies telnetd servers. / Plugin 识别 telnetd 服务。
@@ -45,7 +45,7 @@ func (p *Plugin) Ports() []int { return []int{23, 2323} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -53,7 +53,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // reports whether the server looks like a telnetd.
 //
 // Identify 开 TCP 连接，读初始 banner，报告服务像不像 telnetd。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -83,7 +83,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		if len(banner) > 100 {
 			banner = banner[:100] + "..."
 		}
-		return &common.Result{
+		return &types.Result{
 			Host: host, Port: port, Service: "telnet",
 			Banner: "Telnet: " + banner, Time: time.Now(),
 		}

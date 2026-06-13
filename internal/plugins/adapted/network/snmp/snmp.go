@@ -15,8 +15,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies SNMP servers via a sysDescr.0 GET. / Plugin 通过 sysDescr.0 GET 识别 SNMP 服务。
@@ -37,7 +37,7 @@ func (p *Plugin) Ports() []int { return []int{161, 162} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
@@ -59,7 +59,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //	}
 //
 // SNMPv1 消息布局（简化，BER）：……
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "udp", addr)
@@ -77,16 +77,16 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	oid := encodeOID([]uint{1, 3, 6, 1, 2, 1, 1, 1, 0})
 	varBind := berSequence(append([]byte{0x06, byte(len(oid))}, oid...), []byte{0x05, 0x00})
 	pdu := berSequence(
-		berIntegerBytes([]byte{0x00, 0x00, 0x00, 0x01}),     // request-id
-		berIntegerBytes([]byte{0x00}),                         // error-status 0
-		berIntegerBytes([]byte{0x00}),                         // error-index 0
+		berIntegerBytes([]byte{0x00, 0x00, 0x00, 0x01}), // request-id
+		berIntegerBytes([]byte{0x00}),                   // error-status 0
+		berIntegerBytes([]byte{0x00}),                   // error-index 0
 		varBind,
 	)
 	// GetRequest-PDU is context-specific tag 0 (0xa0).
 	// / GetRequest-PDU 是 context-specific tag 0（0xa0）。
 	pdu = append([]byte{0xa0, byte(len(pdu))}, pdu...)
 	msg := berSequence(
-		berIntegerBytes([]byte{0x00}),          // version-1 = 0
+		berIntegerBytes([]byte{0x00}),                    // version-1 = 0
 		[]byte{0x04, 0x06, 'p', 'u', 'b', 'l', 'i', 'c'}, // community "public"
 		pdu,
 	)
@@ -122,7 +122,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 			}
 			banner := string(resp[end+2 : end+2+sl])
 			if len(banner) > 0 && isSNMPPrintable(banner) {
-				return &common.Result{
+				return &types.Result{
 					Host: host, Port: port, Service: "snmp",
 					Banner: "SNMP: " + trimASCII(banner), Time: time.Now(),
 				}
@@ -130,7 +130,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 		}
 	}
 	// Fall back: protocol responded. / 回退：协议响应了。
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "snmp",
 		Banner: "SNMP (community=public)", Time: time.Now(),
 	}

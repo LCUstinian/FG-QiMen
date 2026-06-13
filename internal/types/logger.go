@@ -10,7 +10,7 @@
 // 两种实现：
 //   - StderrLogger ：写入 writer（通常是 os.Stderr），并发安全。
 //   - DiscardLogger ：空实现，用于 TUI 模式（消息走 Bubbletea program）。
-package common
+package types
 
 import (
 	"fmt"

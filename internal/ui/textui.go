@@ -1,5 +1,5 @@
-// textui.go — plain-text UI implementation.
-// textui.go — 纯文本 UI 实现。
+// textui.go — plain-text ui.UI implementation.
+// textui.go — 纯文本 ui.UI 实现。
 //
 // Used when stdout is not a TTY (pipe / redirect / CI) or -no-tui is
 // passed. Prints banner, stats, and live events to stderr so they
@@ -7,13 +7,14 @@
 //
 // 用于 stdout 非 TTY（管道/重定向/CI）或显式 -no-tui 的情况。
 // 把 banner、stats、live events 打印到 stderr，避免污染 stdout 上的结果文件。
-package common
+package ui
 
 import (
 	"fmt"
 	"os"
 	"sync"
 	"time"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // TextUI writes events to stderr. Safe for concurrent use.
@@ -23,11 +24,11 @@ type TextUI struct {
 	ran time.Time
 }
 
-// NewTextUI returns a fresh text UI. / NewTextUI 返回一个纯文本 UI。
+// NewTextUI returns a fresh text ui.UI. / NewTextUI 返回一个纯文本 ui.UI。
 func NewTextUI() *TextUI { return &TextUI{ran: time.Now()} }
 
 // Banner prints the startup banner. / Banner 打印启动 banner。
-func (u *TextUI) Banner(cfg *Config) {
+func (u *TextUI) Banner(cfg *types.Config) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if cfg == nil {
@@ -39,7 +40,7 @@ func (u *TextUI) Banner(cfg *Config) {
 }
 
 // Stats pushes an updated counter snapshot. / Stats 推送最新计数器快照。
-func (u *TextUI) Stats(s *State) {
+func (u *TextUI) Stats(s *types.State) {
 	if s == nil {
 		return
 	}
@@ -53,7 +54,7 @@ func (u *TextUI) Stats(s *State) {
 }
 
 // Event prints a single non-cred live event. / Event 打印单条非凭据事件。
-func (u *TextUI) Event(r *Result) {
+func (u *TextUI) Event(r *types.Result) {
 	if r == nil {
 		return
 	}
@@ -64,7 +65,7 @@ func (u *TextUI) Event(r *Result) {
 
 // CredFound prints a high-priority credential event.
 // CredFound 打印凭据命中事件。
-func (u *TextUI) CredFound(r *Result) {
+func (u *TextUI) CredFound(r *types.Result) {
 	if r == nil || r.Cred == nil {
 		return
 	}

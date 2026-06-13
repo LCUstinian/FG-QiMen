@@ -1,6 +1,6 @@
 // output.go — multi-format result sink (TXT, NDJSON, creds, RDP).
 // output.go — 多格式结果汇（text / NDJSON / 凭据 / RDP）。
-package common
+package output
 
 import (
 	"bufio"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // flushCloser wraps a *bufio.Writer around an *os.File and provides a
@@ -151,7 +152,7 @@ func (o *Output) Flush() error {
 
 // WriteResult writes a single result to TXT and NDJSON files.
 // WriteResult 把单个 result 写入 TXT 和 NDJSON 文件。
-func (o *Output) WriteResult(r *Result) error {
+func (o *Output) WriteResult(r *types.Result) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.txt != nil {
@@ -174,7 +175,7 @@ func (o *Output) WriteResult(r *Result) error {
 // result.txt to make it easy to grep / diff).
 //
 // WriteCred 追加凭据命中到 creds.txt（与 result.txt 分离便于 grep / diff）。
-func (o *Output) WriteCred(r *Result) error {
+func (o *Output) WriteCred(r *types.Result) error {
 	if r.Cred == nil {
 		return nil
 	}

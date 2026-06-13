@@ -15,8 +15,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/common"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // Plugin identifies BACnet/IP devices. / Plugin 识别 BACnet/IP 设备。
@@ -37,13 +37,13 @@ func (p *Plugin) Ports() []int { return []int{47808} }
 func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
-func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
+func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result {
 	return nil
 }
 
 // Identify sends Who-Is and waits for I-Am. / Identify 发 Who-Is
 // 并等 I-Am。
-func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Result {
+func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "udp", addr)
@@ -69,7 +69,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *common.Re
 	if len(buf) < 7 || buf[0] != 0x0a || buf[4] != 0x01 || buf[5] != 0x10 || buf[6] != 0x10 {
 		return nil
 	}
-	return &common.Result{
+	return &types.Result{
 		Host: host, Port: port, Service: "bacnet",
 		Banner: "BACnet/IP", Time: time.Now(),
 	}
