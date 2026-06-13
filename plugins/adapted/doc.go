@@ -45,4 +45,5 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rdp"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/vnc"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/telnet"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/oracle"
 )
