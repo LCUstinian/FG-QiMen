@@ -91,16 +91,21 @@ fg-qimen projects list
 | `memcached` | 11211, 11212 | ✅ (text "version\r\n") | ✅ (ASCII "auth" probe, 4/4 unit tests) |
 | `elasticsearch` | 9200, 9300 | ✅ (HTTP GET /) | ✅ (HTTP Basic auth probe) |
 | `rdp` | 3389 | ✅ (TPKT/X.224/MCS 4-step, extracts hostname+build+NLA) | – (v0.3+, NLA cred test is explicit deferral) |
+| `vnc` | 5900-5905 | ✅ (RFB 003.x banner) | ✅ (RFB handshake + DES challenge via go-vnc) |
+| `telnet` | 23, 2323 | ✅ (IAC-stripped banner) | ✅ (IAC + prompt + user/pass flow, hand-rolled) |
+| `oracle` | 1521, 1526, 2483 | ✅ (TNS Connect/Accept probe) | ✅ (TNS handshake via go-ora) |
+| `winrm` | 5985, 5986 | ✅ (GET /wsman probe) | ✅ (HTTP Basic + WSMan SOAP) |
 
-14 plugins covering enterprise-internal services. Credential
-testing covers **7 services** in v0.1 (SSH + FTP + MySQL + Redis +
-Memcached + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch),
-with full no-exploit enforcement (`creds.txt` is the only
-side-effect).
+18 plugins covering enterprise-internal services. Credential
+testing covers **11 services** in v0.1 (SSH + FTP + MySQL + Redis +
+Memcached + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch +
+VNC + Telnet + Oracle + WinRM), with full no-exploit enforcement
+(`creds.txt` is the only side-effect).
 
-14 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **7 个服务**（SSH +
+18 个插件覆盖企业内网常见服务。v0.1 凭据测试覆盖 **11 个服务**（SSH +
 FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB + PostgreSQL +
-Elasticsearch），完整"不做漏洞利用"约束（`creds.txt` 是唯一副作用）。
+Elasticsearch + VNC + Telnet + Oracle + WinRM），完整"不做漏洞利用"约束
+（`creds.txt` 是唯一副作用）。
 
 ### Credential testing (v0.1) / 凭据测试
 
