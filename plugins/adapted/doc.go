@@ -55,4 +55,6 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rabbitmq"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/modbus"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/ipmi"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/bacnet"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/nfs"
 )

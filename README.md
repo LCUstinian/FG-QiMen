@@ -105,21 +105,23 @@ fg-qimen projects list
 | `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 protocol header + Start) | ✅ (AMQP PLAIN via raw frame) |
 | `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write to coils/registers) |
 | `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
+| `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |
+| `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS in v0.1) |
 
-28 plugins / authenticators covering enterprise-internal + cloud-native
-+ industrial control services. Credential testing covers **24 services**
-in v0.1 (SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB
-+ PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
-IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ + Modbus +
-IPMI v2.0), with full no-exploit enforcement (`creds.txt` is the only
-side-effect).
+30 plugins / authenticators covering enterprise-internal + cloud-native
++ industrial control + building automation services. Credential testing
+covers **26 services** in v0.1 (SSH + FTP + MySQL + Redis + Memcached
++ MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
+Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
++ RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS), with full no-exploit
+enforcement (`creds.txt` is the only side-effect).
 
-28 个插件/认证器覆盖企业内网 + 云原生 + 工业控制服务。v0.1 凭据测试
-覆盖 **24 个服务**（SSH + FTP + MySQL + Redis + Memcached + MongoDB +
-MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet + Oracle +
-WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker +
-RabbitMQ + Modbus + IPMI v2.0），完整"不做漏洞利用"约束（`creds.txt`
-是唯一副作用）。
+30 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控服务。
+v0.1 凭据测试覆盖 **26 个服务**（SSH + FTP + MySQL + Redis + Memcached +
+MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
+Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
++ RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS），完整"不做漏洞利用"
+约束（`creds.txt` 是唯一副作用）。
 
 ### Credential testing (v0.1) / 凭据测试
 
