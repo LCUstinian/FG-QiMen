@@ -47,4 +47,7 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/telnet"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/oracle"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/winrm"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/pop3"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/imap"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/snmp"
 )

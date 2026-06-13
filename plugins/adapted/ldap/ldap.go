@@ -32,8 +32,16 @@ func (p *Plugin) Name() string { return "ldap" }
 // Ports returns default LDAP ports. / Ports 返回默认 LDAP 端口。
 func (p *Plugin) Ports() []int { return []int{389, 636} }
 
-// Modes returns Identify only. / Modes 仅返回 Identify。
-func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify }
+// Modes returns Identify + Credential. / Modes 返回 Identify + Credential。
+//
+// Credential() is implemented in core/cred/protocols/ldap.go
+// (LDAPAuthenticator via go-ldap/ldap/v3 simple bind). The plugin's
+// Credential method is a no-op stub because the pipeline routes
+// cred testing through the central cred.Scheduler.
+// / Credential() 实现在 core/cred/protocols/ldap.go（LDAPAuthenticator
+// via go-ldap/ldap/v3 simple bind）。plugin 的 Credential 方法是空 stub，
+// 因为管线把凭据测试路由到中央 cred.Scheduler。
+func (p *Plugin) Modes() plugins.Mode { return plugins.ModeIdentify | plugins.ModeCredential }
 
 // Credential is a no-op stub. / Credential 空 stub。
 func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []common.Cred) *common.Result {
