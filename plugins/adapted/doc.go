@@ -42,4 +42,5 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/ldap"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/memcached"
 	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/elasticsearch"
+	_ "github.com/LCUstinian/FG-QiMen/plugins/adapted/rdp"
 )
