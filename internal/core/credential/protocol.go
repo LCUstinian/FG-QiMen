@@ -1,5 +1,5 @@
-// Package cred: per-protocol authenticator interface + result types.
-// Package cred: 按协议 authenticator 接口 + 结果类型。
+// Package credential: per-protocol authenticator interface + result types.
+// Package credential: 按协议 authenticator 接口 + 结果类型。
 package credential
 
 import (
@@ -11,9 +11,11 @@ import (
 // Authenticator is the per-protocol authentication engine.
 // Authenticator 是按协议的认证引擎。
 //
-// Implementations live in core/cred/protocols/.
+// Implementations live under auth/{database,email,filestorage,messaging,network,remote}/
+// (one package per protocol, self-registering via init()).
 //
-// 实现位于 core/cred/protocols/。
+// 实现位于 auth/{database,email,filestorage,messaging,network,remote}/
+// （每协议一个包，通过 init() 自动注册）。
 //
 // HARD RULE: implementations MUST NOT open sessions, execute commands,
 // or take any other post-auth action. The Hit is the only side effect.
@@ -40,11 +42,11 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, host string, port int, creds []Cred, timeout time.Duration) (*Hit, error)
 }
 
-// registry maps service name → Authenticator. Populated by protocols/
-// via init() (each protocol calls Register on import).
+// registry maps service name → Authenticator. Populated by each
+// auth/<cat>/<protocol> package's init() (which calls Register on import).
 //
-// registry 映射 service 名 → Authenticator。由 protocols/ 在 init() 中
-// 填充（每个协议在 import 时调 Register）。
+// registry 映射 service 名 → Authenticator。由 auth/<cat>/<protocol> 包
+// 的 init() 在 import 时调 Register 填充。
 var (
 	regMu sync.RWMutex
 	reg   = map[string]Authenticator{}
@@ -57,7 +59,7 @@ func Register(auth Authenticator) {
 	regMu.Lock()
 	defer regMu.Unlock()
 	if _, dup := reg[auth.Name()]; dup {
-		panic("cred: duplicate authenticator registration for " + auth.Name())
+		panic("credential: duplicate authenticator registration for " + auth.Name())
 	}
 	reg[auth.Name()] = auth
 }
