@@ -38,22 +38,25 @@ type Options struct {
 	FirstOnly bool
 }
 
-// DefaultOptions returns sensible defaults: ICMP + TCP + system-ping +
-// ARP + NetBIOS, 3s timeout, 200 threads, first-only. Probes that
-// fail Available() are silently skipped at runtime.
+// DefaultOptions returns sensible defaults: ICMP + TCP + system-ping,
+// plus any LAN-only probes registered via RegisterLANProbe (typically
+// ARP + NetBIOS, when the internal/discovery package is blank-imported).
+// 3s timeout, 200 threads, first-only. Probes that fail Available()
+// are silently skipped at runtime.
 //
-// DefaultOptions 返回合理默认：ICMP + TCP + system-ping + ARP +
-// NetBIOS，3s 超时，200 线程，first-only。Available() 失败的 probe
-// 在运行时被静默跳过。
+// DefaultOptions 返回合理默认：ICMP + TCP + system-ping，再追加所有
+// 通过 RegisterLANProbe 注册的 LAN-only probe（通常是 ARP + NetBIOS，
+// 仅在 blank-import internal/discovery 时存在）。3s 超时，200 线程，
+// first-only。Available() 失败的 probe 在运行时被静默跳过。
 func DefaultOptions() Options {
+	probes := []Probe{
+		NewICMPProbe(),
+		NewTCPProbe(),
+		NewSystemPingProbe(),
+	}
+	probes = append(probes, RegisteredLANProbes()...)
 	return Options{
-		Probes: []Probe{
-			NewICMPProbe(),
-			NewTCPProbe(),
-			NewSystemPingProbe(),
-			NewARPProbe(),
-			NewNBNSProbe(),
-		},
+		Probes:    probes,
 		Timeout:   3 * time.Second,
 		Threads:   200,
 		FirstOnly: true,

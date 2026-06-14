@@ -1,29 +1,39 @@
 // Package alive implements host discovery (liveness probing).
 // Package alive 实现主机发现（存活探测）。
 //
-// Five probe strategies are provided, in pluggable order:
+// Built-in probe strategies:
 //   - TCP-ping  : connect to a small set of well-known ports
 //   - ICMP echo : raw socket ICMP_ECHO_REQUEST
 //   - System    : shell out to the OS `ping` command
-//   - ARP       : OS ARP table lookup (LAN-only; bypasses firewalls)
-//   - NetBIOS   : NBNS query to UDP 137 (LAN-only; bypasses firewalls)
 //
-// The Discovery orchestrator runs the probes in the configured order
+// Additional LAN-only probes (ARP, NetBIOS) live in the sibling
+// `internal/discovery` package and register themselves into the
+// LAN-probe registry below via init(). Callers wanting them in
+// DefaultOptions() blank-import that package:
+//
+//	import _ "github.com/LCUstinian/FG-QiMen/internal/discovery"
+//
+// The Discovery orchestrator runs the configured probes in order
 // and returns a Hit as soon as any one succeeds (first-match).
 //
-// 五种探测策略按可配置顺序运行：
+// 内置探测策略：
 //   - TCP-ping  : 连接一组常见端口
 //   - ICMP echo : raw socket ICMP_ECHO_REQUEST
 //   - System    : 调系统 `ping` 命令
-//   - ARP       : OS ARP 表查询（仅 LAN；绕过防火墙）
-//   - NetBIOS   : NBNS 查询到 UDP 137（仅 LAN；绕过防火墙）
 //
-// Discovery 调度器按顺序跑，任一成功即返回 Hit（first-match）。
+// 仅 LAN 可用的探测（ARP、NetBIOS）位于兄弟包 `internal/discovery`，
+// 通过 init() 自动注册到下方 LAN-probe 注册表。希望 DefaultOptions()
+// 包含它们的调用方做一次 blank import：
+//
+//	import _ "github.com/LCUstinian/FG-QiMen/internal/discovery"
+//
+// Discovery 调度器按顺序跑已配置 probe，任一成功即返回 Hit（first-match）。
 package alive
 
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -87,4 +97,42 @@ type Probe interface {
 	// Available 报告该 probe 在当前环境是否可用（如 Windows 上 ICMP raw
 	// socket 需要 admin）。返回非 nil 视为"跳过此 probe"，调度器不会调用。
 	Available() error
+}
+
+// lanProbes is the registry of LAN-only probes (ARP, NetBIOS) that
+// sibling packages register into via RegisterLANProbe. DefaultOptions
+// appends a snapshot to its probe list, so the registry behaves like
+// a blank-import-driven plugin system.
+//
+// lanProbes 是 LAN-only probe 的注册表（ARP、NetBIOS），由兄弟包通过
+// RegisterLANProbe 注册。DefaultOptions 将注册表快照追加到 probe 列表，
+// 因此该注册表表现得像一个 blank-import 驱动的插件系统。
+var (
+	lanProbesMu sync.Mutex
+	lanProbes   []Probe
+)
+
+// RegisterLANProbe adds p to the LAN-probe registry. Intended to be
+// called from init() of probe implementations in sibling packages.
+// Order of registration is preserved.
+//
+// RegisterLANProbe 把 p 加入 LAN-probe 注册表。预期在兄弟包的 probe
+// 实现 init() 中调用。保留注册顺序。
+func RegisterLANProbe(p Probe) {
+	lanProbesMu.Lock()
+	defer lanProbesMu.Unlock()
+	lanProbes = append(lanProbes, p)
+}
+
+// RegisteredLANProbes returns a snapshot of the LAN-probe registry,
+// in registration order. Safe for concurrent use.
+//
+// RegisteredLANProbes 返回 LAN-probe 注册表的快照（按注册顺序）。
+// 并发安全。
+func RegisteredLANProbes() []Probe {
+	lanProbesMu.Lock()
+	defer lanProbesMu.Unlock()
+	out := make([]Probe, len(lanProbes))
+	copy(out, lanProbes)
+	return out
 }

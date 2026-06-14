@@ -1,4 +1,4 @@
-// Package alive: NetBIOS (NBNS) probe.
+// netbios.go — NetBIOS (NBNS) probe.
 //
 // Sends a NetBIOS Name Service (NBNS) status query to UDP 137 and
 // treats any valid response as proof of liveness. The query asks
@@ -11,14 +11,14 @@
 // service. A non-NetBIOS host will still drop the packet
 // silently (UDP), and the read will time out.
 //
-// 包 alive：NetBIOS（NBNS）探测。
+// netbios.go — NetBIOS（NBNS）探测。
 // 发 NetBIOS Name Service（NBNS）状态查询到 UDP 137 并把任何有效响应
 // 视为存活证据。查询请求目标自己的名字；响应带 NBSTAT 结构（名字 + MAC）。
 //
 // 我们其实不解析响应——存活探测的目标只是"有东西响应了吗？"。响应
 // NBNS 查询的目标在 LAN 上且跑 NetBIOS 服务。非 NetBIOS 主机直接
 // 丢弃包（UDP），读超时。
-package alive
+package discovery
 
 import (
 	"context"
@@ -26,6 +26,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 )
 
 // DefaultNBNSName is the wildcard name we encode for status queries.
@@ -49,32 +51,32 @@ type NBNSProbe struct {
 // NewNBNSProbe 返回使用通配符名的 NBNSProbe。
 func NewNBNSProbe() *NBNSProbe { return &NBNSProbe{NameBytes: encodeNetBIOSName(DefaultNBNSName)} }
 
-// Name implements Probe. / Name 实现 Probe。
+// Name implements alive.Probe. / Name 实现 alive.Probe。
 func (p *NBNSProbe) Name() string { return "netbios" }
 
-// Method implements Probe. / Method 实现 Probe。
-func (p *NBNSProbe) Method() Method { return MethodNetBIOS }
+// Method implements alive.Probe. / Method 实现 alive.Probe。
+func (p *NBNSProbe) Method() alive.Method { return alive.MethodNetBIOS }
 
-// Available implements Probe. NBNS uses raw UDP — works everywhere.
-// / Available 实现 Probe。NBNS 用裸 UDP——所有平台都能用。
+// Available implements alive.Probe. NBNS uses raw UDP — works everywhere.
+// / Available 实现 alive.Probe。NBNS 用裸 UDP——所有平台都能用。
 func (p *NBNSProbe) Available() error { return nil }
 
-// Probe implements Probe. Sends a single NBNS status query, returns
-// Hit on any response. / Probe 实现 Probe。发单条 NBNS 状态查询，
+// Probe implements alive.Probe. Sends a single NBNS status query, returns
+// Hit on any response. / Probe 实现 alive.Probe。发单条 NBNS 状态查询，
 // 任何响应即返回 Hit。
-func (p *NBNSProbe) Probe(ctx context.Context, host string, timeout time.Duration) (Hit, error) {
+func (p *NBNSProbe) Probe(ctx context.Context, host string, timeout time.Duration) (alive.Hit, error) {
 	start := time.Now()
 	addr := net.JoinHostPort(host, "137")
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "udp", addr)
 	if err != nil {
-		return Hit{}, err
+		return alive.Hit{}, err
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	pkt := buildNBNSStatusQuery(p.NameBytes)
 	if _, err := conn.Write(pkt); err != nil {
-		return Hit{}, err
+		return alive.Hit{}, err
 	}
 	// Read response: NBNS response is at least 12 bytes
 	// (header: NAME_TRN_ID(2) + FLAGS(2) + QDCOUNT(2) + ANCOUNT(2) +
@@ -83,19 +85,19 @@ func (p *NBNSProbe) Probe(ctx context.Context, host string, timeout time.Duratio
 	// NSCOUNT(2) + ARCOUNT(2)）。
 	buf := make([]byte, 512)
 	if _, err := conn.Read(buf); err != nil {
-		return Hit{}, ErrUnreachable
+		return alive.Hit{}, alive.ErrUnreachable
 	}
 	if len(buf) < 12 {
-		return Hit{}, ErrUnreachable
+		return alive.Hit{}, alive.ErrUnreachable
 	}
 	// First 2 bytes are the transaction ID (echoed from request).
 	// Bits in FLAGS determine success/error. We just check that
 	// any reply came back. / 前 2 字节是 transaction ID（从请求回显）。
 	// FLAGS 决定成功/错误。我们只检查有响应。
-	return Hit{
+	return alive.Hit{
 		Host:   host,
 		Port:   137,
-		Method: MethodNetBIOS,
+		Method: alive.MethodNetBIOS,
 		RTT:    time.Since(start),
 		Time:   time.Now(),
 	}, nil
@@ -111,8 +113,9 @@ func (p *NBNSProbe) Probe(ctx context.Context, host string, timeout time.Duratio
 //   - 2 bytes: ARCOUNT = 0x0000
 //   - Question: encoded name (32 bytes) + null terminator (1 byte) +
 //     type (2 bytes) + class (2 bytes) = 37 bytes
+//
 // / buildNBNSStatusQuery 构造 NetBIOS Name Service "Status" 查询包
-//（opcode = 0x00，RD = 1）。布局：
+// （opcode = 0x00，RD = 1）。布局：
 //   - 2 字节：NAME_TRN_ID = 0x1234（任意）
 //   - 2 字节：FLAGS = 0x0110（标准查询，RD=1）
 //   - 2 字节：QDCOUNT = 0x0001（1 个问题）
@@ -128,17 +131,17 @@ func buildNBNSStatusQuery(nameBytes []byte) []byte {
 	}
 	pkt := make([]byte, 0, 12+33+4)
 	// Header (12 bytes). / 头（12 字节）。
-	pkt = append(pkt, 0x12, 0x34)       // NAME_TRN_ID
-	pkt = append(pkt, 0x01, 0x10)       // FLAGS: standard query + RD
-	pkt = append(pkt, 0x00, 0x01)       // QDCOUNT
-	pkt = append(pkt, 0x00, 0x00)       // ANCOUNT
-	pkt = append(pkt, 0x00, 0x00)       // NSCOUNT
-	pkt = append(pkt, 0x00, 0x00)       // ARCOUNT
+	pkt = append(pkt, 0x12, 0x34) // NAME_TRN_ID
+	pkt = append(pkt, 0x01, 0x10) // FLAGS: standard query + RD
+	pkt = append(pkt, 0x00, 0x01) // QDCOUNT
+	pkt = append(pkt, 0x00, 0x00) // ANCOUNT
+	pkt = append(pkt, 0x00, 0x00) // NSCOUNT
+	pkt = append(pkt, 0x00, 0x00) // ARCOUNT
 	// Question name (length-prefixed 32 bytes + null).
 	// / 问题名（长度前缀 32 字节 + 空）。
-	pkt = append(pkt, 0x20)            // 32 (length of encoded name)
-	pkt = append(pkt, nameBytes...)     // 32 bytes
-	pkt = append(pkt, 0x00)             // null terminator
+	pkt = append(pkt, 0x20)         // 32 (length of encoded name)
+	pkt = append(pkt, nameBytes...) // 32 bytes
+	pkt = append(pkt, 0x00)         // null terminator
 	// Type (NBSTAT = 0x0021) + Class (IN = 0x0001).
 	// / Type（NBSTAT = 0x0021）+ Class（IN = 0x0001）。
 	var nbstatType [2]byte
@@ -161,9 +164,9 @@ func buildNBNSStatusQuery(nameBytes []byte) []byte {
 // 高位。RFC 1001 §14.1 标准 NetBIOS 名编码。
 func encodeNetBIOSName(name string) []byte {
 	const (
-		label       = 0x20 // 0b00100000 = 0x20 (RFC 1001 encoded label)
-		lowNibble   = 0x0F
-		highNibble  = 0xF0
+		label      = 0x20 // 0b00100000 = 0x20 (RFC 1001 encoded label)
+		lowNibble  = 0x0F
+		highNibble = 0xF0
 	)
 	in := make([]byte, 16)
 	copy(in, []byte(name))
@@ -178,3 +181,11 @@ func encodeNetBIOSName(name string) []byte {
 
 // _ keeps strconv referenced. / _ 保 strconv。
 var _ = strconv.Itoa
+
+// init registers the NBNS probe with the alive package so callers
+// who blank-import this package get it in alive.DefaultOptions().
+// init 把 NBNS probe 注册到 alive 包，使 blank-import 本包的调用方
+// 在 alive.DefaultOptions() 中拿到它。
+func init() {
+	alive.RegisterLANProbe(NewNBNSProbe())
+}

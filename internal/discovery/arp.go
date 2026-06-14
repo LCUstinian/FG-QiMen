@@ -1,4 +1,32 @@
-// Package alive: ARP probe (LAN host discovery).
+// Package discovery: LAN-only host discovery probes (ARP + NBNS).
+//
+// These probes live outside the core/alive package because they only
+// produce hits inside the broadcast domain (ARP) or on hosts running
+// the NetBIOS service (NBNS) — useful complements to ICMP/TCP for
+// internal-LAN scans, but useless across the internet.
+//
+// The package registers its probes via init() into alive's LAN-probe
+// registry, so callers opt in with a single blank import:
+//
+//	import _ "github.com/LCUstinian/FG-QiMen/internal/discovery"
+//
+// and alive.DefaultOptions() then includes ARP + NBNS. Callers who
+// want an internet-only scan simply omit the blank import.
+//
+// 包 discovery：LAN-only 主机发现 probe（ARP + NBNS）。
+// 这两个 probe 单独成包，因为它们仅在广播域内（ARP）或运行 NetBIOS
+// 服务的主机上（NBNS）才能产生 hit ——它们是内网扫描中对 ICMP/TCP 的
+// 有益补充，但跨互联网无用。
+//
+// 包通过 init() 把自己注册到 alive 的 LAN-probe 注册表，
+// 调用方只需一次 blank import 即可启用：
+//
+//	import _ "github.com/LCUstinian/FG-QiMen/internal/discovery"
+//
+// 之后 alive.DefaultOptions() 即包含 ARP + NBNS。
+// 仅扫互联网的调用方不 import 即可禁用。
+//
+// arp.go — ARP probe (LAN host discovery via OS ARP table).
 //
 // Two strategies are used, picked at runtime per OS:
 //   - Linux:  parse /proc/net/arp (free, no subprocess)
@@ -15,7 +43,7 @@
 // boot, or you've never talked to it), it won't be detected. For
 // a true "wake-up" probe, layer ICMP/TCP-ping before ARP.
 //
-// 包 alive：ARP 探测（LAN 主机发现）。
+// arp.go — ARP 探测（通过 OS ARP 表做 LAN 主机发现）。
 // 两种策略按 OS 选：Linux 解析 /proc/net/arp（无 subprocess），macOS /
 // Windows / 其他跑 `arp -an` 然后 grep。
 // 如果目标 IP 在 OS ARP 表中且条目状态为 "complete" 或 "permanent"
@@ -26,7 +54,7 @@
 // 注：这是被动表查询，不是免费 ARP 发送。如果主机尚未在表中
 //（如刚开机，或从未与它通信），就探测不到。要做"唤醒"探测，
 // 前面叠 ICMP / TCP-ping。
-package alive
+package discovery
 
 import (
 	"bufio"
@@ -37,6 +65,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 )
 
 // ARPProbe probes hosts by looking them up in the OS ARP table.
@@ -53,21 +83,21 @@ type ARPProbe struct {
 // strategy per OS. / NewARPProbe 返回按 OS 自动选策略的 ARPProbe。
 func NewARPProbe() *ARPProbe { return &ARPProbe{} }
 
-// Name implements Probe. / Name 实现 Probe。
+// Name implements alive.Probe. / Name 实现 alive.Probe。
 func (p *ARPProbe) Name() string { return "arp" }
 
-// Method implements Probe. / Method 实现 Probe。
-func (p *ARPProbe) Method() Method { return MethodARP }
+// Method implements alive.Probe. / Method 实现 alive.Probe。
+func (p *ARPProbe) Method() alive.Method { return alive.MethodARP }
 
-// Available implements Probe. ARP table lookup works on all
+// Available implements alive.Probe. ARP table lookup works on all
 // platforms but is most useful on LAN. On a host with no network
 // interfaces (very rare), it returns an error.
-// / Available 实现 Probe。ARP 表查询所有平台都能工作但最有用的
+// / Available 实现 alive.Probe。ARP 表查询所有平台都能工作但最有用的
 // 是 LAN 上。在没有网络接口的主机（极罕见）上返 error。
 func (p *ARPProbe) Available() error { return nil }
 
-// Probe implements Probe. / Probe 实现 Probe。
-func (p *ARPProbe) Probe(ctx context.Context, host string, timeout time.Duration) (Hit, error) {
+// Probe implements alive.Probe. / Probe 实现 alive.Probe。
+func (p *ARPProbe) Probe(ctx context.Context, host string, timeout time.Duration) (alive.Hit, error) {
 	start := time.Now()
 	found := false
 	var err error
@@ -77,26 +107,30 @@ func (p *ARPProbe) Probe(ctx context.Context, host string, timeout time.Duration
 		found, err = p.lookupViaProcNetArp(host)
 	}
 	if err != nil {
-		return Hit{}, err
+		return alive.Hit{}, err
 	}
 	if !found {
-		return Hit{}, ErrUnreachable
+		return alive.Hit{}, alive.ErrUnreachable
 	}
-	return Hit{
+	return alive.Hit{
 		Host:   host,
 		Port:   0,
-		Method: MethodARP,
+		Method: alive.MethodARP,
 		RTT:    time.Since(start),
 		Time:   time.Now(),
 	}, nil
 }
 
 // lookupViaProcNetArp parses /proc/net/arp on Linux. Each line:
-//   IP  HWType  Flags  HWAddress  Mask  Device
+//
+//	IP  HWType  Flags  HWAddress  Mask  Device
+//
 // where Flags is "0x0" (incomplete), "0x2" (complete), "0x4" (permanent), ...
 //
 // / lookupViaProcNetArp 解析 Linux 的 /proc/net/arp。每行：
-//   IP  HWType  Flags  HWAddress  Mask  Device
+//
+//	IP  HWType  Flags  HWAddress  Mask  Device
+//
 // Flags 是 "0x0"（incomplete）、"0x2"（complete）、"0x4"（permanent）等。
 func (p *ARPProbe) lookupViaProcNetArp(host string) (bool, error) {
 	f, err := os.Open("/proc/net/arp")
@@ -175,4 +209,12 @@ func (p *ARPProbe) lookupViaCmd(ctx context.Context, host string) (bool, error) 
 		return true, nil
 	}
 	return false, nil
+}
+
+// init registers the ARP probe with the alive package so callers
+// who blank-import this package get it in alive.DefaultOptions().
+// init 把 ARP probe 注册到 alive 包，使 blank-import 本包的调用方
+// 在 alive.DefaultOptions() 中拿到它。
+func init() {
+	alive.RegisterLANProbe(NewARPProbe())
 }

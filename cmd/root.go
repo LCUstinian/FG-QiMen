@@ -43,6 +43,13 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"     // register SNMP/LDAP/Modbus/BACnet/Docker/SOCKS5
 	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/remote"      // register SSH/FTP/Telnet/VNC/WinRM/IPMI
 
+	// Register LAN-only host discovery probes (ARP + NetBIOS) into
+	// alive.DefaultOptions(). Omitting this import would yield an
+	// internet-only scan (ICMP + TCP + system-ping only).
+	// 注册 LAN-only 主机发现 probe（ARP + NetBIOS）到 alive.DefaultOptions()。
+	// 不 import 则得到仅互联网扫描（仅 ICMP + TCP + system-ping）。
+	_ "github.com/LCUstinian/FG-QiMen/internal/discovery"
+
 	// Register all built-in identification plugins via their init() funcs.
 	// 通过 init() 注册所有内置识别插件。
 	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted"
