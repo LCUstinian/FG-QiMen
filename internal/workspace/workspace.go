@@ -82,7 +82,7 @@ func openPersistent(name string) (*Project, error) {
 	if name == "" {
 		return nil, fmt.Errorf("persistent project requires non-empty name")
 	}
-	dir := filepath.Join("runs", "projects", name)
+	dir := filepath.Join(ProjectsRoot(), name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
@@ -162,4 +162,60 @@ func (p *Project) AsStore() *store.Store {
 		return nil
 	}
 	return store.NewStore(p.DB)
+}
+
+// ProjectsRoot returns the directory under which persistent projects
+// live. It is a single source of truth shared by Open / List / Delete
+// so that all three agree on the on-disk layout.
+//
+// ProjectsRoot 返回持久化项目所在的根目录。Open / List / Delete 共享
+// 该函数，保证三者对磁盘布局的认知一致。
+func ProjectsRoot() string {
+	return filepath.Join("runs", "projects")
+}
+
+// List returns the names of all persistent project directories that
+// currently exist under ProjectsRoot. Missing root → empty list (not
+// an error: a fresh checkout has no projects yet).
+//
+// List 返回 ProjectsRoot 下当前存在的所有持久化项目名。根目录不存在 →
+// 返回空列表（不算错误：全新 checkout 还没有任何项目）。
+func List() ([]string, error) {
+	root := ProjectsRoot()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", root, err)
+	}
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		out = append(out, e.Name())
+	}
+	return out, nil
+}
+
+// Delete removes a persistent project directory and all its contents
+// (bbolt DB, results, creds). Refuses to operate on ephemeral mode
+// (name == "") to prevent accidentally rm -rf of the cwd.
+//
+// Delete 删除一个持久化项目目录及其所有内容（bbolt DB、结果、凭据）。
+// 拒绝在即扫即走模式（name == ""）下操作，避免误删当前工作目录。
+func Delete(name string) error {
+	if name == "" {
+		return fmt.Errorf("refuse to delete ephemeral project (empty name)")
+	}
+	dir := filepath.Join(ProjectsRoot(), name)
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a project directory", dir)
+	}
+	return os.RemoveAll(dir)
 }
