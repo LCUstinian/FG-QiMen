@@ -136,3 +136,43 @@ func RegisteredLANProbes() []Probe {
 	copy(out, lanProbes)
 	return out
 }
+
+// alwaysOnProbes is the registry of always-on probes (ICMP, TCP-ping,
+// system-ping) that the in-tree alive.probes package registers into
+// via RegisterAlwaysOnProbe in its init(). Mirrors the LAN-probe
+// registry so adding a new always-on probe does not require editing
+// DefaultOptions — only init() registration.
+//
+// alwaysOnProbes 是始终启用 probe 的注册表（ICMP、TCP-ping、system-ping），
+// 由内部 alive.probes 包在 init() 中通过 RegisterAlwaysOnProbe 注册。
+// 与 LAN-probe 注册表对称，让新增 always-on probe 只需 init() 注册、
+// 不必改 DefaultOptions。
+var (
+	alwaysOnProbesMu sync.Mutex
+	alwaysOnProbes   []Probe
+)
+
+// RegisterAlwaysOnProbe adds p to the always-on probe registry.
+// Intended to be called from init() of probe implementations.
+// Order of registration is preserved.
+//
+// RegisterAlwaysOnProbe 把 p 加入 always-on probe 注册表。预期在
+// probe 实现的 init() 中调用。保留注册顺序。
+func RegisterAlwaysOnProbe(p Probe) {
+	alwaysOnProbesMu.Lock()
+	defer alwaysOnProbesMu.Unlock()
+	alwaysOnProbes = append(alwaysOnProbes, p)
+}
+
+// RegisteredAlwaysOnProbes returns a snapshot of the always-on probe
+// registry, in registration order. Safe for concurrent use.
+//
+// RegisteredAlwaysOnProbes 返回 always-on probe 注册表的快照
+// （按注册顺序）。并发安全。
+func RegisteredAlwaysOnProbes() []Probe {
+	alwaysOnProbesMu.Lock()
+	defer alwaysOnProbesMu.Unlock()
+	out := make([]Probe, len(alwaysOnProbes))
+	copy(out, alwaysOnProbes)
+	return out
+}
