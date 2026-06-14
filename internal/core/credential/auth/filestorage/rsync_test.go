@@ -109,9 +109,10 @@ func readFullRSTest(c net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// rsyncHash implements the rsync MD5 challenge-response (matches
-// the impl in core/cred/protocols/rsync.go). / rsyncHash 实现 rsync
-// MD5 challenge-response（跟 core/cred/protocols/rsync.go 的实现一致）。
+// rsyncHashTest implements the rsync MD5 challenge-response (matches
+// the impl in internal/core/credential/auth/filestorage/rsync.go).
+// / rsyncHashTest 实现 rsync MD5 challenge-response
+// （跟 internal/core/credential/auth/filestorage/rsync.go 的实现一致）。
 func rsyncHashTest(pass string, challenge []byte) []byte {
 	h := md5.New()
 	h.Write(challenge)
