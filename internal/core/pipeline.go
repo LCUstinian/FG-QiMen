@@ -90,7 +90,12 @@ func runPluginWorker(
 					}
 				}
 			}
-			for _, p := range plugins.All() {
+			// Apply the -plugins filter (if any) before dispatching.
+			// Empty cfg.Plugins means "all plugins" (the default).
+			// / 在分发前应用 -plugins 过滤（若有）。空 cfg.Plugins
+			// 意为"全部插件"（默认）。
+			selected := selectPlugins(plugins.All(), sess.Config.Plugins)
+			for _, p := range selected {
 				if !matchesPort(p.Ports(), item.Port) {
 					continue
 				}
@@ -230,6 +235,35 @@ func loadCreds(sess *session.Session) []types.Cred {
 	for _, u := range users {
 		for _, p := range passes {
 			out = append(out, types.Cred{User: u, Pass: p, AuthType: string(credential.AuthPassword)})
+		}
+	}
+	return out
+}
+
+// selectPlugins returns the subset of all that match the
+// comma-separated cfg.Plugins allow-list. Empty allow-list returns
+// all (the documented "no filter" behaviour). Unknown names are
+// silently dropped — the audit-fix-7 test will surface typos at
+// scan start via the available-plugin log line.
+//
+// selectPlugins 返回 all 中匹配逗号分隔的 cfg.Plugins 白名单的子集。
+// 空白名单返回全部（文档约定的"无过滤"行为）。未知名字会被静默丢弃
+// ——扫描启动时通过 available-plugin 日志行让拼写错误可见。
+func selectPlugins(all []plugins.Plugin, allowList string) []plugins.Plugin {
+	if allowList == "" {
+		return all
+	}
+	allowed := make(map[string]struct{})
+	for _, name := range strings.Split(allowList, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	out := make([]plugins.Plugin, 0, len(allowed))
+	for _, p := range all {
+		if _, ok := allowed[p.Name()]; ok {
+			out = append(out, p)
 		}
 	}
 	return out
