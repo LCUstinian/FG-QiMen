@@ -97,7 +97,6 @@ func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	// Phase 1: read initial banner / negotiate IAC, until we see a
 	// "login:" / "username:" prompt (or timeout). / 阶段 1：读初始

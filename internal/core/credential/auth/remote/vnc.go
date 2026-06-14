@@ -80,7 +80,6 @@ func (a *VNCAuthenticator) Authenticate(ctx context.Context, host string, port i
 		if err != nil {
 			return nil, err
 		}
-		_ = conn.SetDeadline(time.Now().Add(timeout))
 		cfg := &vnc.ClientConfig{
 			Auth: []vnc.ClientAuth{
 				&vnc.PasswordAuth{Password: c.Pass},

@@ -88,6 +88,12 @@ func (a *BACnetAuthenticator) attempt(ctx context.Context, addr string, timeout 
 		return false, err
 	}
 	defer conn.Close()
+	// Set a per-call deadline: without it, Read on a UDP socket that
+	// never receives a reply would block forever (closed UDP ports on
+	// Windows do not always return ICMP-unreachable promptly, unlike
+	// Linux). / 设置单次 deadline：未设时，对永远不响应的 UDP socket
+	// 调 Read 会无限阻塞（Windows 上关闭的 UDP 端口不一定及时返
+	// ICMP-unreachable，与 Linux 不同）。
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Build BACnet/IP Who-Is packet:
 	//   BVLC (4 bytes): type=0x0b (Original-Unicast NPDU), func=0x10

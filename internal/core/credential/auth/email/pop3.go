@@ -86,7 +86,6 @@ func (a *POP3Authenticator) attempt(ctx context.Context, addr, user, pass string
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	// Read greeting. / 读 greeting。

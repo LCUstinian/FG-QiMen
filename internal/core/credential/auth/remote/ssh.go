@@ -80,6 +80,18 @@ func (a *SSHAuthenticator) Authenticate(ctx context.Context, host string, port i
 //
 // sshTry 执行一次 SSH 密码认证。成功返回 true。返回前关闭连接——我们
 // 从不打开 session。
+//
+// sshTry takes a pre-built host:port `addr` string (constructed by
+// the caller to share the address computation across the
+// try-each-cred loop), so it cannot use credential.DialTCP which
+// takes (host, port) separately. We use the raw net.Dialer pattern
+// here for that one reason; the per-cred try loop still cancels via
+// ctx and applies the timeout in the dialer.
+//
+// sshTry 接收已构造的 host:port `addr` 字符串（由调用方构造以跨
+// 凭据循环共享），所以无法用 credential.DialTCP（后者接收 host+port）。
+// 本函数因该原因保留 raw net.Dialer；每凭据试连仍通过 ctx 取消
+// 并由 dialer 携带 timeout。
 func sshTry(ctx context.Context, addr string, c credential.Cred, hkcb ssh.HostKeyCallback, timeout time.Duration) bool {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)

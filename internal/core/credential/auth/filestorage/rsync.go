@@ -96,7 +96,6 @@ func (a *RsyncAuthenticator) attempt(ctx context.Context, addr, user, pass strin
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	// Read server greeting "@RSYNCD: <ver>\n". / 读服务器 greeting。

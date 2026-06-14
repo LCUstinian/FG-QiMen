@@ -97,7 +97,6 @@ func (a *SOCKS5Authenticator) attempt(ctx context.Context, addr, user, pass stri
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Greeting: VER 5, NMETHODS 1, METHODS = [0x02] (user/pass).
 	// / Greeting：VER 5，NMETHODS 1，METHODS = [0x02]（user/pass）。
 	if _, err := conn.Write([]byte{socks5Version, 0x01, socks5MethodUserPass}); err != nil {

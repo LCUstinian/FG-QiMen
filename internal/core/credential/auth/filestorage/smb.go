@@ -15,8 +15,6 @@ package filestorage
 
 import (
 	"context"
-	"fmt"
-	"net"
 	"time"
 
 	smb2 "github.com/hirochachacha/go-smb2"
@@ -55,7 +53,6 @@ func (a *SMBAuthenticator) Authenticate(ctx context.Context, host string, port i
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	for i, c := range creds {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -76,15 +73,14 @@ func (a *SMBAuthenticator) Authenticate(ctx context.Context, host string, port i
 			user = c.User
 		}
 
-		// Dial TCP with the per-attempt timeout. / 用单次超时 dial TCP。
-		d := net.Dialer{Timeout: timeout}
-		tcpConn, err := d.DialContext(ctx, "tcp", addr)
+		// Dial TCP with the per-attempt timeout (via shared helper).
+		// / 用单次超时 dial TCP（共享 helper）。
+		tcpConn, err := credential.DialTCP(ctx, host, port, timeout)
 		if err != nil {
 			// Connection refused / timeout — bail for this host.
 			// / 连接拒/超时——该 host 中止。
 			return nil, err
 		}
-		_ = tcpConn.SetDeadline(time.Now().Add(timeout))
 
 		// Build a Dialer with NTLMv2 initiator and run Session
 		// Setup. / 构造带 NTLMv2 initiator 的 Dialer 并跑 Session Setup。

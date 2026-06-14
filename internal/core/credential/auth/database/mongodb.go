@@ -79,14 +79,11 @@ func (a *MongoAuthenticator) Authenticate(ctx context.Context, host string, port
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	for i, c := range creds {
 		if ctx.Err() != nil {

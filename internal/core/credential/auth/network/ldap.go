@@ -128,6 +128,13 @@ func (a *LDAPAuthenticator) attempt(ctx context.Context, addr string, port int, 
 	// / go-ldap v3.4.x：用 DialURL 尊重 LDAP:// / LDAPS:// 前缀。
 	// v0.1 强制明文（LDAP://）——636 等 v0.2+ 加 TLS 时用 DialTLS。
 	ldapURL := "ldap://" + addr
+	// LDAP uses the go-ldap high-level DialURL which wraps a
+	// net.Dialer internally; credential.DialTCP does not fit because
+	// the dialer is owned by the ldap package, not the caller.
+	// We keep the inline net.Dialer pattern for the same reason.
+	// / LDAP 用 go-ldap 的高层 DialURL 包装 net.Dialer；dialer 归
+	// ldap 包管，credential.DialTCP 不适用（需要 caller 拥有 dialer）。
+	// 这里保留 inline net.Dialer。
 	dialer := &net.Dialer{Timeout: timeout}
 	conn, err := ldap.DialURL(ldapURL, ldap.DialWithDialer(dialer))
 	if err != nil {

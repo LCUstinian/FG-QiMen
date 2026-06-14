@@ -84,7 +84,6 @@ func (a *NFSAuthenticator) attempt(ctx context.Context, addr string, timeout tim
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Build RPC NULL call:
 	//   Fragment header (4 bytes BE):
 	//     bit 31: 1 = last fragment

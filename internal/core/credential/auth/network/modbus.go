@@ -112,7 +112,6 @@ func (a *ModbusAuthenticator) attempt(ctx context.Context, addr string, timeout 
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Build Modbus TCP request: MBAP(7) + PDU. / 构造 Modbus TCP 请求：
 	// MBAP(7) + PDU。
 	// PDU: function code 43 (0x2B), MEI type 14 (0x0E), Read Device

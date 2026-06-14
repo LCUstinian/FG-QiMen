@@ -20,7 +20,6 @@ package database
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -68,14 +67,11 @@ func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, 
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	br := bufio.NewReader(conn)
 
 	// Step 1: version probe. / Step 1: version 探针。

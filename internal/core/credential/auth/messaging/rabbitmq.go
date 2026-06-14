@@ -90,7 +90,6 @@ func (a *RabbitMQAuthenticator) attempt(ctx context.Context, addr, user, pass st
 		return false, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// 1. Protocol header. / 协议头。
 	if _, err := conn.Write([]byte("AMQP\x00\x00\x09\x01")); err != nil {
 		return false, err
