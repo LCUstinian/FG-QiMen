@@ -12,7 +12,7 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 和两种工作模式（即扫即走 vs 带 bbolt 状态的增量项目工作区）。
 
 ```
-┌─ FG-QIMEN v0.1 ──── project: corp-intranet ──── mode: linked ─┐
+┌─ FG-QIMEN v0.2 ──── project: corp-intranet ──── mode: linked ─┐
 │ ⟳ Scanning... elapsed 00:01:23  throughput 142 pps             │
 ├──────────────────────┬──────────────────────────────────────────┤
 │ Targets              │ Live Events                              │
@@ -223,41 +223,56 @@ just --list
 
 ```
 FG-QiMen/
-├── cmd/                # Cobra commands (root, scan, resume, projects, version)
-├── common/             # Config, State, Store, Output, Logger, UI, TTY
-├── core/               # Pipeline orchestrator (glue)
-│   ├── alive/         # Host discovery (Probe interface + TCP/ICMP/system-ping)
-│   ├── scan/          # Port scanning (Probe + adaptive pool + iterator)
-│   │   └── portfinger/ # Nmap-style service fingerprint (//go:embed 2.5MB probes)
-│   └── cred/          # Credential testing (Pool + Scheduler + protocols/)
-│       └── protocols/ # SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB
-├── plugins/            # Plugin interface
-│   └── adapted/
-│       ├── ssh.go     # Identify (banner grab)
-│       ├── http.go    # Identify (basic title+server)
-│       └── webtitle/  # Full HTTP fingerprinting framework
-│           ├── webtitle.go       # HTTP probe + redirect follow
-│           └── fingerprint/
-│               ├── rules.go      # 150+ hardcoded regex rules
-│               ├── enhanced.go   # FingerprintHub JSON matcher
-│               └── web_fingerprint_v4.json   # //go:embed 1.3MB
-├── tui/                # Bubbletea + Lipgloss dashboard
-├── workspace/          # Ephemeral / project workspace
-├── test/               # Test data (committed: targets, users, passes)
-├── release/            # Build outputs (gitignored)
+├── cmd/                                # Cobra commands (root / scan / resume / projects / version)
+├── internal/                           # everything below is module-private (cmd/ + tests only)
+│   ├── types/                          # leaf: Config, State, Result, Cred, Target, Logger, TTY, ExpandTargets
+│   ├── output/                         # multi-format result sink (txt/ndjson/creds/rdp) + RDPFingerprint
+│   ├── store/                          # bbolt persistence wrapper
+│   ├── ui/                             # UI interface + TextUI + NopUI (TUI lives in tui/)
+│   ├── session/                        # Session bag wiring types/output/store/ui — top of the leaf DAG
+│   ├── core/                           # pipeline orchestrator (pipeline.go, scanner.go)
+│   │   ├── alive/                      # always-on host discovery: Probe iface + Discovery + ICMP/TCP/system-ping
+│   │   ├── credential/                 # pool / protocol / scheduler
+│   │   │   └── auth/
+│   │   │       ├── database/           # PostgreSQL / MySQL / MSSQL / Oracle / MongoDB / ES / Redis / Memcached
+│   │   │       ├── email/              # POP3 / IMAP
+│   │   │       ├── filestorage/        # NFS / SMB / Rsync
+│   │   │       ├── messaging/          # RabbitMQ
+│   │   │       ├── network/            # SNMP / LDAP / Modbus / BACnet / Docker / SOCKS5
+│   │   │       └── remote/             # SSH / FTP / Telnet / VNC / WinRM / IPMI
+│   │   └── scan/                       # TCP connect + UDP probe + adaptive pool + iterator
+│   ├── discovery/                      # LAN-only host discovery: ARP + NetBIOS (opt-in via blank import)
+│   ├── portscan/
+│   │   └── fingerprint/                # Nmap-style service fingerprint (//go:embed 2.5MB nmap-service-probes.txt)
+│   ├── plugins/                        # Plugin interface + registry
+│   │   └── adapted/                    # built-in plugins, 7 category subpackages
+│   │       ├── database/{elasticsearch,memcached,mongodb,mssql,oracle,postgresql,redis}
+│   │       ├── email/{imap,pop3,smtp}
+│   │       ├── filestorage/{nfs,rsync,smb}
+│   │       ├── messaging/rabbitmq
+│   │       ├── network/{bacnet,docker,ldap,modbus,snmp,socks5}
+│   │       ├── remote/{ipmi,rdp,telnet,vnc,winrm}
+│   │       └── web/
+│   │           └── webtitle/           # HTTP probe + redirect follow + favicon mmh3
+│   │               └── fingerprint/    # FingerprintHub matcher + //go:embed 1.3MB web_fingerprint_v4.json
+│   ├── tui/                            # Bubbletea + Lipgloss dashboard
+│   └── workspace/                      # Ephemeral / project workspace (Open, Stats, ProjectsRoot, List, Delete)
+├── test/                               # Test data (committed: targets, users, passes)
+├── release/                            # Build outputs (gitignored)
 │   ├── fg-qimen[.exe]                  # current platform
 │   └── fg-qimen-{os}-{arch}[.exe]      # cross-compiled
-├── runs/               # Scan-run outputs (gitignored)
+├── runs/                               # Scan-run outputs (gitignored)
 │   ├── default/                        # ephemeral mode default
 │   │   ├── result.txt
 │   │   ├── result.json
 │   │   ├── creds.txt
-│   │   └── rdp.{json,txt}              # v0.2+
+│   │   └── rdp.{json,txt}
 │   └── projects/<name>/                # project mode default
 │       ├── fg.db                       # bbolt state
 │       └── (same output files as above)
-├── justfile            # Build / lint / test recipes
-├── README.md           # ← you are here
+├── justfile                            # Build / lint / test recipes
+├── README.md                           # ← you are here
+├── RELEASE_NOTES_v0.2.md               # v0.2 release notes (post-refactor sweep)
 ├── THIRD_PARTY_LICENSES.md
 ├── LICENSE
 ├── go.mod / go.sum
@@ -268,11 +283,12 @@ FG-QiMen/
 
 | Stage | Package | Probe / Authenticator | Plugin / Driver |
 |---|---|---|---|
-| Host discovery / 主机存活 | `core/alive` | `core/alive.TCPProbe` (TCP-ping) + `core/alive.ICMPProbe` (raw socket) + `core/alive.SystemPingProbe` (cmd) | orchestrated by `alive.New(opts).Run()` |
-| Port scan / 端口扫描 | `core/scan` | `core/scan.TCPConnectProbe` (3-way handshake) | orchestrated by `scan.NewScanner(opts).Run()` |
-| Service fingerprinting / 服务指纹 | `core/scan/portfinger` | nmap-service-probes.txt (Nmap PSL) — MatchBanner(banner) → service+version | `portfinger.NewVScan()` (standalone utility; v0.2+ wires into scanner) |
-| HTTP fingerprinting / HTTP 指纹 | `plugins/adapted/webtitle` | Nmap-style protocol detect + redirect follow + favicon mmh3 + FingerprintHub 3139 rules | `webtitle.WebTitlePlugin` (Identify) |
-| Credential test / 凭据测试 | `core/cred` | `core/cred/protocols.SSHAuthenticator` (x/crypto/ssh) / `.FTPAuthenticator` (jlaffaye/ftp) / `.MySQLAuthenticator` (go-sql-driver/mysql) / `.RedisAuthenticator` (RESP) / `.MemcachedAuthenticator` (ASCII) / `.MongoAuthenticator` (SCRAM-SHA-256) / `.MSSQLAuthenticator` (go-mssqldb TDS Login7) / `.SMBAuthenticator` (go-smb2 NTLMv2) | orchestrated by `cred.Scheduler` (one-target inline via `core.dispatchCred`) |
+| Host discovery (always on) / 主机存活（始终启用） | `internal/core/alive` | `alive.TCPProbe` (TCP-ping) + `alive.ICMPProbe` (raw socket) + `alive.SystemPingProbe` (cmd) | orchestrated by `alive.New(opts).Run()` |
+| Host discovery (LAN, opt-in) / 主机存活（LAN，opt-in） | `internal/discovery` | `discovery.ARPProbe` (OS ARP table) + `discovery.NBNSProbe` (NetBIOS UDP 137) | registers via `init()` into `alive.RegisteredLANProbes()`; cmd/root.go blank-imports the package to enable them |
+| Port scan / 端口扫描 | `internal/core/scan` | `scan.TCPConnectProbe` (3-way handshake) + `scan.UDPProbe` | orchestrated by `scan.NewScanner(opts).Run()` |
+| Service fingerprinting / 服务指纹 | `internal/portscan/fingerprint` | nmap-service-probes.txt (Nmap PSL) — `fingerprint.NewVScan().MatchBanner(banner)` → service + version | wired into `internal/core/pipeline.go` as stage 0 of each iteration |
+| HTTP fingerprinting / HTTP 指纹 | `internal/plugins/adapted/web/webtitle` | Nmap-style protocol detect + redirect follow + favicon mmh3 + FingerprintHub 3139 rules | `webtitle.WebTitlePlugin` (Identify) |
+| Credential test / 凭据测试 | `internal/core/credential` | authenticators split under `auth/{database,email,filestorage,messaging,network,remote}/` — 27 protocols total | orchestrated by `credential.Scheduler` (one-target inline via `core` pipeline) |
 
 ### Basic scan / 基本扫描
 
@@ -372,9 +388,9 @@ The hard rule for `Credential()`:
   **绝不**调用 `ssh.NewSession` / `Exec` / `Shell` 或任何认证后 API。
 
 This is enforced by code review and the `// HARD:` comments at the top of
-`plugins/adapted/ssh.go`.
+each authenticator under `internal/core/credential/auth/<category>/`.
 
-通过 code review 和 `plugins/adapted/ssh.go` 顶部的 `// HARD:` 注释强制。
+通过 code review 和 `internal/core/credential/auth/<category>/` 下每个 authenticator 顶部的 `// HARD:` 注释强制。
 
 ---
 
@@ -447,12 +463,12 @@ Global flags (subset; run `fg-qimen --help` for the full list):
 
 ## Roadmap / 路线图
 
-- **v0.1 (current)**: core architecture, ephemeral / project modes, TUI, 13 service Identify plugins, 8 Credential authenticators (SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB), basic port scan, bbolt state.
-  **v0.1（当前）**：核心架构、即扫即走/项目模式、TUI、13 个服务识别插件、8 个凭据认证器（SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB）、基础端口扫描、bbolt 状态。
-- **v0.2**: RDP deep fingerprint, more Identify plugins (postgresql / smtp / snmp / ldap / elasticsearch), full fake-server integration tests for MSSQL / SMB, complete the HTTP fingerprinting framework (CMS / WAF / favicon matching), ICMP host discovery.
-  **v0.2**：RDP 深度指纹、更多识别插件（postgresql / smtp / snmp / ldap / elasticsearch）、MSSQL / SMB 完整假服务器集成测试、完善 HTTP 指纹识别框架（CMS / WAF / favicon 匹配）、ICMP 主机发现。
-- **v0.3+**: ICS / IoT protocols (modbus / bacnet / ipmi), per-protocol "deep fingerprint + dedicated file" pattern, smarter Credential tester scheduling.
-  **v0.3+**：ICS / IoT 协议（modbus / bacnet / ipmi）、按协议的"深度指纹 + 专用文件"模式、更智能的凭据测试调度。
+- **v0.1**: core architecture, ephemeral / project modes, TUI, ~13 service Identify plugins, 8 Credential authenticators (SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB), basic port scan, bbolt state.
+  **v0.1**：核心架构、即扫即走/项目模式、TUI、约 13 个服务识别插件、8 个凭据认证器（SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB）、基础端口扫描、bbolt 状态。
+- **v0.2 (current)**: full `cmd/ + internal/*` layout (7-phase refactor — see [RELEASE_NOTES_v0.2.md](RELEASE_NOTES_v0.2.md)); credential authenticators expanded to 27 across 6 categories (database / email / filestorage / messaging / network / remote); `plugins/adapted/` split into 7 web/database/email/filestorage/messaging/network/remote subpackages; RDP deep fingerprint shipped; UDP port probe; ARP + NetBIOS LAN discovery (opt-in via blank import of `internal/discovery`); portfinger promoted to top-level `internal/portscan/fingerprint`; `common/` decomposed into types / output / store / ui / session leaf packages; `cmd/root.go` split into root / scan / resume / projects / version.
+  **v0.2（当前）**：完整 `cmd/ + internal/*` 布局（7 阶段重构，见 [RELEASE_NOTES_v0.2.md](RELEASE_NOTES_v0.2.md)）；凭据认证器扩展为 6 个类别下共 27 个；`plugins/adapted/` 拆为 7 个 web/database/email/filestorage/messaging/network/remote 子包；RDP 深度指纹落地；UDP 端口探测；ARP + NetBIOS LAN 发现（通过 blank import `internal/discovery` 启用）；portfinger 升级到顶层 `internal/portscan/fingerprint`；`common/` 拆为 types/output/store/ui/session 叶子包；`cmd/root.go` 拆为 root / scan / resume / projects / version。
+- **v0.3+**: full fake-server integration tests for MSSQL / SMB / RDP; smarter credential-scheduler with per-plugin rate limits; output rotation; project import/export; richer HTTP fingerprinting (CMS / WAF detection); first-class IPv6 target support.
+  **v0.3+**：MSSQL / SMB / RDP 完整假服务器集成测试；带按插件限速的智能凭据调度；输出滚动；项目导入导出；更丰富的 HTTP 指纹（CMS / WAF 检测）；一等公民 IPv6 目标支持。
 
 ---
 
@@ -470,8 +486,8 @@ FG-QiMen 站在多个开源项目的肩膀上。所有重用的代码均采用 M
 - **[fscan](https://github.com/shadow1ng/fscan)** by [shadow1ng](https://github.com/shadow1ng) (MIT) — the
   pipeline-decoupled scanner architecture, the service Identify +
   Credential plugin pattern, and the Nmap-style port-fingerprint
-  framework that FG-QiMen's `webtitle/`, `core/scan/portfinger/`,
-  and most `plugins/adapted/*` plugins are based on. Hard rule:
+  framework that FG-QiMen's `internal/plugins/adapted/web/webtitle/`, `internal/portscan/fingerprint/`,
+  and most `internal/plugins/adapted/{database,email,filestorage,messaging,network,remote,web}/*` plugins are based on. Hard rule:
   FG-QiMen inherits the **no-exploit** policy and drops every
   unauthorized-access / write / POC path the original carried.
   fscan 本身亦未包含利用代码，FG-QiMen 在此之上进一步剥离了
@@ -499,7 +515,7 @@ FG-QiMen 站在多个开源项目的肩膀上。所有重用的代码均采用 M
 ### Embedded data / 内嵌数据
 
 - **nmap-service-probes** (Nmap Public Source License) — embedded
-  in `core/scan/portfinger/` for service fingerprinting.
+  in `internal/portscan/fingerprint/` for service fingerprinting.
 
 ### License / 许可证
 

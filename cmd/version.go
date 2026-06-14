@@ -13,7 +13,7 @@ import (
 //	-ldflags "-X github.com/LCUstinian/FG-QiMen/cmd.Version=0.1.0".
 //
 // Version 是 FG-QiMen 的语义版本号，可通过 -ldflags 注入。
-var Version = "0.1.0-dev"
+var Version = "0.2.0"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
