@@ -99,6 +99,27 @@ func IsDumbTerm() bool {
 	return os.Getenv("TERM") == "dumb"
 }
 
+// IsNoColor reports whether the operator has opted out of color via
+// the NO_COLOR env var. Per https://no-color.org/ — any non-empty
+// value of NO_COLOR disables color; "0" and "false" are explicit
+// no-ops. We treat this as a TUI palette override, not a TUI exit
+// signal (the user still wants the dashboard, just monochrome).
+//
+// IsNoColor 报告操作员是否通过 NO_COLOR 环境变量禁用颜色。按
+// https://no-color.org/ —— NO_COLOR 任何非空值都禁用颜色；"0" 和
+// "false" 显式 opt-out。我们把它当 TUI 调色板覆盖，不当 TUI 退出
+// 信号（用户仍要 dashboard，只是单色）。
+func IsNoColor() bool {
+	v, ok := os.LookupEnv("NO_COLOR")
+	if !ok {
+		return false
+	}
+	if v == "" || v == "0" || v == "false" || v == "False" || v == "FALSE" {
+		return false
+	}
+	return true
+}
+
 // ShouldUseTUI centralises every signal that should switch us out of
 // the bubbletea TUI. The function is the single source of truth for
 // "do we render the dashboard or fall back to plain text?" — used by

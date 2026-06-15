@@ -24,11 +24,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -151,84 +148,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("scan error: %w", err)
 	}
 	return nil
-}
-
-// installSignalHandler wires SIGINT/SIGTERM into a graceful-shutdown
-// pipeline and returns:
-//   - ctx: cancelled on first signal
-//   - cancel: explicit cancellation the caller can also trigger
-//   - drainCh: closed by the caller when the scan finishes; the goroutine
-//     uses it to know that "normal completion" has occurred so it can
-//     exit without waiting for a second signal.
-//
-// preHardExit is invoked synchronously before os.Exit(1) so the TUI
-// can release its altscreen / cursor state. The function must
-// block until cleanup is complete (or the user gets a corrupted
-// terminal). It is called from the signal goroutine and must NOT
-// return; os.Exit(1) follows.
-//
-// installSignalHandler 把 SIGINT/SIGTERM 接入优雅退出管线，返回：
-//   - ctx：收到首次信号时取消
-//   - cancel：调用方主动取消
-//   - drainCh：调用方在 scan 结束时关闭；goroutine 借此知道"正常完成"
-//     而非等待第二次信号。
-//
-// preHardExit 在 os.Exit(1) 之前同步调用，以便 TUI 释放 alt screen /
-// cursor 状态。该函数必须阻塞到清理完成（否则用户终端会损坏）。它在
-// 信号 goroutine 中被调用，且不应返回；os.Exit(1) 紧随其后。
-func installSignalHandler(timeout time.Duration, preHardExit func()) (context.Context, context.CancelFunc, chan struct{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	drainCh := make(chan struct{})
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	// Release the signal handler slot when the goroutine exits so a
-	// long-lived test harness doesn't leak the underlying signal fd.
-	// 在 goroutine 退出时释放 signal handler 槽位，避免长时间运行的
-	// 测试 harness 泄漏底层的 signal fd。
-	defer signal.Stop(sigs)
-
-	// Guard the hard-exit path so it runs at most once even if both
-	// the second-signal and drain-timeout cases somehow race (they
-	// shouldn't, but the cost of a sync.Once is negligible here).
-	// 守卫硬退出路径：即便第二次信号和 drain 超时两个 case 出现竞争
-	// （理论上不会），至多执行一次。sync.Once 的开销可忽略。
-	var hardExitOnce sync.Once
-	hardExit := func(reason string) {
-		hardExitOnce.Do(func() {
-			fmt.Fprintln(os.Stderr, reason)
-			if preHardExit != nil {
-				preHardExit()
-			}
-			os.Exit(1)
-		})
-	}
-
-	go func() {
-		select {
-		case <-sigs:
-			// First signal: cancel and start drain.
-			// 第一次信号：触发取消并开始排空。
-			fmt.Fprintln(os.Stderr, "\n[!] Received interrupt, draining pipeline...")
-			cancel()
-			select {
-			case <-drainCh:
-				// Pipeline drained cleanly.
-				// 排空完成。
-			case <-sigs:
-				// Second signal within drain window: hard exit.
-				// 排空期间收到第二次信号：强退。
-				hardExit("[!] Second interrupt received, forcing exit")
-			case <-time.After(timeout):
-				// Drain timed out: hard exit.
-				// 排空超时：强退。
-				hardExit("[!] Drain timed out, forcing exit")
-			}
-		case <-drainCh:
-			// Normal completion; nothing to do.
-			// 正常完成。
-		}
-	}()
-	return ctx, cancel, drainCh
 }
 
 // buildSession constructs the Session and wires logger, UI, and store.

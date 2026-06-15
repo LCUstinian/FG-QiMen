@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/LCUstinian/FG-QiMen/internal/types"
+	"github.com/LCUstinian/FG-QiMen/internal/version"
 )
 
 // maxLiveEvents caps how many events the TUI remembers for display.
@@ -114,9 +115,17 @@ func (m Model) View() string {
 	var sb strings.Builder
 
 	// Title bar / 标题栏
+	// Version sourced from internal/version so a `just build`
+	// (which injects via -ldflags) and `go run .` from a clean
+	// checkout show the same number; the v0.2 audit (doc-1) flagged
+	// the prior hard-coded "v0.1" as user-visible drift.
+	//
+	// 版本从 internal/version 取，使 `just build`（经 -ldflags 注入）
+	// 和干净 checkout 下的 `go run .` 显示一致；v0.2 审计（doc-1）
+	// 把硬编码的 "v0.1" 标为用户可见漂移。
 	title := fmt.Sprintf(
-		"%s FG-QIMEN v0.1 %s project: %s %s mode: %s %s",
-		boxTL, boxH, m.project, boxH, m.mode, boxTR,
+		"%s FG-QIMEN %s %s project: %s %s mode: %s %s",
+		boxTL, version.Value, boxH, m.project, boxH, m.mode, boxTR,
 	)
 	sb.WriteString(stTitle.Render(title))
 	sb.WriteString("\n")

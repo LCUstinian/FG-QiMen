@@ -1,0 +1,20 @@
+FG-QiMen
+Copyright (c) 2026 LCUstinian
+
+This product includes software developed by third parties; see
+THIRD_PARTY_LICENSES.md for the canonical attribution bundle.
+
+The internal/plugins/adapted/{database,email,filestorage,messaging,network,remote}/*
+files are derived from shadow1ng/fscan (Copyright (c) 2021
+shadow1ng, MIT License, https://github.com/shadow1ng/fscan).
+The MIT §(c) obligation "The above copyright notice and this
+permission notice shall be included in all copies or
+substantial portions of the Software" is satisfied by (a) the
+per-source-file header listing the upstream URL, and (b) this
+NOTICE file pointing to the upstream repository.
+
+The web fingerprint rules embedded in
+internal/plugins/adapted/web/webtitle/fingerprint/web_fingerprint_v4.json
+are derived from the FingerprintHub dataset (MIT, cn-kali-team,
+https://github.com/0x727/FingerprintHub). The per-rule `author`
+field inside the JSON preserves the original author attribution.

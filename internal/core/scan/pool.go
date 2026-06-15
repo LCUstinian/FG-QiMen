@@ -46,6 +46,21 @@ type PoolOptions struct {
 	// Default 500ms. / AdjustInterval 自适应调并发的评估周期；默认 500ms。
 	AdjustInterval time.Duration
 
+	// OnProbeError is invoked when a probe returns a transport-layer
+	// error (ctx cancel, conn reset, etc.) that the pool chose not
+	// to record or push downstream. nil = silent; non-nil = the
+	// caller (typically core/scanner.go) logs via its session.Log.
+	// The audit (P3 / F12) flagged the previous silent-discard as
+	// hiding misconfigured probes — this hook restores visibility
+	// without coupling Pool to the Log interface.
+	//
+	// OnProbeError 在 probe 返回传输层错误（ctx cancel、conn reset
+	// 等）时被调，Pool 选择不记录也不向下游推。nil = 静默；非 nil =
+	// 调用方（通常是 core/scanner.go）通过 session.Log 记日志。审计
+	// （P3 / F12）把旧的静默丢弃标为隐藏配错的 probe——本 hook 在
+	// 不把 Pool 和 Log 接口耦合的前提下恢复可见性。
+	OnProbeError func(item Item, err error)
+
 	// FilteredShrinkRatio: if more than this fraction of recent
 	// probes return filtered, shrink concurrency by 25%.
 	// FilteredShrinkRatio：若超过这个比例的近期 probe 返回 filtered，
@@ -187,7 +202,27 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 		go func(item Item) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			res, _ := p.opts.Probe.Probe(ctx, item.Host, item.Port, p.opts.Timeout)
+			res, err := p.opts.Probe.Probe(ctx, item.Host, item.Port, p.opts.Timeout)
+			if err != nil {
+				// (P3 / F12 in the v0.2 audit) the previous code
+				// discarded the probe error with `_`, which let
+				// ctx-cancel / connection-reset pollute the
+				// adaptive window and emit a zero-value Result
+				// downstream. Treat a transport-layer error as
+				// "neither open nor filtered" so the window
+				// doesn't skew, and don't push a meaningless res
+				// to the output channel.
+				//
+				// （v0.2 审计 P3 / F12）旧代码用 `_` 丢 probe 错误，
+				// 让 ctx-cancel / 连接重置污染自适应窗口，并把零值
+				// Result 推到下游。把传输层错误视作"非 open 也非
+				// filtered"，避免窗口偏移，且不向输出 channel 推
+				// 无意义 res。
+				if p.opts.OnProbeError != nil {
+					p.opts.OnProbeError(item, err)
+				}
+				return
+			}
 			p.record(res)
 			select {
 			case out <- res:

@@ -13,8 +13,22 @@ set dotenv-load
 # Binary name / 二进制名
 binary := "fg-qimen"
 
-# Version (override with `just version=v0.2.0 build`) / 版本
-version := "0.1.0-dev"
+# Version (override with `just version=v0.3.0 build`) / 版本
+#
+# Keep in sync with internal/version/version.go const. The v0.2
+# audit (doc-3) flagged the prior 0.1.0-dev default as silently
+# diverging from the source-of-truth const — a `just build` then
+# produced a binary that reported 0.1.0-dev while `go run .` from a
+# clean checkout reported 0.2.0. We now default to 0.2.0 to match
+# the const; CI / release workflows override this via
+# `just version=v0.x.y build`.
+#
+# 与 internal/version/version.go 常量保持一致。v0.2 审计（doc-3）
+# 把旧的 0.1.0-dev 默认标为与真源常量静默漂移——`just build` 出的
+# 二进制报 0.1.0-dev，而干净 checkout 下的 `go run .` 报 0.2.0。
+# 现默认 0.2.0 以匹配常量；CI / release 工作流通过
+# `just version=v0.x.y build` 覆盖。
+version := "0.2.0"
 
 # Build ldflags (strip + clear build-id + version injection) / 构建 ldflags
 # -s: omit symbol table
@@ -85,6 +99,28 @@ all: clean-build
             -o "$out" . || exit 1; \
     done
     @ls -lh {{release_dir}}/
+
+# Generate SHA256SUMS for all release artifacts. Run after `just all`
+# (or any build that produces files in release/). Emits a single
+# `release/SHA256SUMS` file in the standard two-column format
+# that `sha256sum -c SHA256SUMS` can verify.
+#
+# P1/audit: release/ had no checksums; a MITM or compromised
+# mirror could substitute binaries without detection (F-07).
+#
+# 为所有 release 产物生成 SHA256SUMS。在 `just all`（或任何往
+# release/ 写文件的 build）后跑。输出标准两列格式的 release/SHA256SUMS，
+# `sha256sum -c SHA256SUMS` 可校验。
+sha256sums:
+    @if [ -z "$(ls -A {{release_dir}} 2>/dev/null | grep -v SHA256SUMS)" ]; then \
+        echo "no release artifacts in {{release_dir}}/ — run 'just build' or 'just all' first" >&2; \
+        exit 1; \
+    fi
+    @cd {{release_dir}} && \
+        find . -maxdepth 1 -type f -name '{{binary}}*' \! -name 'SHA256SUMS' -print0 | \
+        xargs -0 sha256sum > SHA256SUMS
+    @echo "[*] {{release_dir}}/SHA256SUMS:"
+    @cat {{release_dir}}/SHA256SUMS
 
 # Build and run with default flags / 构建并以默认参数运行
 run: build

@@ -239,3 +239,47 @@ func TestIsTerminalStdout(t *testing.T) {
 		t.Errorf("IsTerminalStdout()=%v but TerminalWidth err=%v; should agree", got1, err)
 	}
 }
+
+// TestIsNoColor — pin the NO_COLOR spec (https://no-color.org/).
+// Any non-empty value disables color; "0" / "false" (any case) are
+// explicit opt-outs. Unset env means default (color on).
+//
+// TestIsNoColor — 锁定 NO_COLOR 规范（https://no-color.org/）。任何
+// 非空值禁用颜色；"0" / "false"（任意大小写）显式 opt-out。未设置环
+// 境变量表示默认（颜色开）。
+func TestIsNoColor(t *testing.T) {
+	cases := []struct {
+		raw  string // value to set; "" unsets
+		want bool
+	}{
+		{"", false},  // unset
+		{"0", false},
+		{"false", false},
+		{"False", false},
+		{"FALSE", false},
+		{"1", true},
+		{"true", true},
+		{"yes", true},
+		{"anything-non-empty", true},
+	}
+	for _, c := range cases {
+		name := c.raw
+		if name == "" {
+			name = "<unset>"
+		}
+		t.Run(name, func(t *testing.T) {
+			if c.raw == "" {
+				t.Setenv("NO_COLOR", "")
+				// t.Setenv with "" sets to empty string, which
+				// should still count as "unset" for our semantics.
+				// Use os.Unsetenv explicitly to be safe.
+				_ = os.Unsetenv("NO_COLOR")
+			} else {
+				t.Setenv("NO_COLOR", c.raw)
+			}
+			if got := IsNoColor(); got != c.want {
+				t.Errorf("IsNoColor() with NO_COLOR=%q = %v, want %v", c.raw, got, c.want)
+			}
+		})
+	}
+}

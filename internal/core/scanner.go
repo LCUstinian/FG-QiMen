@@ -90,6 +90,18 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 			Threads:    cfg.Threads,
 			MinThreads: 1,
 			MaxThreads: 500,
+			// P3 / F12 audit fix: surface probe errors (ctx cancel,
+			// conn reset, etc.) to the session log instead of
+			// silently dropping them. The pool worker records the
+			// error here; we don't push a zero-value Result to the
+			// output channel.
+			//
+			// P3 / F12 审计修法：把 probe 错误（ctx cancel、conn
+			// reset 等）暴露到 session log，而不是静默丢弃。Pool
+			// worker 在此记录；不向输出 channel 推零值 Result。
+			OnProbeError: func(_ scan.Item, err error) {
+				sess.Log.Warn("scan probe error: %v", err)
+			},
 		})
 		// Run scan in a goroutine; consume results in this one and
 		// translate to plugin ScanItems.

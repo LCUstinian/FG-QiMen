@@ -21,6 +21,12 @@ type ScanOptions struct {
 	Threads    int // initial threads; pool adapts up/down
 	MinThreads int
 	MaxThreads int
+	// OnProbeError forwards the pool's per-probe error signal to
+	// the caller. Same contract as PoolOptions.OnProbeError.
+	//
+	// OnProbeError 把 pool 的每个 probe 错误信号转发给调用方。契约
+	// 同 PoolOptions.OnProbeError。
+	OnProbeError func(item Item, err error)
 }
 
 // Scanner is the orchestrator. / Scanner 是调度器。
@@ -42,6 +48,9 @@ func NewScanner(opts ScanOptions) *Scanner {
 	}
 	if opts.MaxThreads > 0 {
 		pOpts.MaxThreads = opts.MaxThreads
+	}
+	if opts.OnProbeError != nil {
+		pOpts.OnProbeError = opts.OnProbeError
 	}
 	return &Scanner{pool: NewPool(pOpts)}
 }

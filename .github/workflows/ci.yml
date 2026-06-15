@@ -1,0 +1,153 @@
+# FG-QiMen CI — runs on every push and PR. Goals:
+#   1. Fail fast on broken builds / vet issues / test regressions
+#      before code lands.
+#   2. Pin the Go toolchain so build flags / runtime behavior is
+#      reproducible across runner images.
+#   3. Cross-build the 5 release targets the justfile builds to
+#      catch platform-specific compile errors.
+#   4. Run the unit tests with -race where the toolchain supports
+#      it (the Windows runner has a known race-detector DLL issue;
+#      see cmd/scan.go for the workaround).
+#
+# The workflow does NOT push releases — that's release.yml's job
+# (tag-triggered). The CI workflow is the green-or-red gate.
+#
+# FG-QiMen CI — 每次 push 和 PR 触发。目标：
+#   1. 构建 / vet / 测试回归在落地前快速失败。
+#   2. 锁定 Go 工具链以保证跨 runner 镜像的复现性。
+#   3. 跨编 justfile 编译的 5 个 release 目标以捕获平台相关
+#      编译错误。
+#   4. 在工具链支持时用 -race 跑单测（Windows runner 的 race
+#      detector DLL 有已知问题，详见 cmd/scan.go 的 workaround）。
+#
+# 工作流不推送 release——那是 release.yml（tag 触发）的事。本 CI
+# 工作流是绿/红门。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs on the same branch / PR.
+# 同一分支 / PR 上取消正在进行的 run。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Static analysis + unit tests. Fast, runs first.
+  # 静态分析 + 单测。快速，优先跑。
+  test:
+    name: vet + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      # Pin the toolchain explicitly so `go test` doesn't
+      # auto-download a different patch (Go 1.26.x is pre-release
+      # per the v0.2 audit F-10).
+      #
+      # 显式锁定工具链，避免 `go test` 自动下载不同 patch 版本
+      # （v0.2 审计 F-10 指出 Go 1.26 是 pre-release）。
+      - name: Show Go version
+        run: go version
+
+      - name: go mod download
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      # The Windows runner has a known race-detector DLL issue
+      # (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139). On Windows we
+      # skip -race and rely on the static analyzer (go vet) plus
+      # the per-package test suite.
+      #
+      # Windows runner 有 race-detector DLL 已知问题
+      # （STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139）。在 Windows 上
+      # 跳过 -race，靠静态分析（go vet）+ 单测把关。
+      - name: go test
+        if: matrix.os != 'windows-latest'
+        run: go test -race -timeout 120s ./...
+
+      - name: go test (no -race)
+        if: matrix.os == 'windows-latest'
+        run: go test -timeout 120s ./...
+
+  # Cross-compile the 5 release targets that justfile's `all`
+  # recipe builds. Catches "works on my machine" platform
+  # regressions before they reach a release tag.
+  #
+  # 跨编 justfile `all` recipe 编译的 5 个 release 目标。在它们
+  # 跑到 release tag 之前先抓"在我机器上能跑"的平台回归。
+  cross-build:
+    name: cross-build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ''
+          - target: linux-arm64
+            goos: linux
+            goarch: arm64
+            ext: ''
+          - target: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            ext: ''
+          - target: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            ext: ''
+          - target: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: '.exe'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      # Pin microarch level for reproducible cross-builds (audit
+      # F-08). -trimpath strips source paths; -buildvcs=false
+      # avoids embedding git state that varies per commit.
+      #
+      # 锁 microarch level 复现跨编译（审计 F-08）。-trimpath 剥
+      # 源路径；-buildvcs=false 避免嵌入随 commit 变化的 git 状态。
+      - name: build ${{ matrix.target }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: v1
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v0.2.0" \
+            -o "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}" \
+            .
+
+      - name: verify binary
+        run: |
+          file "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}" || true
+          ls -la "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}"
