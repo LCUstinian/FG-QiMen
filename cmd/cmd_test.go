@@ -147,11 +147,36 @@ func TestBuildConfigResumeRequiresProject(t *testing.T) {
 // --- resolveOutputPath ---
 
 // TestResolveOutputPathFlagValue: an explicit -o/-j value wins over
-// both project mode and ephemeral mode.
+// both project mode and ephemeral mode, AS LONG AS the resolved
+// path stays under the cwd (Stage 18 / P1#18 / F-05 fix).
+// We use a cwd-relative path here.
 func TestResolveOutputPathFlagValue(t *testing.T) {
 	c := &types.Config{Project: "anything"}
-	if got := resolveOutputPath(c, "/custom/path.txt", "default.txt"); got != "/custom/path.txt" {
-		t.Errorf("flag value = %q, want /custom/path.txt", got)
+	got, err := resolveOutputPath(c, "custom/path.txt", "default.txt")
+	if err != nil {
+		t.Fatalf("resolveOutputPath: %v", err)
+	}
+	// Path is cleaned + absolute-resolved. Basename is the
+	// test contract; directory may carry the runner's cwd.
+	// / 路径已 clean + 绝对化。basename 是测试契约；目录可能
+	// 带 runner 的 cwd。
+	if filepath.Base(got) != "path.txt" {
+		t.Errorf("flag value basename = %q, want path.txt (full: %q)", filepath.Base(got), got)
+	}
+}
+
+// TestResolveOutputPathFlagValueEscape: the containment check
+// rejects paths that resolve outside cwd, with an error
+// message that tells the operator how to opt out. The opt-out
+// is the env var FG_QIMEN_ALLOW_EXTERNAL_OUTPUT=1.
+func TestResolveOutputPathFlagValueEscape(t *testing.T) {
+	c := &types.Config{Project: "anything"}
+	_, err := resolveOutputPath(c, "../../../../../../etc/passwd", "default.txt")
+	if err == nil {
+		t.Error("resolveOutputPath(../../etc/passwd) returned nil err; want containment error")
+	}
+	if !strings.Contains(err.Error(), "outside the current working directory") {
+		t.Errorf("error message %q should mention 'outside the current working directory'", err.Error())
 	}
 }
 
@@ -160,7 +185,11 @@ func TestResolveOutputPathFlagValue(t *testing.T) {
 func TestResolveOutputPathProjectMode(t *testing.T) {
 	c := &types.Config{Project: "corp"}
 	want := filepath.Join("runs", "projects", "corp", "result.txt")
-	if got := resolveOutputPath(c, "", "result.txt"); got != want {
+	got, err := resolveOutputPath(c, "", "result.txt")
+	if err != nil {
+		t.Fatalf("resolveOutputPath: %v", err)
+	}
+	if got != want {
 		t.Errorf("project default = %q, want %q", got, want)
 	}
 }
@@ -170,7 +199,11 @@ func TestResolveOutputPathProjectMode(t *testing.T) {
 func TestResolveOutputPathEphemeralMode(t *testing.T) {
 	c := &types.Config{Project: ""}
 	want := filepath.Join("runs", "default", "creds.txt")
-	if got := resolveOutputPath(c, "", "creds.txt"); got != want {
+	got, err := resolveOutputPath(c, "", "creds.txt")
+	if err != nil {
+		t.Fatalf("resolveOutputPath: %v", err)
+	}
+	if got != want {
 		t.Errorf("ephemeral default = %q, want %q", got, want)
 	}
 }

@@ -16,13 +16,13 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 │ ⟳ Scanning... elapsed 00:01:23  throughput 142 pps             │
 ├──────────────────────┬──────────────────────────────────────────┤
 │ Targets              │ Live Events                              │
-│   total      256     │   ◆ 192.168.1.1:22  [ssh]   OpenSSH 8.9 │
-│   alive       18     │   ◆ 192.168.1.1:80  [http]  title=...   │
-│   ports      142     │   ⚠ 192.168.1.1:22  [ssh/cred] admin/...│
-│   results     42     │   ✗ 192.168.1.5:3306 timeout            │
-│   creds        3     │                                          │
+│   alive       18     │   ◆ 192.168.1.1:22  [ssh]   OpenSSH 8.9 │
+│   ports      142     │   ◆ 192.168.1.1:80  [http]  title=...   │
+│   results     42     │   ⚠ 192.168.1.1:22  [ssh/cred] admin/...│
+│   creds        3     │   ✗ 192.168.1.5:3306 timeout            │
+│   errors       7     │                                          │
 ├──────────────────────┴──────────────────────────────────────────┤
-│ [q] quit  [p] pause  [r] resume  [?] help                       │
+│ [q] quit                                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

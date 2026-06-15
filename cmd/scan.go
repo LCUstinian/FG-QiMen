@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -300,12 +301,40 @@ func loadResumeState(sess *session.Session, cfg *types.Config) error {
 // openOutputSinks 打开多格式结果汇并挂到 sess。默认在项目目录下
 // （项目模式）或当前目录（即扫即走）。
 func openOutputSinks(sess *session.Session, cfg *types.Config) error {
+	// resolveOutputPath may reject user-supplied paths that
+	// escape the cwd (Stage 18 / P1#18 / F-05 fix). Fail fast
+	// here so we don't half-open some sinks before discovering
+	// the rest.
+	//
+	// resolveOutputPath 可能拒绝跳出 cwd 的用户路径（Stage 18 /
+	// P1#18 / F-05 修法）。这里快速失败，避免开了部分 sink 之后
+	// 才暴露别的。
+	resultTXT, err := resolveOutputPath(cfg, flagOutputTXT, "result.txt")
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	resultJSON, err := resolveOutputPath(cfg, flagOutputJSON, "result.json")
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	credsPath, err := resolveOutputPath(cfg, "", "creds.txt")
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	rdpJSON, err := resolveOutputPath(cfg, "", "rdp.json")
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	rdpTXT, err := resolveOutputPath(cfg, "", "rdp.txt")
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
 	out, err := output.OpenOutput(output.OutputConfig{
-		ResultTXTPath:  resolveOutputPath(cfg, flagOutputTXT, "result.txt"),
-		ResultJSONPath: resolveOutputPath(cfg, flagOutputJSON, "result.json"),
-		CredsPath:      resolveOutputPath(cfg, "", "creds.txt"),
-		RDPJSONPath:    resolveOutputPath(cfg, "", "rdp.json"),
-		RDPTXTPath:     resolveOutputPath(cfg, "", "rdp.txt"),
+		ResultTXTPath:  resultTXT,
+		ResultJSONPath: resultJSON,
+		CredsPath:      credsPath,
+		RDPJSONPath:    rdpJSON,
+		RDPTXTPath:     rdpTXT,
 		// P0#2: result.txt gets the redaction gate; creds.txt is
 		// always cleartext (operator's working file).
 		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员
@@ -372,14 +401,62 @@ func openProject(cfg *types.Config) (*workspace.Project, error) {
 //   - 项目模式：./runs/projects/<name>/<file>
 //   - 即扫即走：./runs/default/<file>
 //   - 显式 -o / -j：原样返回
-func resolveOutputPath(cfg *types.Config, flagValue, defaultName string) string {
+func resolveOutputPath(cfg *types.Config, flagValue, defaultName string) (string, error) {
 	if flagValue != "" {
-		return flagValue
+		return safeOutputPath(flagValue)
 	}
 	if cfg.Project != "" {
-		return filepath.Join("runs", "projects", cfg.Project, defaultName)
+		return filepath.Join("runs", "projects", cfg.Project, defaultName), nil
 	}
-	return filepath.Join("runs", "default", defaultName)
+	return filepath.Join("runs", "default", defaultName), nil
+}
+
+// safeOutputPath sanitizes a user-supplied output path. The
+// default behaviour is to confine writes to the current
+// working directory; the operator can opt out via env var.
+//
+// safeOutputPath 安全化用户给的输出路径。默认行为把写入范围
+// 限制在当前工作目录；操作员可经环境变量 opt-out。
+func safeOutputPath(p string) (string, error) {
+	clean := filepath.Clean(p)
+	// Make the path absolute relative to cwd. / 把路径解析成相对
+	// cwd 的绝对路径。
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return "", fmt.Errorf("output path %q: %w", p, err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("output path %q: getwd: %w", p, err)
+	}
+	// Containment check: abs must be cwd or under cwd. We use a
+	// trailing separator on cwd so /foo/bar doesn't match
+	// /foo/barbaz.
+	//
+	// 包含检查：abs 必须是 cwd 或在 cwd 之下。我们给 cwd 加尾
+	// 部分隔符以防 /foo/bar 误匹配 /foo/barbaz。
+	cwdWithSep := cwd
+	if !strings.HasSuffix(cwdWithSep, string(os.PathSeparator)) {
+		cwdWithSep += string(os.PathSeparator)
+	}
+	if abs != cwd && !strings.HasPrefix(abs, cwdWithSep) {
+		// Opt-out: an operator who really needs to write to
+		// /var/log or similar can set the env var. The
+		// rationale for env-not-flag: the use case is sysadmin
+		// overrides, not operator-button-clicks.
+		//
+		// Opt-out：操作员真要写 /var/log 等可设环境变量。选环
+		// 境而非 flag 的理由：这是 sysadmin 覆写，不是操作员
+		// 点按钮。
+		if os.Getenv("FG_QIMEN_ALLOW_EXTERNAL_OUTPUT") == "1" {
+			return abs, nil
+		}
+		return "", fmt.Errorf(
+			"output path %q resolves to %q which is outside the current working directory %q; "+
+				"set FG_QIMEN_ALLOW_EXTERNAL_OUTPUT=1 to override",
+			p, abs, cwd)
+	}
+	return abs, nil
 }
 
 // applyTransport copies the cmd-line transport security flags into
