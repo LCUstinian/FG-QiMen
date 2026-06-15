@@ -30,6 +30,8 @@ type SMBAuthenticator struct{}
 // NewSMBAuthenticator 返回默认配置的 SMB 认证器。
 func NewSMBAuthenticator() *SMBAuthenticator { return &SMBAuthenticator{} }
 
+func init() { credential.Register(NewSMBAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *SMBAuthenticator) Name() string { return "smb" }
 

@@ -60,6 +60,8 @@ type MongoAuthenticator struct{}
 // NewMongoAuthenticator 返回默认 MongoDB 认证器。
 func NewMongoAuthenticator() *MongoAuthenticator { return &MongoAuthenticator{} }
 
+func init() { credential.Register(NewMongoAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *MongoAuthenticator) Name() string { return "mongodb" }
 

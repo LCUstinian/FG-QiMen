@@ -99,9 +99,6 @@ func TestDockerAuthenticator_ConnRefused(t *testing.T) {
 	}
 }
 
-// Keep fmt import alive for future debug. / fmt 保留。
-var _ = fmt.Sprintf
-
 // splitTestHostPort extracts host and port from an http test server
 // URL like "http://127.0.0.1:54321".
 func splitTestHostPort(t *testing.T, url string) (string, int) {

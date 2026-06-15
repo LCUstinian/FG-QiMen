@@ -25,7 +25,6 @@ package network
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"strconv"
 	"time"
@@ -164,7 +163,3 @@ func readFullMB(c net.Conn, buf []byte) (int, error) {
 func init() {
 	credential.Register(NewModbusAuthenticator())
 }
-
-// Keep fmt import alive for future debug logging. / fmt 保留供将来
-// debug 日志。
-var _ = fmt.Sprintf

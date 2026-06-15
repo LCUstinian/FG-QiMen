@@ -35,6 +35,8 @@ type MemcachedAuthenticator struct{}
 // NewMemcachedAuthenticator 返回默认 memcached 认证器。
 func NewMemcachedAuthenticator() *MemcachedAuthenticator { return &MemcachedAuthenticator{} }
 
+func init() { credential.Register(NewMemcachedAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *MemcachedAuthenticator) Name() string { return "memcached" }
 

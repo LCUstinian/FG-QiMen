@@ -21,7 +21,6 @@ package remote
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -247,7 +246,3 @@ func hasPasswordPrompt(b []byte) bool {
 func init() {
 	credential.Register(NewTelnetAuthenticator())
 }
-
-// Keep fmt imported for future use (e.g. debug logging).
-// / fmt 保留以备将来 debug 日志。
-var _ = fmt.Sprintf

@@ -35,6 +35,8 @@ type MSSQLAuthenticator struct{}
 // NewMSSQLAuthenticator 返回默认配置的 MSSQL 认证器。
 func NewMSSQLAuthenticator() *MSSQLAuthenticator { return &MSSQLAuthenticator{} }
 
+func init() { credential.Register(NewMSSQLAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *MSSQLAuthenticator) Name() string { return "mssql" }
 

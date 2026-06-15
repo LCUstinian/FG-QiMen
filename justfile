@@ -21,7 +21,7 @@ version := "0.1.0-dev"
 # -w: omit DWARF debug info
 # -buildid=: clear build ID (smaller, reproducible)
 # / -s：去符号表；-w：去 DWARF 调试信息；-buildid=：清构建 ID（小一点、可复现）
-ldflags := "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/cmd.Version=" + version
+ldflags := "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=" + version
 
 # CGO disabled — all our deps are pure Go (bubbletea, lipgloss, bbolt, go-mssqldb,
 # hirochachacha/go-smb2, jlaffaye/ftp, x/crypto/ssh, go-sql-driver/mysql).

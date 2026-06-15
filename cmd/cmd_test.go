@@ -34,7 +34,6 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
-	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 )
 
 // --- buildConfig ---
@@ -183,7 +182,7 @@ func TestResolveOutputPathEphemeralMode(t *testing.T) {
 // We never actually send a signal — the drain channel is closed
 // instead to let the goroutine exit cleanly.
 func TestInstallSignalHandlerReturnsCancellableContext(t *testing.T) {
-	ctx, cancel, drainCh := installSignalHandler(100 * time.Millisecond)
+	ctx, cancel, drainCh := installSignalHandler(100*time.Millisecond, nil)
 	defer cancel()
 	defer close(drainCh) // safe: defer runs once
 
@@ -284,8 +283,8 @@ func TestOpenProjectEphemeral(t *testing.T) {
 		t.Fatalf("openProject: %v", err)
 	}
 	defer func() { _ = p.Close() }()
-	if p.Mode != workspace.ModeEphemeral {
-		t.Errorf("Mode = %d, want %d (ModeEphemeral)", p.Mode, workspace.ModeEphemeral)
+	if p.Name != "" {
+		t.Errorf("ephemeral project: Name = %q, want \"\"", p.Name)
 	}
 }
 

@@ -20,7 +20,6 @@ package network
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strconv"
 	"time"
@@ -148,6 +147,3 @@ func readFull(c net.Conn, buf []byte) (int, error) {
 func init() {
 	credential.Register(NewSOCKS5Authenticator())
 }
-
-// Keep fmt import alive. / fmt 保留。
-var _ = fmt.Sprintf

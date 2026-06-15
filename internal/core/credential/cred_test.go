@@ -20,8 +20,21 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
-	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database" // MySQL driver init
+	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database" // MySQL driver init + .NewMySQLAuthenticator
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/remote"   // SSH / FTP authenticators
+
+	// Side-effect imports: each category's init() runs the per-protocol
+	// init()s that call credential.Register. We import every category so
+	// the registry has the full set, not just the ones the tests above
+	// touch directly.
+	//
+	// 副作用导入：每个 category 包的 init() 会运行子包 init()，后者调
+	// credential.Register。导入全部 category 让注册表是完整集合，而不
+	// 仅是上面测试直接用到的几个。
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/email"
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/filestorage"
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/messaging"
+	_ "github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"
 )
 
 // ─────────────────────────────────────────────────────────────────────
@@ -346,3 +359,55 @@ func TestMySQL_RealServer(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────
 // helpers
 // ─────────────────────────────────────────────────────────────────────
+
+// TestRegistryHasAllAuthenticators — regression guard for the
+// 8-unregistered-authenticators bug (P0 in the v0.2 audit). The
+// 6 category-level blank imports above must fire init()s that
+// call credential.Register for every protocol. The README claims
+// 26 authenticators; this test enforces that number.
+//
+// If a future contributor adds a new authenticator file without an
+// init() block, the count will drop and this test will fail —
+// pointing them at the init() contract documented in
+// protocol.go:14-18.
+//
+// TestRegistryHasAllAuthenticators — 8 个未注册 authenticator bug
+// 的回归守卫（P0 v0.2 审计）。上面 6 个 category 级 blank import 必
+// 须触发 init()，后者调 credential.Register 注册每个协议。README
+// 声称为 26 个 authenticator；本测试强制此数。
+func TestRegistryHasAllAuthenticators(t *testing.T) {
+	got := credential.Authenticators()
+	// Map for stable lookup in the assertions. / Map 用于稳定查找。
+	have := make(map[string]bool, len(got))
+	for _, name := range got {
+		have[name] = true
+	}
+	const wantCount = 26
+	if len(got) != wantCount {
+		t.Errorf("Authenticators() count = %d, want %d; got: %v", len(got), wantCount, got)
+	}
+	// Pin every name the README claims. Adding a new authenticator
+	// without updating this list is the bug this test prevents.
+	// 锁定 README 声明的每个名字。新增 authenticator 而不更新本表
+	// 就是本测试要防的 bug。
+	required := []string{
+		// database / 数据库 (8) — includes the 5 we just wired up
+		"elasticsearch", "memcached", "mongodb", "mssql", "mysql",
+		"oracle", "postgresql", "redis",
+		// email / 邮件 (2)
+		"imap", "pop3",
+		// filestorage / 文件存储 (3) — includes smb we just wired up
+		"nfs", "rsync", "smb",
+		// messaging / 消息 (1)
+		"rabbitmq",
+		// network / 网络 (6)
+		"bacnet", "docker", "ldap", "modbus", "snmp", "socks5",
+		// remote / 远程 (6) — includes ssh/ftp we just wired up
+		"ipmi", "ssh", "telnet", "vnc", "winrm", "ftp",
+	}
+	for _, name := range required {
+		if !have[name] {
+			t.Errorf("Authenticator %q is not registered; expected from README count", name)
+		}
+	}
+}

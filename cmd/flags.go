@@ -69,11 +69,15 @@ var (
 	flagOutputJSON string
 
 	// 7. Behaviour / 行为
-	flagSilent  bool
-	flagNoTUI   bool
-	flagNoICMP  bool
-	flagVerbose bool
-	flagPlugins string
+	flagSilent        bool
+	flagNoTUI         bool
+	flagNoICMP        bool
+	flagVerbose       bool
+	flagShowCleartext bool
+	flagInsecureTLS   bool
+	flagInsecureSSH   bool
+	flagKnownHosts    string
+	flagPlugins       string
 )
 
 // registerGlobalFlags wires all 23 persistent flags into pf (which is
@@ -149,6 +153,14 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"skip ICMP probe, use TCP-ping fallback only")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false,
 		"verbose debug logging")
+	pf.BoolVar(&flagShowCleartext, "show-creds", false,
+		"render discovered credentials in cleartext on stderr / TUI / result.txt (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword)")
+	pf.BoolVar(&flagInsecureTLS, "insecure-tls", false,
+		"disable TLS certificate verification (chain + hostname) on HTTPS probes (P1#3). Default verifies — opt in only for known-trusted self-signed test environments.")
+	pf.BoolVar(&flagInsecureSSH, "insecure-ssh", false,
+		"disable SSH host-key verification (accept any key) (P1#4). Default is v0.2-compatible insecure-ignore with a stderr warning; use -o KnownHostsFile=<path> for real verification.")
+	pf.StringVar(&flagKnownHosts, "known-hosts", "",
+		"path to SSH known_hosts file for host-key verification (sets transport.KnownHostsFile; takes precedence over --insecure-ssh when set)")
 	pf.StringVar(&flagPlugins, "plugins", "",
 		"comma-separated plugin names to enable (default: all)")
 }

@@ -92,11 +92,31 @@ func (p *TCPConnectProbe) Probe(ctx context.Context, host string, port int, time
 
 	var banner string
 	if p.BannerReader != nil {
-		// Reconnect to read banner. / 重连以读 banner。
-		conn, err := d.DialContext(ctx, "tcp", addr)
+		// P1#5: the previous code reused the outer dialer `d` for
+		// the banner redial, which has Timeout = the full probe
+		// timeout (typically 3s) — but p.BannerTimeout is meant
+		// to be the per-attempt budget (default 200ms). The
+		// redial would block for up to the full probe timeout
+		// when the intent was a quick banner read.
+		//
+		// Fix: build a separate dialer for the redial with
+		// BannerTimeout as its own Timeout AND carry ctx so
+		// cancellation still works. The original socket is
+		// already closed above; this is a fresh connection.
+		//
+		// P1#5：旧代码用外层 dialer `d`（Timeout = 完整 probe 超时，
+		// 通常 3s）做 banner 重连，但 p.BannerTimeout 的设计意图
+		// 是单次尝试预算（默认 200ms）。重连最多阻塞完整 probe
+		// 超时，本意是快速读 banner。
+		//
+		// 修法：给重连单独建一个 dialer，用 BannerTimeout 作自身
+		// Timeout，同时带 ctx 让取消照旧生效。原 socket 已经在上
+		// 面关闭；这是新连接。
+		bannerD := net.Dialer{Timeout: p.BannerTimeout}
+		bConn, err := bannerD.DialContext(ctx, "tcp", addr)
 		if err == nil {
-			banner = readBanner(conn, p.BannerTimeout)
-			_ = conn.Close()
+			banner = readBanner(bConn, p.BannerTimeout)
+			_ = bConn.Close()
 		}
 	}
 

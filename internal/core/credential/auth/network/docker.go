@@ -26,7 +26,6 @@ package network
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -34,6 +33,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // DockerAuthenticator authenticates against Docker daemon via HTTP
@@ -94,7 +94,7 @@ func (a *DockerAuthenticator) Authenticate(ctx context.Context, host string, por
 // miss 返 (false, nil)，网络错返 (false, err)。
 func (a *DockerAuthenticator) probe(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       transport.TLSConfig(false),
 		ResponseHeaderTimeout: timeout,
 		DisableKeepAlives:     true,
 	}

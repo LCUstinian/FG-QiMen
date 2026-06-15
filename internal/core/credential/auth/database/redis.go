@@ -43,6 +43,8 @@ type RedisAuthenticator struct{}
 // NewRedisAuthenticator 返回默认 Redis 认证器。
 func NewRedisAuthenticator() *RedisAuthenticator { return &RedisAuthenticator{} }
 
+func init() { credential.Register(NewRedisAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *RedisAuthenticator) Name() string { return "redis" }
 

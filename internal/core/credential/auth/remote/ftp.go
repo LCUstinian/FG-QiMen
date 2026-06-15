@@ -28,6 +28,8 @@ type FTPAuthenticator struct{}
 // NewFTPAuthenticator 返回默认配置的 FTP 认证器。
 func NewFTPAuthenticator() *FTPAuthenticator { return &FTPAuthenticator{} }
 
+func init() { credential.Register(NewFTPAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *FTPAuthenticator) Name() string { return "ftp" }
 

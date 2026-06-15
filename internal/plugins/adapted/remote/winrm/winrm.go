@@ -19,7 +19,6 @@ package winrm
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -27,6 +26,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -58,7 +58,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       transport.TLSConfig(false),
 		ResponseHeaderTimeout: 3 * time.Second,
 		DisableKeepAlives:     true,
 	}

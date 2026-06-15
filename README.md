@@ -257,6 +257,9 @@ FG-QiMen/
 │   │               └── fingerprint/    # FingerprintHub matcher + //go:embed 1.3MB web_fingerprint_v4.json
 │   ├── tui/                            # Bubbletea + Lipgloss dashboard
 │   └── workspace/                      # Ephemeral / project workspace (Open, Stats, ProjectsRoot, List, Delete)
+├── docs/                               # Project documentation (release notes, design specs)
+│   ├── RELEASE_NOTES_v0.2.md           # v0.2 release notes (post-refactor sweep)
+│   └── superpowers/specs/              # Design specs (e.g. db-cred-rdp-fingerprint-design.md)
 ├── test/                               # Test data (committed: targets, users, passes)
 ├── release/                            # Build outputs (gitignored)
 │   ├── fg-qimen[.exe]                  # current platform
@@ -272,7 +275,6 @@ FG-QiMen/
 │       └── (same output files as above)
 ├── justfile                            # Build / lint / test recipes
 ├── README.md                           # ← you are here
-├── RELEASE_NOTES_v0.2.md               # v0.2 release notes (post-refactor sweep)
 ├── THIRD_PARTY_LICENSES.md
 ├── LICENSE
 ├── go.mod / go.sum
@@ -288,7 +290,7 @@ FG-QiMen/
 | Port scan / 端口扫描 | `internal/core/scan` | `scan.TCPConnectProbe` (3-way handshake) + `scan.UDPProbe` | orchestrated by `scan.NewScanner(opts).Run()` |
 | Service fingerprinting / 服务指纹 | `internal/portscan/fingerprint` | nmap-service-probes.txt (Nmap PSL) — `fingerprint.NewVScan().MatchBanner(banner)` → service + version | wired into `internal/core/pipeline.go` as stage 0 of each iteration |
 | HTTP fingerprinting / HTTP 指纹 | `internal/plugins/adapted/web/webtitle` | Nmap-style protocol detect + redirect follow + favicon mmh3 + FingerprintHub 3139 rules | `webtitle.WebTitlePlugin` (Identify) |
-| Credential test / 凭据测试 | `internal/core/credential` | authenticators split under `auth/{database,email,filestorage,messaging,network,remote}/` — 27 protocols total | orchestrated by `credential.Scheduler` (one-target inline via `core` pipeline) |
+| Credential test / 凭据测试 | `internal/core/credential` | authenticators split under `auth/{database,email,filestorage,messaging,network,remote}/` — 26 protocols (database 8 + email 2 + filestorage 3 + messaging 1 + network 6 + remote 6) | orchestrated by `credential.Scheduler` (one-target inline via `core` pipeline); each protocol self-registers via `init()` so cmd/root.go's blank imports wire them up; coverage enforced by `TestRegistryHasAllAuthenticators` |
 
 ### Basic scan / 基本扫描
 
@@ -465,8 +467,8 @@ Global flags (subset; run `fg-qimen --help` for the full list):
 
 - **v0.1**: core architecture, ephemeral / project modes, TUI, ~13 service Identify plugins, 8 Credential authenticators (SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB), basic port scan, bbolt state.
   **v0.1**：核心架构、即扫即走/项目模式、TUI、约 13 个服务识别插件、8 个凭据认证器（SSH / FTP / MySQL / Redis / Memcached / MongoDB / MSSQL / SMB）、基础端口扫描、bbolt 状态。
-- **v0.2 (current)**: full `cmd/ + internal/*` layout (7-phase refactor — see [RELEASE_NOTES_v0.2.md](RELEASE_NOTES_v0.2.md)); credential authenticators expanded to 27 across 6 categories (database / email / filestorage / messaging / network / remote); `plugins/adapted/` split into 7 web/database/email/filestorage/messaging/network/remote subpackages; RDP deep fingerprint shipped; UDP port probe; ARP + NetBIOS LAN discovery (opt-in via blank import of `internal/discovery`); portfinger promoted to top-level `internal/portscan/fingerprint`; `common/` decomposed into types / output / store / ui / session leaf packages; `cmd/root.go` split into root / scan / resume / projects / version.
-  **v0.2（当前）**：完整 `cmd/ + internal/*` 布局（7 阶段重构，见 [RELEASE_NOTES_v0.2.md](RELEASE_NOTES_v0.2.md)）；凭据认证器扩展为 6 个类别下共 27 个；`plugins/adapted/` 拆为 7 个 web/database/email/filestorage/messaging/network/remote 子包；RDP 深度指纹落地；UDP 端口探测；ARP + NetBIOS LAN 发现（通过 blank import `internal/discovery` 启用）；portfinger 升级到顶层 `internal/portscan/fingerprint`；`common/` 拆为 types/output/store/ui/session 叶子包；`cmd/root.go` 拆为 root / scan / resume / projects / version。
+- **v0.2 (current)**: full `cmd/ + internal/*` layout (7-phase refactor — see [RELEASE_NOTES_v0.2.md](docs/RELEASE_NOTES_v0.2.md)); credential authenticators expanded to 27 across 6 categories (database / email / filestorage / messaging / network / remote); `plugins/adapted/` split into 7 web/database/email/filestorage/messaging/network/remote subpackages; RDP deep fingerprint shipped; UDP port probe; ARP + NetBIOS LAN discovery (opt-in via blank import of `internal/discovery`); portfinger promoted to top-level `internal/portscan/fingerprint`; `common/` decomposed into types / output / store / ui / session leaf packages; `cmd/root.go` split into root / scan / resume / projects / version.
+  **v0.2（当前）**：完整 `cmd/ + internal/*` 布局（7 阶段重构，见 [RELEASE_NOTES_v0.2.md](docs/RELEASE_NOTES_v0.2.md)）；凭据认证器扩展为 6 个类别下共 27 个；`plugins/adapted/` 拆为 7 个 web/database/email/filestorage/messaging/network/remote 子包；RDP 深度指纹落地；UDP 端口探测；ARP + NetBIOS LAN 发现（通过 blank import `internal/discovery` 启用）；portfinger 升级到顶层 `internal/portscan/fingerprint`；`common/` 拆为 types/output/store/ui/session 叶子包；`cmd/root.go` 拆为 root / scan / resume / projects / version。
 - **v0.3+**: full fake-server integration tests for MSSQL / SMB / RDP; smarter credential-scheduler with per-plugin rate limits; output rotation; project import/export; richer HTTP fingerprinting (CMS / WAF detection); first-class IPv6 target support.
   **v0.3+**：MSSQL / SMB / RDP 完整假服务器集成测试；带按插件限速的智能凭据调度；输出滚动；项目导入导出；更丰富的 HTTP 指纹（CMS / WAF 检测）；一等公民 IPv6 目标支持。
 

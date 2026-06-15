@@ -16,7 +16,6 @@ package email
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -130,7 +129,7 @@ func readPOP3OK(br *bufio.Reader) bool {
 func init() {
 	credential.Register(NewPOP3Authenticator())
 }
-
-// Keep fmt import alive for future debug logging. / fmt 保留供将来
-// debug 日志。
-var _ = fmt.Sprintf
+// (P2 dead-code purge: fmt sentinel removed in v0.2 audit. If
+// future debug logging needs fmt, re-import on demand.)
+// （P2 死代码清理：v0.2 审计删了 fmt 哨兵。将来 debug 日志若需要
+// fmt，按需重导。）

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
@@ -303,10 +302,6 @@ func pushStats(ctx context.Context, sess *session.Session, interval time.Duratio
 		}
 	}
 }
-
-// ensure atomic is used (we re-export State counters from common).
-// ensure atomic is used ... (no-op reference to keep import).
-var _ = atomic.Int64{}
 
 // formatPortfinger formats the matched banner into a single line.
 // formatPortfinger 把匹配结果格式化为单行。

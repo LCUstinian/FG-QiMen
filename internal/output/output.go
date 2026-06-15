@@ -52,6 +52,11 @@ type Output struct {
 	// creds: "host:port  plugin  user/pass  time" per hit
 	// rdpjson / rdptxt: RDP deep fingerprint
 	txt, jsn, creds, rdpjson, rdptxt *flushCloser
+
+	// showCleartext gates the result.txt cred suffix; creds.txt is
+	// always cleartext. See OutputConfig.ShowCleartext.
+	// showCleartext 守卫 result.txt 的 cred 后缀；creds.txt 始终明文。
+	showCleartext bool
 }
 
 // OutputConfig configures which files Output should open.
@@ -62,6 +67,20 @@ type OutputConfig struct {
 	CredsPath      string // empty = no creds output
 	RDPJSONPath    string // empty = no rdp.json output
 	RDPTXTPath     string // empty = no rdp.txt output
+
+	// ShowCleartext controls whether result.txt's "[cred] user / pass"
+	// suffix renders cleartext or the redacted fingerprint (see
+	// types.ShowUserPassword). creds.txt is ALWAYS cleartext — the
+	// operator runs the scan and needs the actual password to use
+	// the discovered credential. result.txt is the shareable surface
+	// (gitignored but routinely pasted into tickets / chat) so it
+	// gets the gate.
+	//
+	// ShowCleartext 控制 result.txt 的 "[cred] user / pass" 后缀渲染
+	// 明文还是脱敏指纹（见 types.ShowUserPassword）。creds.txt 始终是
+	// 明文——操作员跑扫描就是为了拿到真实口令去用。result.txt 才是会
+	// 被复制到工单/聊天里的可分享表面，所以加门。
+	ShowCleartext bool
 }
 
 // OpenOutput opens (creates if needed) the configured output files and
@@ -69,7 +88,7 @@ type OutputConfig struct {
 //
 // OpenOutput 打开（如不存在则创建）配置指定的输出文件，返回并发安全的 writer。
 func OpenOutput(cfg OutputConfig) (*Output, error) {
-	o := &Output{}
+	o := &Output{showCleartext: cfg.ShowCleartext}
 	type opener struct {
 		path string
 		set  func(*flushCloser)
@@ -159,7 +178,15 @@ func (o *Output) WriteResult(r *types.Result) error {
 		ts := r.Time.Format("2006-01-02 15:04:05")
 		var credSuffix string
 		if r.Cred != nil {
-			credSuffix = fmt.Sprintf("  [cred] %s / %s", r.Cred.User, r.Cred.Pass)
+			// Redact by default — result.txt is the shareable surface
+			// (gitignored but routinely pasted into tickets / chat).
+			// creds.txt (WriteCred below) is the operator's working
+			// file and always contains cleartext. P0#2.
+			// 默认脱敏——result.txt 是可分享表面（虽然 gitignored 但
+			// 经常被粘到工单/聊天里）。creds.txt（下方 WriteCred）是
+			// 操作员工作文件，始终是明文。P0#2。
+			cfg := &types.Config{ShowCleartext: o.showCleartext}
+			credSuffix = "  [cred] " + types.ShowUserPassword(cfg, r.Cred.User, r.Cred.Pass)
 		}
 		fmt.Fprintf(o.txt, "%s [+] %s:%d  [%s]  %s%s\n",
 			ts, r.Host, r.Port, r.Service, r.Banner, credSuffix)

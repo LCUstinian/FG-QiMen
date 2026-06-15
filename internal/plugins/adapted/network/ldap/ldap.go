@@ -193,6 +193,3 @@ func isPrintable(s string) bool {
 	}
 	return s != ""
 }
-
-// silence the unused-import reference.
-var _ = fmt.Sprintf

@@ -289,6 +289,3 @@ func parseRAKPMessage3(pkt []byte) (completionCode uint8, err error) {
 func init() {
 	credential.Register(NewIPMIAuthenticator())
 }
-
-// Keep fmt import alive. / fmt 保留。
-var _ = fmt.Sprintf

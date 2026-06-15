@@ -16,31 +16,25 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 )
 
-// Mode distinguishes the two work modes.
-// Mode 区分两种工作模式。
-type Mode int
-
-const (
-	// ModeEphemeral is the oneshot mode: current directory, no bbolt,
-	// results in-place. Triggered by -p "" (default).
-	// ModeEphemeral 是即扫即走模式：当前目录，无 bbolt，结果就地写出。
-	// 由 -p "" 触发（默认行为）。
-	ModeEphemeral Mode = iota
-	// ModePersistent is the project mode: ./projects/<name>/ with
-	// bbolt state, hash dedup, resume support. Triggered by -p <name>.
-	// ModePersistent 是增量扫描模式：./projects/<name>/，含 bbolt 状态、
-	// hash 去重、断点续传。由 -p <name> 触发。
-	ModePersistent
-)
-
 // Project is the active workspace. It owns file handles and the bbolt DB
 // (if any). Callers must defer proj.Close().
 //
+// The two workspace shapes (ephemeral vs persistent) are distinguished
+// by the empty Name: name == "" → ephemeral (no DB, results in cwd),
+// name != "" → persistent (bbolt in runs/projects/<name>). We don't
+// keep a separate Mode enum on the struct — it's redundant with the
+// Name check and the only consumer of the audit's v0.2-flagged Mode
+// was the Stats() helper, which now reads Name directly.
+//
 // Project 是当前激活的工作区。它持有文件句柄和 bbolt DB（如有）。
 // 调用方必须 defer proj.Close()。
+//
+// 两种工作区形态（即扫即走 vs 增量）通过空 Name 区分：name=="" → 即扫
+// 即走（无 DB，结果在 cwd）；name!="" → 增量（bbolt 在 runs/projects/
+// <name>）。不再在结构体上保留独立的 Mode enum——和 Name 检查重复，
+// v0.2 审计时 Mode 唯一消费者是 Stats()，现在 Stats() 直接读 Name。
 type Project struct {
 	Name string
-	Mode Mode
 	Root string
 	DB   *bolt.DB
 	// DBPath is the bbolt file path (for projects info display).
@@ -48,10 +42,10 @@ type Project struct {
 	DBPath string
 }
 
-// Open creates a project workspace in the requested mode.
-// name == "" → ModeEphemeral, ./projects/<name> → ModePersistent.
+// Open creates a project workspace.
+// name == "" → ephemeral; name != "" → persistent.
 //
-// Open 创建请求模式下的项目工作区。name == "" → 即扫即走，否则 → 增量扫描。
+// Open 创建项目工作区。name=="" → 即扫即走；name!="" → 增量。
 func Open(name string) (*Project, error) {
 	if name == "" {
 		return openEphemeral()
@@ -69,7 +63,6 @@ func openEphemeral() (*Project, error) {
 	}
 	return &Project{
 		Name: "",
-		Mode: ModeEphemeral,
 		Root: cwd,
 	}, nil
 }
@@ -105,7 +98,6 @@ func openPersistent(name string) (*Project, error) {
 	}
 	return &Project{
 		Name:   name,
-		Mode:   ModePersistent,
 		Root:   dir,
 		DB:     db,
 		DBPath: dbPath,
@@ -124,7 +116,7 @@ func (p *Project) Close() error {
 // Stats returns human-readable statistics about the project.
 // Stats 返回项目的可读统计信息。
 func (p *Project) Stats() (string, error) {
-	if p == nil || p.Mode == ModeEphemeral {
+	if p == nil || p.Name == "" {
 		return "(ephemeral: no persistent state)", nil
 	}
 	if p.DB == nil {

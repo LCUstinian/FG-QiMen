@@ -34,6 +34,8 @@ type MySQLAuthenticator struct{}
 // NewMySQLAuthenticator 返回默认配置的 MySQL 认证器。
 func NewMySQLAuthenticator() *MySQLAuthenticator { return &MySQLAuthenticator{} }
 
+func init() { credential.Register(NewMySQLAuthenticator()) }
+
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *MySQLAuthenticator) Name() string { return "mysql" }
 

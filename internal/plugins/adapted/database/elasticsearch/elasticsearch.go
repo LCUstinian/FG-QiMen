@@ -11,7 +11,6 @@ package elasticsearch
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -59,7 +59,7 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // 并解析 JSON 响应的 "version.number" / "lucene_version" 字段。
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       transport.TLSConfig(false),
 		ResponseHeaderTimeout: 3 * time.Second,
 		DisableKeepAlives:     true,
 	}

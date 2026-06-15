@@ -32,8 +32,8 @@ func TestOpenEphemeral(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	if p.Mode != ModeEphemeral {
-		t.Errorf("Mode = %d, want %d (ModeEphemeral)", p.Mode, ModeEphemeral)
+	if p.Name != "" {
+		t.Errorf("ephemeral project: Name = %q, want \"\"", p.Name)
 	}
 	if p.DB != nil {
 		t.Errorf("DB = %v, want nil in ephemeral mode", p.DB)
@@ -68,8 +68,8 @@ func TestOpenPersistent(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	if p.Mode != ModePersistent {
-		t.Errorf("Mode = %d, want %d (ModePersistent)", p.Mode, ModePersistent)
+	if p.Name != name {
+		t.Errorf("persistent project: Name = %q, want %q", p.Name, name)
 	}
 	if p.DB == nil {
 		t.Fatal("DB = nil, want non-nil for persistent project")

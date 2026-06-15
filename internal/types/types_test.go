@@ -219,21 +219,13 @@ func TestStateSnapshot(t *testing.T) {
 	}
 }
 
-// TestStatePause: IsPaused / SetPaused round-trip.
-func TestStatePause(t *testing.T) {
-	s := NewState()
-	if s.IsPaused() {
-		t.Error("fresh State IsPaused = true, want false")
-	}
-	s.SetPaused(true)
-	if !s.IsPaused() {
-		t.Error("after SetPaused(true), IsPaused = false")
-	}
-	s.SetPaused(false)
-	if s.IsPaused() {
-		t.Error("after SetPaused(false), IsPaused = true")
-	}
-}
+// TestStatePause removed in v0.2 audit (P2 dead-code purge — no
+// consumer of SetPaused / IsPaused). If a real pause path is added
+// later, restore this test alongside the production code.
+//
+// TestStatePause 在 v0.2 审计中移除（P2 死代码清理——无 SetPaused /
+// IsPaused 的消费者）。将来若加真实暂停路径，把本测试连同生产代码
+// 一起恢复。
 
 // TestStateConcurrentMarkSeen: the docstring guarantees
 // "concurrent-safe across goroutines". This test hammers

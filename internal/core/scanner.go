@@ -23,7 +23,6 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
-	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
@@ -95,7 +94,26 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 		// Run scan in a goroutine; consume results in this one and
 		// translate to plugin ScanItems.
 		// scan 跑在子 goroutine；本 goroutine 消费并转为 plugin ScanItem。
+		//
+		// P1#1: defer close(items) ensures the plugin worker pool
+		// (stage 2) gets `!ok` on its `for { case item, ok := <-in }`
+		// loop and exits on every return path — ctx cancel, scanDone
+		// (normal completion), and scanRes close. Previously the
+		// producer returned on ctx.Done() / scanDone / !ok without
+		// closing items, leaving 16 workers blocked on the never-
+		// closed channel; wg.Wait() in this function then hung
+		// indefinitely on every normal scan completion, blocking the
+		// deferred sess.UI.Done(summary) from ever running.
+		//
+		// P1#1：defer close(items) 保证 plugin worker 池（阶段 2）能
+		// 在 for { case item, ok := <-in } 循环里收到 !ok 并退出——
+		// 覆盖 ctx cancel、scanDone（正常完成）、scanRes 关闭三条返回
+		// 路径。旧版在 ctx.Done() / scanDone / !ok 路径直接返回而
+		// 不 close(items)，导致 16 个 worker 永远阻塞在未关闭通道上；
+		// 本函数的 wg.Wait() 也在每次正常完成时无限挂起，阻塞
+		// 延迟的 sess.UI.Done(summary) 永远跑不到。
 		scanDone := make(chan struct{})
+		defer close(items) // see P1#1 above / 见上方 P1#1
 		go func() {
 			_ = sc.Run(ctx, scan.NewCrossIterator(targetAddrs(targets), ports), scanRes)
 			close(scanDone)
@@ -183,6 +201,8 @@ func summaryString(sess *session.Session) string {
 		c.Alive, c.Ports, c.Results, c.Creds, c.Errors)
 }
 
-// PluginsAll is a re-export of plugins.All for callers outside core.
-// PluginsAll 给 core 外的调用者重导出 plugins.All。
-func PluginsAll() []plugins.Plugin { return plugins.All() }
+// (P2 dead-code purge: PluginsAll removed in v0.2 audit. Callers
+// outside core should import internal/plugins directly and use
+// plugins.All().)
+// （P2 死代码清理：v0.2 审计删了 PluginsAll。core 外的调用者应直接
+// 导入 internal/plugins，用 plugins.All()。）

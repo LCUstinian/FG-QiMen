@@ -20,7 +20,6 @@ package filestorage
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"strconv"
 	"time"
@@ -182,6 +181,3 @@ func readFullNFS(c net.Conn, buf []byte) (int, error) {
 func init() {
 	credential.Register(NewNFSAuthenticator())
 }
-
-// Keep fmt import alive. / fmt 保留。
-var _ = fmt.Sprintf

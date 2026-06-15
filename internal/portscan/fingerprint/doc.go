@@ -3,7 +3,6 @@
 package fingerprint
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -32,7 +31,3 @@ func SetLogWriter(w io.Writer) {
 	defer logMu.Unlock()
 	logOut = w
 }
-
-// keep the fmt import used (for probe parser error messages).
-// fmt 保留 import 以供 probe 解析器的错误消息使用。
-var _ = fmt.Sprintf

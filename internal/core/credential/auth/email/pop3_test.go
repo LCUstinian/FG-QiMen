@@ -5,7 +5,6 @@ package email
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -127,6 +126,3 @@ func TestPOP3Authenticator_ConnRefused(t *testing.T) {
 	}
 }
 
-// Unused but keeps fmt import alive for future debug logging.
-// / 保留 fmt 供将来 debug 用。
-var _ = fmt.Sprintf

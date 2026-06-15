@@ -29,7 +29,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -216,6 +215,3 @@ func readFullRS(c net.Conn, buf []byte) (int, error) {
 func init() {
 	credential.Register(NewRsyncAuthenticator())
 }
-
-// Keep fmt import alive. / fmt 保留。
-var _ = fmt.Sprintf

@@ -22,7 +22,6 @@ package network
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"strconv"
 	"time"
@@ -171,6 +170,3 @@ func (a *BACnetAuthenticator) attempt(ctx context.Context, addr string, timeout 
 func init() {
 	credential.Register(NewBACnetAuthenticator())
 }
-
-// Keep fmt import alive for future debug. / fmt 保留供将来 debug。
-var _ = fmt.Sprintf

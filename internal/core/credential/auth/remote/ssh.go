@@ -19,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // SSHAuthenticator authenticates against SSH servers.
@@ -34,8 +35,10 @@ type SSHAuthenticator struct {
 // NewSSHAuthenticator returns a default-configured SSH authenticator.
 // NewSSHAuthenticator 返回默认配置的 SSH 认证器。
 func NewSSHAuthenticator() *SSHAuthenticator {
-	return &SSHAuthenticator{HostKeyCallback: ssh.InsecureIgnoreHostKey()} //nolint:gosec
+	return &SSHAuthenticator{HostKeyCallback: transport.SSHHostKeyCallback()}
 }
+
+func init() { credential.Register(NewSSHAuthenticator()) }
 
 // Name implements credential.Authenticator. / Name 实现 credential.Authenticator。
 func (a *SSHAuthenticator) Name() string { return "ssh" }

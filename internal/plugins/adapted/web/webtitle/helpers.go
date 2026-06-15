@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // Regexes used by extractTitle. They live next to the only caller
@@ -51,7 +52,7 @@ func detectProtocol(ctx context.Context, host string, port int, timeout time.Dur
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	tlsConn := tls.Client(conn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	tlsConn := tls.Client(conn, transport.TLSConfig(false))
 	if err := tlsConn.HandshakeContext(ctx); err == nil {
 		_ = tlsConn.Close()
 		return "https", fmt.Sprintf("https://%s:%d", host, port)
@@ -64,7 +65,7 @@ func detectProtocol(ctx context.Context, host string, port int, timeout time.Dur
 // redirects. / newNoRedirectClient 返回不跟随重定向的 http.Client。
 func newNoRedirectClient(timeout time.Duration) *http.Client {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       transport.TLSConfig(false),
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
 		DisableKeepAlives:     true,
@@ -82,7 +83,7 @@ func newNoRedirectClient(timeout time.Duration) *http.Client {
 // / newClient 返回标准 client（最多跟随 5 次重定向）。
 func newClient(timeout time.Duration) *http.Client {
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig:       transport.TLSConfig(false),
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
 		DisableKeepAlives:     true,

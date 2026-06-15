@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -177,6 +176,3 @@ func TestRsyncAuthenticator_ConnRefused(t *testing.T) {
 		t.Errorf("expected conn error, got nil")
 	}
 }
-
-// Unused but keeps fmt import alive. / fmt 保留。
-var _ = fmt.Sprintf

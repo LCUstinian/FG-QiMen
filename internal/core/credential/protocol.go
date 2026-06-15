@@ -73,3 +73,21 @@ func LookupAuthenticator(name string) (Authenticator, bool) {
 	a, ok := reg[name]
 	return a, ok
 }
+
+// Authenticators returns a snapshot of the registered names. The
+// returned slice is a copy; the caller may sort / range without
+// holding the registry lock. Used by tests and any operator-facing
+// listing command.
+//
+// Authenticators 返回当前已注册名字的快照。返回的 slice 是拷贝；
+// 调用方可以 sort/range 而不必持注册表锁。供测试和操作员列
+// 表命令使用。
+func Authenticators() []string {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	out := make([]string, 0, len(reg))
+	for name := range reg {
+		out = append(out, name)
+	}
+	return out
+}

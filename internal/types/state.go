@@ -38,11 +38,6 @@ type State struct {
 	// StartTime is when the scan started (for elapsed display).
 	// StartTime 是扫描开始时间（用于已用时间显示）。
 	StartTime time.Time
-
-	// pauseCh gates producer emission. Closed = running; open struct{}{} = paused.
-	// pauseCh 控制 producer 发射。关闭 = 运行中；写入 struct{}{} = 暂停。
-	pauseMu sync.RWMutex
-	paused  bool
 }
 
 // Counters is a struct of atomic counters.
@@ -127,18 +122,11 @@ func (s *State) Snapshot() CountersView {
 	}
 }
 
-// SetPaused toggles pause state for the producer.
-// SetPaused 切换 producer 的暂停状态。
-func (s *State) SetPaused(p bool) {
-	s.pauseMu.Lock()
-	s.paused = p
-	s.pauseMu.Unlock()
-}
+// (P2 dead-code purge: SetPaused / IsPaused / pauseMu / paused /
+// pauseCh removed in v0.2 audit. The TUI's [p] pause / [r] resume
+// keys remain unimplemented; if/when a real pause path is built,
+// re-introduce them with a real consumer.)
+// （P2 死代码清理：v0.2 审计删了 SetPaused / IsPaused / pauseMu /
+// paused / pauseCh。TUI 的 [p] pause / [r] resume 键仍未实现；若将来
+// 真要加暂停路径，请带回有真实消费者的版本。）
 
-// IsPaused returns current pause state.
-// IsPaused 返回当前暂停状态。
-func (s *State) IsPaused() bool {
-	s.pauseMu.RLock()
-	defer s.pauseMu.RUnlock()
-	return s.paused
-}

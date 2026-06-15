@@ -6,14 +6,19 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/LCUstinian/FG-QiMen/internal/version"
 )
 
-// Version is the FG-QiMen semantic version, set at build time via
+// Version is re-exported for backward compatibility (older scripts
+// link against cmd.Version via -ldflags). The source of truth is
+// internal/version.Value; new code should import that directly.
 //
-//	-ldflags "-X github.com/LCUstinian/FG-QiMen/cmd.Version=0.1.0".
+// Version 重新导出以兼容旧版 -ldflags 注入脚本。真实值以
+// internal/version.Value 为准，新代码应直接导入。
 //
-// Version 是 FG-QiMen 的语义版本号，可通过 -ldflags 注入。
-var Version = "0.2.0"
+// Deprecated: use internal/version.Value instead.
+var Version = version.Value
 
 var versionCmd = &cobra.Command{
 	Use:   "version",

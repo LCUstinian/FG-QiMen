@@ -141,17 +141,37 @@ func (s *Scheduler) runOne(ctx context.Context, t Target, sink HitSink, throttle
 	key := t.Host + ":" + itoa(t.Port)
 
 	// Per-target throttle. / 单目标限流。
+	//
+	// P1#2: the previous code used time.Sleep while holding throttle.mu,
+	// which (a) ignored ctx cancellation (up to PerTargetInterval of
+	// post-SIGINT latency per in-flight runOne) and (b) blocked other
+	// targets at the same host:port for the sleep duration. We
+	// compute the deadline first, release the mutex, then select on
+	// time-until-deadline vs ctx.Done.
+	//
+	// P1#2：旧代码在持有 throttle.mu 时 time.Sleep，有两个问题：(a) 忽
+	// 略 ctx 取消（每个 in-flight runOne 在 SIGINT 后最多还要等
+	// PerTargetInterval）；(b) 同 host:port 的其他 target 在 sleep 期间
+	// 阻塞。先算 deadline，释放 mutex，再 select 在 deadline vs ctx.Done。
 	throttle.mu.Lock()
 	last := throttle.lastTry[key]
 	now := time.Now()
+	throttle.lastTry[key] = now
+	throttle.mu.Unlock()
+
 	if !last.IsZero() {
 		gap := now.Sub(last)
 		if gap < s.opts.PerTargetInterval {
-			time.Sleep(s.opts.PerTargetInterval - gap)
+			wait := s.opts.PerTargetInterval - gap
+			t := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
 		}
 	}
-	throttle.lastTry[key] = time.Now()
-	throttle.mu.Unlock()
 
 	// Call the authenticator with the configured timeout.
 	// 用配置的超时调 authenticator。

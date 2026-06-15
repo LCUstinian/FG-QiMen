@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/core"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 	"github.com/LCUstinian/FG-QiMen/internal/ui"
@@ -69,6 +71,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("config error: %w", err)
 	}
 
+	// Apply transport-layer security flags BEFORE any TLS/SSH probe
+	// is constructed. The transport package exposes atomic flags that
+	// the auth / plugin TLS sites read at probe-build time; setting
+	// them here (before buildSession, before core.RunScan) means no
+	// probe can observe a partial / default state.
+	//
+	// 在任何 TLS/SSH 探测构造前应用传输层安全 flag。transport 包暴露
+	// atomic 标志，auth / plugin 的 TLS 站点在 probe 构造时读取；在
+	// 这里（buildSession、core.RunScan 之前）设置意味着任何 probe
+	// 都不会观察到部分 / 默认状态。
+	applyTransport(cfg)
+
 	// Open workspace (ephemeral or persistent) and ensure cleanup.
 	// 打开工作区（即扫即走 / 增量扫描），并确保退出时清理。
 	proj, err := openProject(cfg)
@@ -77,21 +91,49 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = proj.Close() }()
 
+	// preHardExit is a lazy closure: it dereferences prog/runDone at
+	// call time, not at creation time. The signal goroutine can only
+	// reach preHardExit via a second SIGINT or drain timeout — both
+	// take long enough that buildSession (and therefore the prog /
+	// runDone assignment) is guaranteed to have completed first. The
+	// nil-checks defend against the impossible "instant double SIGINT"
+	// case at zero cost.
+	//
+	// preHardExit 是惰性闭包：调用时才解引用 prog / runDone。信号
+	// goroutine 只能通过第二次 SIGINT 或 drain 超时到达 preHardExit
+	// —— 两者都足够慢，buildSession（从而 prog / runDone 的赋值）必
+	// 已完成。nil 检查以零开销防御理论上的"瞬时双 SIGINT"。
+	var (
+		prog    *tui.Program
+		runDone chan struct{}
+	)
+	preHardExit := func() {
+		if prog != nil && runDone != nil {
+			prog.Quit()
+			<-runDone
+		}
+	}
+
 	// Graceful shutdown: first SIGINT cancels ctx; second SIGINT or
-	// shutdown-timeout triggers os.Exit(1).
+	// shutdown-timeout triggers os.Exit(1). preHardExit is invoked
+	// synchronously so the TUI can release its altscreen / cursor
+	// before the process dies.
 	//
 	// 优雅退出：第一次 SIGINT 取消 ctx；第二次 SIGINT 或 shutdown 超时
-	// 触发 os.Exit(1)。
-	ctx, cancel, drainCh := installSignalHandler(cfg.ShutdownTimeout)
+	// 触发 os.Exit(1)。preHardExit 同步调用，让 TUI 在进程死前释放
+	// alt screen / cursor。
+	ctx, cancel, drainCh := installSignalHandler(cfg.ShutdownTimeout, preHardExit)
 	defer cancel()
 	defer close(drainCh)
 
-	// Build session, then wire logger + UI + store. cleanup() quits the
-	// TUI if it was started, and is safe to call regardless.
+	// Build session with the signal-handler-owned ctx. buildSession
+	// wires logger, store, and UI; in TUI mode it also assigns prog
+	// and runDone so preHardExit can do its job.
 	//
-	// 构造 session，并装配 logger / UI / store。cleanup() 退出 TUI
-	// （如有），无 TUI 时是空操作。
-	sess, cleanup, err := buildSession(ctx, cfg, proj, drainCh)
+	// 用 signal handler 拥有的 ctx 构造 session。buildSession 装配
+	// logger / store / UI；TUI 模式下还会赋值 prog 和 runDone 让
+	// preHardExit 能完成清理。
+	sess, cleanup, err := buildSession(ctx, cfg, proj, drainCh, &prog, &runDone)
 	if err != nil {
 		return err
 	}
@@ -119,7 +161,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 //     uses it to know that "normal completion" has occurred so it can
 //     exit without waiting for a second signal.
 //
-// The goroutine exits via os.Exit(1) on second signal or drain timeout.
+// preHardExit is invoked synchronously before os.Exit(1) so the TUI
+// can release its altscreen / cursor state. The function must
+// block until cleanup is complete (or the user gets a corrupted
+// terminal). It is called from the signal goroutine and must NOT
+// return; os.Exit(1) follows.
 //
 // installSignalHandler 把 SIGINT/SIGTERM 接入优雅退出管线，返回：
 //   - ctx：收到首次信号时取消
@@ -127,12 +173,35 @@ func runScan(cmd *cobra.Command, args []string) error {
 //   - drainCh：调用方在 scan 结束时关闭；goroutine 借此知道"正常完成"
 //     而非等待第二次信号。
 //
-// 收到第二次信号或排空超时时 goroutine 调 os.Exit(1)。
-func installSignalHandler(timeout time.Duration) (context.Context, context.CancelFunc, chan struct{}) {
+// preHardExit 在 os.Exit(1) 之前同步调用，以便 TUI 释放 alt screen /
+// cursor 状态。该函数必须阻塞到清理完成（否则用户终端会损坏）。它在
+// 信号 goroutine 中被调用，且不应返回；os.Exit(1) 紧随其后。
+func installSignalHandler(timeout time.Duration, preHardExit func()) (context.Context, context.CancelFunc, chan struct{}) {
 	ctx, cancel := context.WithCancel(context.Background())
 	drainCh := make(chan struct{})
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	// Release the signal handler slot when the goroutine exits so a
+	// long-lived test harness doesn't leak the underlying signal fd.
+	// 在 goroutine 退出时释放 signal handler 槽位，避免长时间运行的
+	// 测试 harness 泄漏底层的 signal fd。
+	defer signal.Stop(sigs)
+
+	// Guard the hard-exit path so it runs at most once even if both
+	// the second-signal and drain-timeout cases somehow race (they
+	// shouldn't, but the cost of a sync.Once is negligible here).
+	// 守卫硬退出路径：即便第二次信号和 drain 超时两个 case 出现竞争
+	// （理论上不会），至多执行一次。sync.Once 的开销可忽略。
+	var hardExitOnce sync.Once
+	hardExit := func(reason string) {
+		hardExitOnce.Do(func() {
+			fmt.Fprintln(os.Stderr, reason)
+			if preHardExit != nil {
+				preHardExit()
+			}
+			os.Exit(1)
+		})
+	}
 
 	go func() {
 		select {
@@ -148,13 +217,11 @@ func installSignalHandler(timeout time.Duration) (context.Context, context.Cance
 			case <-sigs:
 				// Second signal within drain window: hard exit.
 				// 排空期间收到第二次信号：强退。
-				fmt.Fprintln(os.Stderr, "[!] Second interrupt received, forcing exit")
-				os.Exit(1)
+				hardExit("[!] Second interrupt received, forcing exit")
 			case <-time.After(timeout):
 				// Drain timed out: hard exit.
 				// 排空超时：强退。
-				fmt.Fprintln(os.Stderr, "[!] Drain timed out, forcing exit")
-				os.Exit(1)
+				hardExit("[!] Drain timed out, forcing exit")
 			}
 		case <-drainCh:
 			// Normal completion; nothing to do.
@@ -166,60 +233,124 @@ func installSignalHandler(timeout time.Duration) (context.Context, context.Cance
 
 // buildSession constructs the Session and wires logger, UI, and store.
 // The returned cleanup function quits the TUI if one was started; it
-// is safe to call regardless (no-op in plain-text mode).
+// is safe to call regardless (no-op in plain-text mode) and is
+// idempotent — calling it twice (e.g. once via defer and once via the
+// signal-handler preHardExit) is harmless.
+//
+// In TUI mode buildSession also writes the *tui.Program and the
+// bubbletea-Run-done channel back through the prog / runDone out
+// parameters so runScan's preHardExit closure can do its job. The
+// TUI Run goroutine + drainCh watcher are also started here.
 //
 // buildSession 构造 Session 并装配 logger / UI / store。返回的 cleanup
-// 函数在启用了 TUI 时调用 prog.Quit()，纯文本模式下是空操作。
-func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Project, drainCh chan struct{}) (*session.Session, func(), error) {
+// 函数在启用了 TUI 时调用 prog.Quit()，纯文本模式下是空操作。多次
+// 调用（defer + signal-handler preHardExit）是幂等的。
+//
+// TUI 模式下 buildSession 还会通过 prog / runDone 出参回写 *tui.Program
+// 和 bubbletea-Run-done channel，让 runScan 的 preHardExit 闭包能正常
+// 工作。TUI Run goroutine 和 drainCh watcher 也在这里启动。
+func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Project, drainCh chan struct{}, prog **tui.Program, runDone *chan struct{}) (*session.Session, func(), error) {
 	sess, err := session.NewSession(ctx, cfg, cfg.Project)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session error: %w", err)
 	}
 
 	// Wire logger (silent flag suppresses to file-only; -v adds debug).
-	// 装配 logger（silent 抑制控制台；-v 开启 debug）。
+	// The TUI is unaffected by Silent — the dashboard is the live event
+	// surface, the logger is the secondary channel; both can be quiet
+	// or noisy independently.
+	//
+	// 装配 logger（silent 抑制控制台；-v 开启 debug）。TUI 不受 Silent
+	// 影响——dashboard 是实时事件展示，logger 是次要通道；两者可以独
+	// 立地安静或嘈杂。
 	if !cfg.Silent {
 		sess.Log = types.NewStderrLogger()
 	} else {
 		sess.Log = types.DiscardLogger{}
 	}
 
-	// Wire UI: TUI mode if stdout is a TTY and -no-tui/-silent are not
-	// set. Otherwise, plain text mode (results are still in the file
-	// sinks).
+	// Wire bbolt store from project (nil in ephemeral mode). Done
+	// BEFORE the UI choice so the TUI path also gets persistence
+	// wired — a previous version of this code set Store only on the
+	// text-UI branch, which silently broke -resume in TUI mode.
 	//
-	// 装配 UI：stdout 是 TTY 且未传 -no-tui/-silent 时进 TUI 模式；
-	// 否则纯文本模式（结果仍在文件汇中输出）。
-	useTUI := types.IsTerminalStdout() && !cfg.NoTUI && !cfg.Silent
-	if useTUI {
-		prog := tui.NewProgram(cfg)
-		sess.UI = prog
-		go func() {
-			if _, err := prog.Run(); err != nil {
-				fmt.Fprintln(os.Stderr, "tui error:", err)
-			}
-		}()
-		// Quit the TUI when the scan finishes (normal path: drainCh
-		// closes → quit TUI). The cleanup function is the public exit;
-		// the watcher goroutine is a fallback for early returns.
-		//
-		// scan 结束时退出 TUI（正常路径：drainCh 关闭 → 退出 TUI）。
-		// cleanup 是公开出口；watcher goroutine 是早退的兜底。
-		cleanup := func() { prog.Quit() }
-		go func() {
-			<-drainCh
-			cleanup()
-		}()
-		return sess, cleanup, nil
-	}
-
-	sess.UI = ui.NewTextUI()
-
-	// Wire bbolt store from project (nil in ephemeral mode).
-	// 从 project 装配 bbolt store（即扫即走模式下为 nil）。
+	// 从 project 装配 bbolt store（即扫即走模式下为 nil）。放在 UI
+	// 选择之前，让 TUI 路径也获得持久化——旧版只在 text-UI 分支赋值
+	// Store，导致 -resume 在 TUI 模式下静默失效。
 	sess.Store = proj.AsStore()
 
-	return sess, func() {}, nil
+	// UI selection: consult ui.ShouldUseTUI (which centralises the
+	// tty / CI / dumb-term / width logic) and act on the result.
+	//
+	// UI 选择：调用 ui.ShouldUseTUI（集中了 tty / CI / dumb-term /
+	// 宽度判断），按结果分支。
+	if !ui.ShouldUseTUI(cfg) {
+		sess.UI = ui.NewTextUI(cfg)
+		return sess, func() {}, nil
+	}
+
+	// TUI path. / TUI 路径。
+	p := tui.NewProgram(cfg)
+	sess.UI = p
+
+	// Hand the program pointer and the Run-done channel back to
+	// runScan so its preHardExit closure can release the altscreen
+	// synchronously on hard exit.
+	//
+	// 把 program 指针和 Run-done channel 回传给 runScan，让其
+	// preHardExit 闭包在硬退出时同步释放 altscreen。
+	*prog = p
+	*runDone = make(chan struct{})
+
+	// Start the bubbletea Run loop. The Run goroutine's lifetime is
+	// the TUI's lifetime: closing runDone signals the TUI is fully
+	// torn down (altscreen restored, goroutine exited).
+	//
+	// 启动 bubbletea Run 循环。Run goroutine 的生命期就是 TUI 的
+	// 生命期：关闭 runDone 意味着 TUI 完整拆除（altscreen 还原、goroutine
+	// 退出）。
+	go func() {
+		defer close(*runDone)
+		if _, err := p.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, "tui error:", err)
+		}
+	}()
+
+	// cleanup: idempotent. First call quits the TUI and blocks until
+	// the Run goroutine returns; subsequent calls are no-ops (close
+	// of an already-closed channel panics, so guard).
+	//
+	// cleanup：幂等。首次调用退出 TUI 并阻塞到 Run goroutine 返回；
+	// 后续调用空操作（对已关闭的 channel 再 close 会 panic，所以守
+	// 卫）。
+	var cleanedUp bool
+	var cleanupMu sync.Mutex
+	cleanup := func() {
+		cleanupMu.Lock()
+		defer cleanupMu.Unlock()
+		if cleanedUp {
+			return
+		}
+		cleanedUp = true
+		p.Quit()
+		<-*runDone
+	}
+
+	// Watcher: if drainCh closes (normal scan completion path),
+	// trigger cleanup so the TUI exits promptly. core.RunScan also
+	// calls sess.UI.Done() which sends tea.Quit — that path is the
+	// primary one; this watcher covers the rare early-return before
+	// Done is reached.
+	//
+	// Watcher：drainCh 关闭（正常扫描完成路径）时触发 cleanup 让 TUI
+	// 立即退出。core.RunScan 也会调 sess.UI.Done() 发 tea.Quit——
+	// 那条路径是主路径；本 watcher 覆盖 Done 之前的罕见早退场景。
+	go func() {
+		<-drainCh
+		cleanup()
+	}()
+
+	return sess, cleanup, nil
 }
 
 // loadResumeState loads the persisted seen-set from bbolt into the
@@ -256,6 +387,11 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 		CredsPath:      resolveOutputPath(cfg, "", "creds.txt"),
 		RDPJSONPath:    resolveOutputPath(cfg, "", "rdp.json"),
 		RDPTXTPath:     resolveOutputPath(cfg, "", "rdp.txt"),
+		// P0#2: result.txt gets the redaction gate; creds.txt is
+		// always cleartext (operator's working file).
+		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员
+		// 工作文件）。
+		ShowCleartext: cfg.ShowCleartext,
 	})
 	if err != nil {
 		return fmt.Errorf("output error: %w", err)
@@ -289,6 +425,10 @@ func buildConfig() (*types.Config, error) {
 		NoTUI:           flagNoTUI,
 		NoICMP:          flagNoICMP,
 		Verbose:         flagVerbose,
+		ShowCleartext:   flagShowCleartext,
+		InsecureTLS:     flagInsecureTLS,
+		InsecureSSH:     flagInsecureSSH,
+		KnownHostsFile:  flagKnownHosts,
 		ShutdownTimeout: flagShutdownTime,
 		Plugins:         flagPlugins,
 	}
@@ -321,4 +461,25 @@ func resolveOutputPath(cfg *types.Config, flagValue, defaultName string) string 
 		return filepath.Join("runs", "projects", cfg.Project, defaultName)
 	}
 	return filepath.Join("runs", "default", defaultName)
+}
+
+// applyTransport copies the cmd-line transport security flags into
+// the process-wide atomic flags in internal/transport. Called once
+// at scan start (before any probe is built); subsequent calls in the
+// same process re-set the flags (idempotent; the values are still
+// authoritative for the rest of the run).
+//
+// applyTransport 把 cmd 行的 transport 安全 flag 拷到 internal/transport
+// 的进程级 atomic flag 上。扫描启动时调一次（任何 probe 构造前）；同一
+// 进程内多次调用会重新设 flag（幂等；值对后续运行仍然有效）。
+func applyTransport(cfg *types.Config) {
+	if cfg == nil {
+		return
+	}
+	transport.InsecureTLS.Store(cfg.InsecureTLS)
+	transport.InsecureSSH.Store(cfg.InsecureSSH)
+	if cfg.KnownHostsFile != "" {
+		path := cfg.KnownHostsFile
+		transport.KnownHostsFile.Store(&path)
+	}
 }
