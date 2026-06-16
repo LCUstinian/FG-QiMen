@@ -129,7 +129,14 @@ func (a *WinRMAuthenticator) probe(ctx context.Context, addr, user, pass string,
 		DisableKeepAlives:     true,
 	}
 	client := &http.Client{Transport: tr, Timeout: timeout}
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://"+addr+"/wsman",
+	// M15: port 5986 is HTTPS WinRM — use https://. Port 5985 stays
+	// plaintext http://. / M15：端口 5986 是 HTTPS WinRM——用
+	// https://。端口 5985 保持明文 http://。
+	scheme := "http"
+	if strings.HasSuffix(addr, ":5986") {
+		scheme = "https"
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", scheme+"://"+addr+"/wsman",
 		strings.NewReader(wsmanBody))
 	if err != nil {
 		return false, err

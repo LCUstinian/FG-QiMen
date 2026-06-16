@@ -49,13 +49,12 @@ func (a *SOCKS5Authenticator) DefaultPorts() []int {
 
 // SOCKS5 wire constants. / SOCKS5 线常量。
 const (
-	socks5Version       byte = 0x05
-	socks5MethodNoAuth  byte = 0x00
+	socks5Version        byte = 0x05
 	socks5MethodUserPass byte = 0x02
 	socks5MethodNoAccept byte = 0xFF
-	socks5AuthVersion   byte = 0x01
-	socks5AuthSuccess   byte = 0x00
-	socks5AuthFailure   byte = 0x01
+	socks5AuthVersion    byte = 0x01
+	socks5AuthSuccess    byte = 0x00
+	socks5AuthFailure    byte = 0x01
 )
 
 // Authenticate implements credential.Authenticator. / Authenticate 实现

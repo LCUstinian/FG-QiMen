@@ -53,22 +53,29 @@ var (
 	flagExcludePorts string
 	flagAliveOnly    bool
 
-	// 4. Concurrency & timing / 并发与超时
+	// 4. Network / 网络
+	flagProxy       string
+	flagSocks5      string
+	flagIface       string
+	flagPortTimeout time.Duration
+	flagWebTimeout  time.Duration
+
+	// 5. Concurrency & timing / 并发与超时
 	flagThreads      int
 	flagTimeout      time.Duration
 	flagShutdownTime time.Duration
 
-	// 5. Credentials / 凭据
+	// 6. Credentials / 凭据
 	flagUser     []string
 	flagPass     []string
 	flagUserFile string
 	flagPassFile string
 
-	// 6. Output files / 输出文件
+	// 7. Output files / 输出文件
 	flagOutputTXT  string
 	flagOutputJSON string
 
-	// 7. Behaviour / 行为
+	// 8. Behaviour / 行为
 	flagSilent        bool
 	flagNoTUI         bool
 	flagNoICMP        bool
@@ -80,11 +87,11 @@ var (
 	flagPlugins       string
 )
 
-// registerGlobalFlags wires all 23 persistent flags into pf (which is
+// registerGlobalFlags wires all 28 persistent flags into pf (which is
 // rootCmd.PersistentFlags()). Called from root.go's init(); kept here
 // so root.go stays a Cobra-scaffolding file.
 //
-// registerGlobalFlags 把 23 个持久化 flag 绑定到 pf（rootCmd 的
+// registerGlobalFlags 把 28 个持久化 flag 绑定到 pf（rootCmd 的
 // PersistentFlags()）。由 root.go 的 init() 调用；放在这里以保持
 // root.go 是纯 Cobra 脚手架文件。
 //
@@ -113,14 +120,26 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"disable bbolt, use in-memory dedup only")
 
 	// 3. Port selection / 端口选择
-	pf.StringVar(&flagPorts, "ports", "22,80,3306,3389,6379,8080",
-		"comma-separated port list to scan")
+	pf.StringVar(&flagPorts, "ports", "",
+		"port specification: port groups (web/db/service/common/main), ranges (80-85), or comma-separated (22,80,443). Empty = default 133 ports.")
 	pf.StringVar(&flagExcludePorts, "exclude-ports", "",
-		"comma-separated ports to exclude")
+		"ports to exclude (same format as --ports)")
 	pf.BoolVarP(&flagAliveOnly, "alive-only", "a", false,
 		"only run host discovery; skip port scan and plugins")
 
-	// 4. Concurrency & timing / 并发与超时
+	// 4. Network / 网络
+	pf.StringVar(&flagProxy, "proxy", "",
+		"HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)")
+	pf.StringVar(&flagSocks5, "socks5", "",
+		"SOCKS5 proxy address (e.g. 127.0.0.1:1080 or socks5://user:pass@host:port)")
+	pf.StringVar(&flagIface, "iface", "",
+		"local interface IP to bind (for VPN scenarios, e.g. 192.168.2.100)")
+	pf.DurationVar(&flagPortTimeout, "port-timeout", 0,
+		"port scan timeout (default: same as --timeout)")
+	pf.DurationVar(&flagWebTimeout, "web-timeout", 0,
+		"web probe timeout (default: same as --timeout)")
+
+	// 5. Concurrency & timing / 并发与超时
 	pf.IntVarP(&flagThreads, "threads", "t", 200,
 		"concurrent worker count")
 	pf.DurationVarP(&flagTimeout, "timeout", "", 3*time.Second,
@@ -128,7 +147,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.DurationVar(&flagShutdownTime, "shutdown-timeout", 5*time.Second,
 		"graceful shutdown drain timeout")
 
-	// 5. Credentials / 凭据
+	// 6. Credentials / 凭据
 	pf.StringSliceVarP(&flagUser, "user", "u", nil,
 		"credential testing usernames (repeatable)")
 	pf.StringSliceVarP(&flagPass, "pass", "P", nil,
@@ -138,13 +157,13 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.StringVar(&flagPassFile, "pass-file", "",
 		"passwords dictionary file")
 
-	// 6. Output files / 输出文件
+	// 7. Output files / 输出文件
 	pf.StringVarP(&flagOutputTXT, "output-txt", "o", "",
 		"path to TXT result file (default: <project>/result.txt or ./result.txt)")
 	pf.StringVarP(&flagOutputJSON, "output-json", "j", "",
 		"path to NDJSON result file (default: <project>/result.json or ./result.json)")
 
-	// 7. Behaviour / 行为
+	// 8. Behaviour / 行为
 	pf.BoolVar(&flagSilent, "silent", false,
 		"suppress info log to console; file output still works")
 	pf.BoolVar(&flagNoTUI, "no-tui", false,

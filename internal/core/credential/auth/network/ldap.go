@@ -27,6 +27,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // LDAPAuthenticator authenticates against LDAP via simple bind.
@@ -121,21 +122,31 @@ func (a *LDAPAuthenticator) Authenticate(ctx context.Context, host string, port 
 // returns whether the bind succeeded. / attempt 开 LDAP 连接，simple
 // bind，返是否成功。
 func (a *LDAPAuthenticator) attempt(ctx context.Context, addr string, port int, host, user, pass string, timeout time.Duration) (bool, error) {
-	// go-ldap v3.4.x: use DialURL which respects LDAP:// / LDAPS://
-	// prefix. We force plaintext here (LDAP://) for both port 389
-	// and 636 — for 636 we'd need DialTLS; v0.2+ adds that.
-	// / go-ldap v3.4.x：用 DialURL 尊重 LDAP:// / LDAPS:// 前缀。
-	// v0.1 强制明文（LDAP://）——636 等 v0.2+ 加 TLS 时用 DialTLS。
-	ldapURL := "ldap://" + addr
+	// M15: port 636 is LDAPS (TLS) — use ldaps://. Port 389 stays
+	// plaintext ldap://. go-ldap's DialURL honors the scheme prefix.
+	// / M15：端口 636 是 LDAPS（TLS）——用 ldaps://。端口 389 保持
+	// 明文 ldap://。go-ldap 的 DialURL 尊重 scheme 前缀。
+	scheme := "ldap"
+	tlsConfig := transport.TLSConfig(false)
+	if port == 636 {
+		scheme = "ldaps"
+	}
+	ldapURL := scheme + "://" + addr
 	// LDAP uses the go-ldap high-level DialURL which wraps a
 	// net.Dialer internally; credential.DialTCP does not fit because
 	// the dialer is owned by the ldap package, not the caller.
 	// We keep the inline net.Dialer pattern for the same reason.
+	// For LDAPS we also pass a TLS config that respects --insecure-tls.
 	// / LDAP 用 go-ldap 的高层 DialURL 包装 net.Dialer；dialer 归
 	// ldap 包管，credential.DialTCP 不适用（需要 caller 拥有 dialer）。
-	// 这里保留 inline net.Dialer。
+	// 这里保留 inline net.Dialer。LDAPS 时还传尊重 --insecure-tls 的
+	// TLS config。
 	dialer := &net.Dialer{Timeout: timeout}
-	conn, err := ldap.DialURL(ldapURL, ldap.DialWithDialer(dialer))
+	dialOpts := []ldap.DialOpt{ldap.DialWithDialer(dialer)}
+	if scheme == "ldaps" {
+		dialOpts = append(dialOpts, ldap.DialWithTLSConfig(tlsConfig))
+	}
+	conn, err := ldap.DialURL(ldapURL, dialOpts...)
 	if err != nil {
 		return false, err
 	}

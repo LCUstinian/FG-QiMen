@@ -7,9 +7,9 @@ import "time"
 // Cred is a single (user, pass) credential pair to test.
 // Cred 是单个 (user, pass) 待测凭据对。
 type Cred struct {
-	User     string
-	Pass     string
-	AuthType string // "password" / "key" / ...
+	User     string `json:"user"`
+	Pass     string `json:"pass"`
+	AuthType string `json:"auth_type,omitempty"` // "password" / "key" / ...
 }
 
 // ScanItem is the unit of work emitted by the port scan producer and

@@ -100,13 +100,30 @@ func (d *Discovery) AvailableProbes() []Probe {
 // RunResult summarizes the outcome of a Run() call. / RunResult 汇总 Run() 的结果。
 type RunResult struct {
 	// Hits maps host → first Hit. / Hits 映射 host → 首个 Hit。
-	Hits map[string]Hit
+	//
+	// C3 audit fix: Hits is protected by hitsMu because multiple worker
+	// goroutines write to it concurrently. The previous unsynchronized
+	// map writes triggered `fatal error: concurrent map writes` under
+	// the default 200-thread host discovery.
+	//
+	// C3 审计修法：Hits 由 hitsMu 保护，因为多个 worker goroutine 并发
+	// 写入。原先未同步的 map 写入在默认 200 线程主机存活探测下会触发
+	// `fatal error: concurrent map writes`。
+	Hits   map[string]Hit
+	hitsMu sync.Mutex
 	// Tried counts how many probes were attempted (across all hosts).
 	// Tried 计数所有尝试过的 probe 总数。
 	Tried atomic.Int64
 	// Unreachable lists hosts that no probe could confirm as alive.
 	// Unreachable 列出所有 probe 都没能确认存活的主机。
 	Unreachable []string
+}
+
+// SetHit records a hit for host under the mutex. / SetHit 在互斥锁保护下记录 host 的 hit。
+func (r *RunResult) SetHit(host string, hit Hit) {
+	r.hitsMu.Lock()
+	r.Hits[host] = hit
+	r.hitsMu.Unlock()
 }
 
 // Run probes all hosts concurrently and returns the RunResult.
@@ -160,7 +177,7 @@ func (d *Discovery) Run(ctx context.Context, hosts []string) (*RunResult, error)
 			hit, err := d.probeOne(ctx, host, probes)
 			result.Tried.Add(1)
 			if err == nil {
-				result.Hits[host] = hit
+				result.SetHit(host, hit) // C3: mutex-protected write / 互斥锁保护写入
 				return
 			}
 			// ErrUnreachable is a clean miss; real errors are also treated

@@ -30,6 +30,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
@@ -99,7 +100,14 @@ func (a *DockerAuthenticator) probe(ctx context.Context, addr, user, pass string
 		DisableKeepAlives:     true,
 	}
 	client := &http.Client{Transport: tr, Timeout: timeout}
-	url := fmt.Sprintf("http://%s/images/json", addr)
+	// M15: port 2376 is the TLS Docker daemon — use https://. Other
+	// ports (2375) stay plaintext http://. / M15：端口 2376 是 TLS
+	// Docker daemon——用 https://。其他端口（2375）保持明文 http://。
+	scheme := "http"
+	if strings.HasSuffix(addr, ":2376") {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s/images/json", scheme, addr)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return false, err

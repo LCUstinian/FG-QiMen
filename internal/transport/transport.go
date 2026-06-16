@@ -37,6 +37,8 @@ package transport
 
 import (
 	"crypto/tls"
+	"fmt"
+	"net"
 	"os"
 	"sync/atomic"
 
@@ -99,6 +101,9 @@ func TLSConfig(override bool) *tls.Config {
 // Resolution order:
 //  1. KnownHostsFile is set → load it, return FixedHostKey callback.
 //     First-time hosts cause a connection error (TOFU, real verify).
+//     M9 audit fix: if loading fails, return a callback that always
+//     rejects (NOT InsecureIgnoreHostKey), so the operator's explicit
+//     "verify" intent is honored rather than silently downgraded.
 //  2. --insecure-ssh flag set → return InsecureIgnoreHostKey
 //     (with the operator's understanding that MITM is possible).
 //  3. Neither → return InsecureIgnoreHostKey BUT log a one-line
@@ -112,6 +117,8 @@ func TLSConfig(override bool) *tls.Config {
 // 解析顺序：
 //  1. 设了 KnownHostsFile → 加载，返回 FixedHostKey callback。首次见到
 //     的主机导致连接错误（TOFU，真校验）。
+//     M9 审计修法：若加载失败，返回始终拒绝的 callback（而非
+//     InsecureIgnoreHostKey），尊重操作员显式的"校验"意图，而非静默降级。
 //  2. 设了 --insecure-ssh flag → 返回 InsecureIgnoreHostKey（操作员
 //     知晓可能 MITM）。
 //  3. 都没有 → 返回 InsecureIgnoreHostKey，但向 stderr 输出一行警告：
@@ -123,23 +130,26 @@ func SSHHostKeyCallback() ssh.HostKeyCallback {
 	// race-free in Go's memory model.
 	// 原子读 known_hosts 路径；pointer load 在 Go 内存模型下无竞争。
 	if p := KnownHostsFile.Load(); p != nil && *p != "" {
-		// Try to load the file. Failure here is the operator's
-		// problem (bad path / bad perms / non-known_hosts format);
-		// fall back to InsecureIgnoreHostKey so the scan can still
-		// proceed and the operator gets a usable error message
-		// rather than a nil-pointer panic.
+		// Try to load the file. M9 audit fix: on failure, return a
+		// rejecting callback instead of silently downgrading to
+		// InsecureIgnoreHostKey. The operator explicitly asked for
+		// verification by providing --known-hosts; silently ignoring
+		// that defeats the purpose and hides misconfiguration.
 		//
-		// 尝试加载文件。失败是操作员的问题（路径错/权限错/格式非
-		// known_hosts）；回退到 InsecureIgnoreHostKey 让扫描继续
-		// 跑，操作员拿到可读错误而非 nil-pointer panic。
+		// 尝试加载文件。M9 审计修法：失败时返回拒绝 callback，而非
+		// 静默降级到 InsecureIgnoreHostKey。操作员通过 --known-hosts
+		// 显式要求校验；静默忽略违背意图并隐藏配置错误。
 		if cb, err := loadKnownHostsCallback(*p); err == nil {
 			return cb
 		} else {
 			// stderr write; not in hot path (called once at scan start).
 			// stderr 写出；不在热路径（扫描启动时调一次）。
 			_, _ = os.Stderr.WriteString(
-				"[!] ssh: known_hosts load failed, falling back to insecure host-key: " + err.Error() + "\n",
+				"[!] ssh: known_hosts load failed; rejecting all host keys to honor --known-hosts intent: " + err.Error() + "\n",
 			)
+			return func(_ string, _ net.Addr, _ ssh.PublicKey) error {
+				return fmt.Errorf("ssh: known_hosts load failed; refusing to accept any host key (fix the --known-hosts file or remove the flag)")
+			}
 		}
 	}
 	if InsecureSSH.Load() {

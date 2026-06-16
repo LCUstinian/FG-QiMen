@@ -37,11 +37,12 @@ import (
 // We don't introduce the fscan 9443 port convention — it adds a corner
 // case for no real value.
 //
-// Note: this is HTTP only. ES installations with TLS on 9243 are a
-// v0.2+ slice — the Identify plugin handles HTTPS detection for
-// fingerprinting but for credential testing we want a single, simple
-// path. / 注意：只走 HTTP。带 TLS 的 9243 是 v0.2+ 切片——Identify 插件
-// 处理 HTTPS 检测用于指纹，但凭据测试我们要单一简单路径。
+// Note: HTTP by default; port 9243 uses HTTPS (M15 fix). ES
+// installations with TLS on other ports are not auto-detected — the
+// Identify plugin handles HTTPS detection for fingerprinting but for
+// credential testing we route by port. / 注意：默认 HTTP；端口 9243
+// 用 HTTPS（M15 修复）。其他端口上的 TLS ES 不自动探测——Identify 插
+// 件处理 HTTPS 检测用于指纹，但凭据测试按端口路由。
 //
 // ElasticsearchAuthenticator 通过 HTTP Basic 认证探测对 ES 认证。
 //
@@ -59,8 +60,12 @@ func NewElasticsearchAuthenticator() *ElasticsearchAuthenticator {
 func (a *ElasticsearchAuthenticator) Name() string { return "elasticsearch" }
 
 // DefaultPorts implements credential.Authenticator. / DefaultPorts 实现 credential.Authenticator。
+//
+// M15: added 9243 (HTTPS ES). Port 9243 uses https://, others use
+// http://. / M15：加了 9243（HTTPS ES）。端口 9243 用 https://，其他
+// 用 http://。
 func (a *ElasticsearchAuthenticator) DefaultPorts() []int {
-	return []int{9200, 9300}
+	return []int{9200, 9300, 9243}
 }
 
 // Authenticate implements credential.Authenticator. Tries each cred in order;
@@ -115,7 +120,14 @@ func (a *ElasticsearchAuthenticator) probe(ctx context.Context, addr, user, pass
 		DisableKeepAlives:     true,
 	}
 	client := &http.Client{Transport: tr, Timeout: timeout}
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/", nil)
+	// M15: port 9243 is HTTPS ES — use https://. Other ports stay
+	// plaintext http://. / M15：端口 9243 是 HTTPS ES——用 https://。
+	// 其他端口保持明文 http://。
+	scheme := "http"
+	if strings.HasSuffix(addr, ":9243") {
+		scheme = "https"
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", scheme+"://"+addr+"/", nil)
 	if err != nil {
 		return false, err
 	}

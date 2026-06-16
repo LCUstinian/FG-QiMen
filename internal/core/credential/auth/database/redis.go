@@ -14,10 +14,10 @@
 // RESP protocol (simplified):
 //   - client → server: *<count>\r\n$<len>\r\n<arg>\r\n...
 //   - server → client: +<simple>\r\n (simple string)
-//                       -<error>\r\n   (error)
-//                       :<integer>\r\n (integer)
-//                       $<len>\r\n<data>\r\n (bulk string)
-//                       *<count>\r\n... (array)
+//     -<error>\r\n   (error)
+//     :<integer>\r\n (integer)
+//     $<len>\r\n<data>\r\n (bulk string)
+//     *<count>\r\n... (array)
 //
 // RESP 协议（简化）：
 //   - 客户端 → 服务器：*<count>\r\n$<len>\r\n<arg>\r\n...
@@ -54,24 +54,24 @@ func (a *RedisAuthenticator) DefaultPorts() []int { return []int{6379, 6380} }
 // Authenticate implements credential.Authenticator.
 //
 // Algorithm:
-//   1. Connect.
-//   2. Send PING.
-//      - +PONG → no password required, return hit with empty cred.
-//      - -NOAUTH → password required; continue to step 3.
-//      - -ERR (other) → not a Redis server, return nil.
-//   3. Try each cred with AUTH.
-//      - +OK → hit.
-//      - -WRONGPASS → wrong password, try next.
-//      - timeout / network err → bail out for this host.
+//  1. Connect.
+//  2. Send PING.
+//     - +PONG → no password required, return hit with empty cred.
+//     - -NOAUTH → password required; continue to step 3.
+//     - -ERR (other) → not a Redis server, return nil.
+//  3. Try each cred with AUTH.
+//     - +OK → hit.
+//     - -WRONGPASS → wrong password, try next.
+//     - timeout / network err → bail out for this host.
 //
 // Authenticate 实现 credential.Authenticator。
 //
 // 算法：
-//   1. 连。
-//   2. 发 PING。+PONG → 不需密码，返回命中（空 cred）。
-//      -NOAUTH → 需密码，进 step 3。其他 -ERR → 不是 Redis，返回 nil。
-//   3. 用每个 cred 试 AUTH。+OK → 命中。-WRONGPASS → 错密码，try next。
-//      超时/网络错 → 该 host 中止。
+//  1. 连。
+//  2. 发 PING。+PONG → 不需密码，返回命中（空 cred）。
+//     -NOAUTH → 需密码，进 step 3。其他 -ERR → 不是 Redis，返回 nil。
+//  3. 用每个 cred 试 AUTH。+OK → 命中。-WRONGPASS → 错密码，try next。
+//     超时/网络错 → 该 host 中止。
 func (a *RedisAuthenticator) Authenticate(ctx context.Context, host string, port int, creds []credential.Cred, timeout time.Duration) (*credential.Hit, error) {
 	if len(creds) == 0 {
 		return nil, nil
@@ -100,9 +100,12 @@ func (a *RedisAuthenticator) Authenticate(ctx context.Context, host string, port
 	}
 	switch {
 	case strings.HasPrefix(pingLine, "+PONG"):
-		// No password. / 不需密码。
+		// No password required — return AuthNone hit (NOT the first
+		// candidate cred, which would pollute creds.txt). / 不需密码
+		// ——返回 AuthNone 命中（不返回第一个候选凭据，避免污染
+		// creds.txt）。
 		return &credential.Hit{
-			Cred:     credential.Cred{User: "", Pass: "", Method: credential.AuthPassword},
+			Cred:     credential.Cred{Method: credential.AuthNone},
 			Attempts: 1,
 			Time:     time.Now(),
 		}, nil
@@ -123,6 +126,11 @@ func (a *RedisAuthenticator) Authenticate(ctx context.Context, host string, port
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
+		// Reset per-cred deadline: DialTCP sets a single deadline at
+		// dial time which would expire mid-loop for large cred lists.
+		// / 重置单 cred deadline：DialTCP 在拨号时设了单 deadline，
+		// 大凭据列表下会在循环中途过期。
+		_ = conn.SetDeadline(time.Now().Add(timeout))
 		if err := writeRESP(conn, "AUTH", c.Pass); err != nil {
 			return nil, err
 		}

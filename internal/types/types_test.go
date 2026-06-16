@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/config"
 )
 
 // --- Config validation ---
@@ -107,8 +109,10 @@ func TestParsePorts(t *testing.T) {
 		want   []int
 		errSub string // substring expected in error; "" = no error
 	}{
-		{"empty", "", nil, ""},
-		{"whitespace only", "   ", nil, ""},
+		// Empty/whitespace input returns the default port list (not nil).
+		// / 空/空白输入返回默认端口列表（不是 nil）。
+		{"empty", "", config.DefaultPorts(), ""},
+		{"whitespace only", "   ", config.DefaultPorts(), ""},
 		{"single", "80", []int{80}, ""},
 		{"multiple", "22,80,443", []int{22, 80, 443}, ""},
 		{"with spaces", " 22 , 80 ", []int{22, 80}, ""},
@@ -172,9 +176,9 @@ func TestHashKeyDeterminism(t *testing.T) {
 func TestHashKeyDifferentiatesInputs(t *testing.T) {
 	base := HashKey("10.0.0.1", "22", "ssh", "identify")
 	cases := [][]string{
-		{"10.0.0.2", "22", "ssh", "identify"}, // different host
-		{"10.0.0.1", "80", "ssh", "identify"}, // different port
-		{"10.0.0.1", "22", "ftp", "identify"},  // different plugin
+		{"10.0.0.2", "22", "ssh", "identify"},   // different host
+		{"10.0.0.1", "80", "ssh", "identify"},   // different port
+		{"10.0.0.1", "22", "ftp", "identify"},   // different plugin
 		{"10.0.0.1", "22", "ssh", "credential"}, // different op
 	}
 	for _, parts := range cases {

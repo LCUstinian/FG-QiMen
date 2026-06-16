@@ -53,13 +53,22 @@ func NewStore(db *bolt.DB) *Store {
 // MarkSeenPersisted persists a "seen" hash to the targets bucket so
 // -resume can pick it up on the next run.
 //
+// M4 audit fix: use CreateBucketIfNotExists instead of Bucket to avoid
+// nil pointer dereference panic if the bucket is missing.
+//
 // MarkSeenPersisted 把"已见"hash 持久化到 targets bucket，下次 -resume 时可恢复。
+//
+// M4 审计修法：用 CreateBucketIfNotExists 替代 Bucket，避免 bucket 缺失时
+// nil 指针解引用 panic。
 func (s *Store) MarkSeenPersisted(hash string, when time.Time) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketTargets)
+		bk, err := tx.CreateBucketIfNotExists(bucketTargets)
+		if err != nil {
+			return err
+		}
 		return bk.Put([]byte(hash), []byte(when.UTC().Format(time.RFC3339Nano)))
 	})
 }
@@ -104,6 +113,9 @@ func (s *Store) LoadSeenHashes() ([]string, error) {
 
 // PutResult persists a structured result to the results bucket.
 // PutResult 把结构化结果持久化到 results bucket。
+//
+// M4 audit fix: use CreateBucketIfNotExists to avoid nil panic.
+// M4 审计修法：用 CreateBucketIfNotExists 避免 nil panic。
 func (s *Store) PutResult(hash string, v any) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -113,13 +125,19 @@ func (s *Store) PutResult(hash string, v any) error {
 		return err
 	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketResults)
+		bk, err := tx.CreateBucketIfNotExists(bucketResults)
+		if err != nil {
+			return err
+		}
 		return bk.Put([]byte(hash), data)
 	})
 }
 
 // PutCred persists a credential hit to the creds bucket.
 // PutCred 把凭据命中持久化到 creds bucket。
+//
+// M4 audit fix: use CreateBucketIfNotExists to avoid nil panic.
+// M4 审计修法：用 CreateBucketIfNotExists 避免 nil panic。
 func (s *Store) PutCred(hash string, v any) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -129,7 +147,10 @@ func (s *Store) PutCred(hash string, v any) error {
 		return err
 	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketCreds)
+		bk, err := tx.CreateBucketIfNotExists(bucketCreds)
+		if err != nil {
+			return err
+		}
 		return bk.Put([]byte(hash), data)
 	})
 }

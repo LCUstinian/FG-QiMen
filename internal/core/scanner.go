@@ -81,7 +81,14 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer close(items)
+		// P1#1 + C1 audit fix: single defer close(items) at the
+		// bottom (line ~128) covers all return paths. The earlier
+		// duplicate defer close(items) here would double-close and
+		// panic on every scan. Removed in the v0.2 audit.
+		//
+		// P1#1 + C1 审计修法：底部（约 128 行）唯一的 defer close(items)
+		// 覆盖所有返回路径。此处早先的重复 defer close(items) 会在每
+		// 次扫描时 double-close 并 panic。v0.2 审计删除。
 		ports, _ := cfg.ParsePorts()
 		scanRes := make(chan scan.Result, itemsBuf)
 		sc := scan.NewScanner(scan.ScanOptions{

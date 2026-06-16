@@ -10,11 +10,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 )
+
+// validProjectName matches safe project names: alphanumeric, dot,
+// underscore, hyphen. Rejects path separators, `..`, absolute paths.
+// M3 audit fix: prevents path traversal via `--project ../../../etc`.
+//
+// validProjectName 匹配安全的项目名：字母数字、点、下划线、连字符。
+// 拒绝路径分隔符、`..`、绝对路径。M3 审计修法：防止通过
+// `--project ../../../etc` 进行路径穿越。
+var validProjectName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // Project is the active workspace. It owns file handles and the bbolt DB
 // (if any). Callers must defer proj.Close().
@@ -50,7 +61,29 @@ func Open(name string) (*Project, error) {
 	if name == "" {
 		return openEphemeral()
 	}
+	if err := ValidateProjectName(name); err != nil {
+		return nil, err
+	}
 	return openPersistent(name)
+}
+
+// ValidateProjectName rejects names that could escape ProjectsRoot via path
+// traversal. M3 audit fix. / ValidateProjectName 拒绝可能通过路径穿越
+// 逃出 ProjectsRoot 的名字。M3 审计修法。
+func ValidateProjectName(name string) error {
+	if name == "" {
+		return fmt.Errorf("project name is empty")
+	}
+	if !validProjectName.MatchString(name) {
+		return fmt.Errorf("project name %q contains invalid characters; allowed: letters, digits, '.', '_', '-'", name)
+	}
+	// Reject `..` segments even though the regex already blocks them as a
+	// standalone name — defensive double-check. / 即便正则已阻止 `..`
+	// 作为独立名称，仍做防御性二次检查。
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("project name %q must not contain '..'", name)
+	}
+	return nil
 }
 
 // openEphemeral constructs an ephemeral project: no DB, root = current
@@ -195,13 +228,34 @@ func List() ([]string, error) {
 // (bbolt DB, results, creds). Refuses to operate on ephemeral mode
 // (name == "") to prevent accidentally rm -rf of the cwd.
 //
+// M3 audit fix: also validates the name and checks the resolved path
+// stays under ProjectsRoot, preventing `os.RemoveAll(".")` when name
+// is `../..` and similar traversal.
+//
 // Delete 删除一个持久化项目目录及其所有内容（bbolt DB、结果、凭据）。
 // 拒绝在即扫即走模式（name == ""）下操作，避免误删当前工作目录。
+//
+// M3 审计修法：同时校验名称并检查解析后的路径是否仍在 ProjectsRoot
+// 之下，防止 name 为 `../..` 等穿越时 `os.RemoveAll(".")`。
 func Delete(name string) error {
-	if name == "" {
-		return fmt.Errorf("refuse to delete ephemeral project (empty name)")
+	if err := ValidateProjectName(name); err != nil {
+		return err
 	}
-	dir := filepath.Join(ProjectsRoot(), name)
+	root := ProjectsRoot()
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve projects root: %w", err)
+	}
+	dir := filepath.Join(root, name)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve project dir: %w", err)
+	}
+	// Ensure the resolved path is strictly under absRoot. / 确保解析后
+	// 的路径严格位于 absRoot 之下。
+	if absDir == absRoot || !strings.HasPrefix(absDir, absRoot+string(filepath.Separator)) {
+		return fmt.Errorf("refuse to delete path outside projects root: %s", absDir)
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", dir, err)

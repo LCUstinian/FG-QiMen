@@ -16,6 +16,7 @@ package email
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -23,14 +24,16 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // IMAPAuthenticator authenticates against IMAP servers via RFC 3501
 // LOGIN command. / IMAPAuthenticator 通过 RFC 3501 LOGIN 命令对 IMAP
 // 认证。
 //
-// DefaultPorts returns 143/993 (plaintext / IMAPS). / DefaultPorts
-// 返 143/993（明文 / IMAPS）。
+// DefaultPorts returns 143/993 (plaintext / IMAPS). Port 993 uses
+// implicit TLS (M15 fix). / DefaultPorts 返 143/993（明文 / IMAPS）。
+// 端口 993 用隐式 TLS（M15 修复）。
 type IMAPAuthenticator struct{}
 
 // NewIMAPAuthenticator returns a default IMAP authenticator.
@@ -82,6 +85,17 @@ func (a *IMAPAuthenticator) attempt(ctx context.Context, addr, user, pass string
 		return false, err
 	}
 	defer conn.Close()
+	// M15: port 993 is IMAPS (implicit TLS) — wrap the TCP conn with
+	// TLS before running the IMAP protocol. Other ports stay plaintext.
+	// / M15：端口 993 是 IMAPS（隐式 TLS）——在跑 IMAP 协议前把 TCP
+	// 连接包成 TLS。其他端口保持明文。
+	if strings.HasSuffix(addr, ":993") {
+		tlsConn := tls.Client(conn, transport.TLSConfig(false))
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return false, err
+		}
+		conn = tlsConn
+	}
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	// Read server greeting (untagged "* OK ..." or "* OK [CAPABILITY ...]").

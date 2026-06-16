@@ -34,6 +34,14 @@ const (
 	// AuthToken is a bearer-style token (HTTP basic / API key). v0.2+.
 	// AuthToken 是 bearer 风格 token（HTTP basic / API key）。v0.2+。
 	AuthToken AuthMethod = "token"
+	// AuthNone marks a "no-auth-required" hit: the service answered
+	// the reachability probe without any credential. Used by
+	// credential-less protocols (NFS RPC NULL, Modbus TCP, BACnet
+	// Who-Is) so we don't pollute creds.txt with a false positive
+	// cred pair. / AuthNone 标记"无需认证"命中：服务在无凭据情况下
+	// 响应了可达性探针。用于无凭据协议（NFS RPC NULL、Modbus TCP、
+	// BACnet Who-Is），避免把假命中的凭据对写进 creds.txt。
+	AuthNone AuthMethod = "none"
 )
 
 // Cred is a single credential to test. The Method field selects how
@@ -62,6 +70,9 @@ func (c Cred) String() string {
 	switch c.Method {
 	case AuthKey:
 		return c.User + " (key:" + c.KeyPath + ")"
+	case AuthNone:
+		// "no-auth-required" reachability hit. / "无需认证"可达性命中。
+		return "(no-auth-required)"
 	default:
 		return c.User + " / " + c.Pass
 	}

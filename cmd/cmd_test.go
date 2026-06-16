@@ -50,7 +50,9 @@ func TestBuildConfigReadsFlagVars(t *testing.T) {
 	flagProject = "test"
 	flagMode = "linked"
 	flagResume = true
-	flagNoState = true
+	// M6: --no-state conflicts with --resume (resume requires bbolt
+	// persistence). Don't set both in the test. / M6：--no-state 与
+	// --resume 冲突（resume 需要 bbolt 持久化）。测试中不同时设。
 	flagPorts = "22,80,443"
 	flagExcludePorts = "8080"
 	flagAliveOnly = true
@@ -85,8 +87,8 @@ func TestBuildConfigReadsFlagVars(t *testing.T) {
 	if cfg.Mode != types.ModeLinked {
 		t.Errorf("Mode = %q, want %q", cfg.Mode, types.ModeLinked)
 	}
-	if !cfg.Resume || !cfg.NoState || !cfg.AliveOnly {
-		t.Errorf("Resume/NoState/AliveOnly = %v/%v/%v, want all true", cfg.Resume, cfg.NoState, cfg.AliveOnly)
+	if !cfg.Resume || cfg.NoState || !cfg.AliveOnly {
+		t.Errorf("Resume/NoState/AliveOnly = %v/%v/%v, want true/false/true", cfg.Resume, cfg.NoState, cfg.AliveOnly)
 	}
 	if cfg.Threads != 250 {
 		t.Errorf("Threads = %d, want 250", cfg.Threads)
@@ -326,12 +328,12 @@ func TestOpenProjectEphemeral(t *testing.T) {
 // flagSnapshot captures every package-level flag* var so a test
 // can mutate them safely without leaking into other tests.
 type flagSnapshot struct {
-	host, hostsFile, project, mode, ports, excludePorts                     string
-	userFile, passFile, outputTXT, outputJSON, plugins                     string
-	resume, noState, aliveOnly, silent, noTUI, noICMP, verbose             bool
-	threads                                                              int
-	timeout, shutdownTime                                                time.Duration
-	user, pass                                                           []string
+	host, hostsFile, project, mode, ports, excludePorts        string
+	userFile, passFile, outputTXT, outputJSON, plugins         string
+	resume, noState, aliveOnly, silent, noTUI, noICMP, verbose bool
+	threads                                                    int
+	timeout, shutdownTime                                      time.Duration
+	user, pass                                                 []string
 }
 
 func snapshotFlags() flagSnapshot {

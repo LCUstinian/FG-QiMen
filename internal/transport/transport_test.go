@@ -132,10 +132,15 @@ func TestSSHCallbackV0_2CompatDefault(t *testing.T) {
 }
 
 // TestSSHCallbackMissingKnownHostsFallsBack — operator passes
-// --known-hosts=/path/that/does/not/exist. Must NOT panic; should
-// fall through to the next branch (insecure default) and emit a
-// stderr note. The operator's scan should still be able to proceed
-// rather than crashing on startup.
+// --known-hosts=/path/that/does/not/exist. M9 fix: the callback now
+// REJECTS all keys (rather than silently downgrading to
+// InsecureIgnoreHostKey) so the operator's explicit "verify" intent
+// is honored. Must NOT panic; should emit a stderr note and return a
+// rejecting callback.
+//
+// M9 修复：操作员传 --known-hosts=/不存在的路径。callback 现在拒绝
+// 所有 key（而非静默降级到 InsecureIgnoreHostKey），以尊重操作员的显式
+// "校验"意图。不能 panic；应输出 stderr 提示并返回拒绝 callback。
 func TestSSHCallbackMissingKnownHostsFallsBack(t *testing.T) {
 	resetGates(t)
 
@@ -151,11 +156,11 @@ func TestSSHCallbackMissingKnownHostsFallsBack(t *testing.T) {
 	KnownHostsFile.Store(&missing)
 	cb := SSHHostKeyCallback()
 	k := mustHostKey(t)
-	// Should still work (v0.2 default after fallback).
-	//
-	// 应该仍能工作（回退后是 v0.2 默认）。
-	if err := cb("example.com", &net.TCPAddr{}, k); err != nil {
-		t.Errorf("missing known_hosts: callback rejected key after fallback: %v", err)
+	// M9: callback should REJECT the key (not accept it) because the
+	// known_hosts file failed to load. / M9：callback 应拒绝 key（不接
+	// 受），因为 known_hosts 文件加载失败。
+	if err := cb("example.com", &net.TCPAddr{}, k); err == nil {
+		t.Errorf("missing known_hosts: callback accepted key; expected rejection after M9 fix")
 	}
 	_ = w.Close()
 	var buf bytes.Buffer

@@ -23,6 +23,7 @@ import (
 	mssqllib "github.com/microsoft/go-mssqldb"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // MSSQLAuthenticator authenticates against Microsoft SQL Server /
@@ -83,8 +84,19 @@ func (a *MSSQLAuthenticator) Authenticate(ctx context.Context, host string, port
 		// control the DSN, so this is safe.
 		// / escape="none" 让任意字符的用户名/密码不再被驱动 URL 编码。
 		// 我们控制 DSN，是安全的。
-		query := fmt.Sprintf("?database=master&dial+timeout=%d&login+timeout=%d&encrypt=disable&trustservercertificate=true&escape=none",
-			timeoutSec, timeoutSec)
+		//
+		// M15: encrypt=false (try TLS, fall back to plaintext) instead
+		// of encrypt=disable (never TLS). trustservercertificate
+		// respects --insecure-tls: default false (verify), true when
+		// the operator opts in. / M15：encrypt=false（试 TLS，退到明
+		// 文）而非 encrypt=disable（永不 TLS）。trustservercertificate
+		// 尊重 --insecure-tls：默认 false（校验），操作员 opt-in 时 true。
+		trustCert := "false"
+		if transport.InsecureTLS.Load() {
+			trustCert = "true"
+		}
+		query := fmt.Sprintf("?database=master&dial+timeout=%d&login+timeout=%d&encrypt=false&trustservercertificate=%s&escape=none",
+			timeoutSec, timeoutSec, trustCert)
 		dsn := fmt.Sprintf("sqlserver://%s:%s@%s%s",
 			urlUser(c.User), urlPass(c.Pass), addr, query)
 		db, err := sql.Open("sqlserver", dsn)

@@ -51,31 +51,35 @@ func (a *BACnetAuthenticator) DefaultPorts() []int {
 
 // Authenticate implements credential.Authenticator. / Authenticate 实现
 // credential.Authenticator。
+//
+// BACnet/IP is credential-less: the Who-Is / I-Am probe only
+// confirms the device is reachable. We therefore probe ONCE and, on
+// success, return a Hit with Method=AuthNone (empty User/Pass) —
+// NOT the first candidate cred, which would pollute creds.txt with
+// a false positive.
+// / BACnet/IP 无需凭据：Who-Is / I-Am 探针只确认设备可达。因此只探
+// 一次，成功则返回 Method=AuthNone 的 Hit（User/Pass 为空）——不返
+// 回第一个候选凭据，避免把假命中写进 creds.txt。
 func (a *BACnetAuthenticator) Authenticate(ctx context.Context, host string, port int, creds []credential.Cred, timeout time.Duration) (*credential.Hit, error) {
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	for i, c := range creds {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if c.Method != "" && c.Method != credential.AuthPassword {
-			continue
-		}
-		ok, err := a.attempt(ctx, addr, timeout)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			return &credential.Hit{
-				Cred:     c,
-				Attempts: i + 1,
-				Time:     time.Now(),
-			}, nil
-		}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	return nil, nil
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ok, err := a.attempt(ctx, addr, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return &credential.Hit{
+		Cred:     credential.Cred{Method: credential.AuthNone},
+		Attempts: 1,
+		Time:     time.Now(),
+	}, nil
 }
 
 // attempt sends Who-Is and waits for I-Am. / attempt 发 Who-Is 并等
@@ -112,7 +116,7 @@ func (a *BACnetAuthenticator) attempt(ctx context.Context, addr string, timeout 
 	// 看是否回 I-Am。
 	apdu := []byte{
 		0x10, 0x00, // pdu type (0x10 = Confirmed Request)
-		0x00,       // service choice = 0x00 (I-Am — but for Unconfirmed, it's 0x10; we use 0x10)
+		0x00, // service choice = 0x00 (I-Am — but for Unconfirmed, it's 0x10; we use 0x10)
 	}
 	// Real Who-Is is Unconfirmed Request (PDU type 0x10), service
 	// choice 0x10, no body. / 真 Who-Is 是 Unconfirmed Request（PDU

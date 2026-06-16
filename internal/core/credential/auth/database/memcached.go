@@ -46,25 +46,25 @@ func (a *MemcachedAuthenticator) DefaultPorts() []int { return []int{11211, 1121
 // Authenticate implements credential.Authenticator.
 //
 // Algorithm:
-//   1. Connect.
-//   2. Send `version\r\n` — confirms it's memcached.
-//   3. Send `auth <user> <pass>\r\n` for each cred.
-//      - "STORED" or empty reply → no auth supported (server is open).
-//        We treat this as a hit (we don't escalate further).
-//      - "OK\r\n" → auth succeeded.
-//      - "CLIENT_ERROR ...\r\n" → wrong creds / SASL error.
-//   4. If we hit a successful auth, return hit.
+//  1. Connect.
+//  2. Send `version\r\n` — confirms it's memcached.
+//  3. Send `auth <user> <pass>\r\n` for each cred.
+//     - "STORED" or empty reply → no auth supported (server is open).
+//     We treat this as a hit (we don't escalate further).
+//     - "OK\r\n" → auth succeeded.
+//     - "CLIENT_ERROR ...\r\n" → wrong creds / SASL error.
+//  4. If we hit a successful auth, return hit.
 //
 // Authenticate 实现 credential.Authenticator。
 //
 // 算法：
-//   1. 连。
-//   2. 发 `version\r\n` —— 确认是 memcached。
-//   3. 对每个 cred 发 `auth <user> <pass>\r\n`。
-//      - "STORED" 或空响应 → 服务不需认证（开）—— 视为命中（不再升级）。
-//      - "OK\r\n" → 认证成功。
-//      - "CLIENT_ERROR ...\r\n" → 错凭据 / SASL 错误。
-//   4. 命中即返回。
+//  1. 连。
+//  2. 发 `version\r\n` —— 确认是 memcached。
+//  3. 对每个 cred 发 `auth <user> <pass>\r\n`。
+//     - "STORED" 或空响应 → 服务不需认证（开）—— 视为命中（不再升级）。
+//     - "OK\r\n" → 认证成功。
+//     - "CLIENT_ERROR ...\r\n" → 错凭据 / SASL 错误。
+//  4. 命中即返回。
 func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, port int, creds []credential.Cred, timeout time.Duration) (*credential.Hit, error) {
 	if len(creds) == 0 {
 		return nil, nil
@@ -101,6 +101,11 @@ func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, 
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
+		// Reset per-cred deadline: DialTCP sets a single deadline at
+		// dial time which would expire mid-loop for large cred lists.
+		// / 重置单 cred deadline：DialTCP 在拨号时设了单 deadline，
+		// 大凭据列表下会在循环中途过期。
+		_ = conn.SetDeadline(time.Now().Add(timeout))
 		// memcached's auth command is "auth <user> <pass>". When no
 		// user is set, just "auth <pass>" is accepted.
 		// / memcached 的 auth 命令是 "auth <user> <pass>"。未设 user
@@ -119,18 +124,22 @@ func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, 
 		authLine = strings.TrimSpace(authLine)
 		switch {
 		case authLine == "":
-			// Server didn't say anything — likely pre-1.6.x with no auth.
-			// / 服务器没回应——可能是 1.6.x 前无 auth。
+			// Server didn't say anything — likely pre-1.6.x with no
+			// auth. Return AuthNone hit (NOT this cred, which was
+			// never validated). / 服务器没回应——可能是 1.6.x 前无
+			// auth。返回 AuthNone 命中（不返回这个未验证的 cred）。
 			return &credential.Hit{
-				Cred:     c,
+				Cred:     credential.Cred{Method: credential.AuthNone},
 				Attempts: i + 1,
 				Time:     time.Now(),
 			}, nil
 		case strings.HasPrefix(authLine, "STORED"):
-			// Some memcached variants reply STORED to "auth".
-			// / 部分变体对 "auth" 回复 STORED。
+			// Some memcached variants reply STORED to "auth" — this
+			// is a no-auth variant, not a validated cred. Return
+			// AuthNone hit. / 部分变体对 "auth" 回复 STORED——这是
+			// 无 auth 变体，不是已验证 cred。返回 AuthNone 命中。
 			return &credential.Hit{
-				Cred:     c,
+				Cred:     credential.Cred{Method: credential.AuthNone},
 				Attempts: i + 1,
 				Time:     time.Now(),
 			}, nil

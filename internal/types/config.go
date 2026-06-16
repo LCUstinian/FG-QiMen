@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/config"
 )
 
 // RunMode selects the pipeline execution strategy.
@@ -53,6 +55,13 @@ type Config struct {
 	// Port selection / 端口选择
 	Ports        string
 	ExcludePorts string
+
+	// Network / 网络
+	Proxy       string        // HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)
+	Socks5      string        // SOCKS5 proxy address (e.g. 127.0.0.1:1080)
+	Iface       string        // Local interface IP to bind (for VPN scenarios)
+	PortTimeout time.Duration // Port scan timeout (default: same as Timeout)
+	WebTimeout  time.Duration // Web probe timeout (default: same as Timeout)
 
 	// Behavior / 行为
 	AliveOnly bool
@@ -131,13 +140,28 @@ type Config struct {
 // Validate checks the Config for required fields and mutually-exclusive
 // constraints. Returns nil on success.
 //
+// M6 audit fix: added Project name validation (delegated to workspace),
+// conflict detection (no-state+resume, alive-only+crack, proxy+socks5),
+// and upper-bound checks on Threads / Timeout via the existing
+// validation helpers.
+//
 // Validate 校验 Config 的必填字段和互斥约束。成功时返回 nil。
+//
+// M6 审计修法：新增 Project 名称校验（委托 workspace）、冲突检测
+// （no-state+resume、alive-only+crack、proxy+socks5）、以及通过已有
+// validation helper 对 Threads / Timeout 做上限检查。
 func (c *Config) Validate() error {
 	if c.Threads <= 0 {
 		return errors.New("threads must be > 0")
 	}
+	if c.Threads > 10000 {
+		return fmt.Errorf("threads too large: %d (max 10000)", c.Threads)
+	}
 	if c.Timeout <= 0 {
 		return errors.New("timeout must be > 0")
+	}
+	if c.Timeout > 3600*time.Second {
+		return fmt.Errorf("timeout too large: %s (max 3600s)", c.Timeout)
 	}
 	if c.ShutdownTimeout <= 0 {
 		return errors.New("shutdown-timeout must be > 0")
@@ -154,6 +178,16 @@ func (c *Config) Validate() error {
 	if c.Project == "" && c.Resume {
 		return errors.New("-resume requires -p <project>")
 	}
+	// M6 audit fix: conflict detection. / M6 审计修法：冲突检测。
+	if c.NoState && c.Resume {
+		return errors.New("--no-state conflicts with --resume (resume requires bbolt persistence)")
+	}
+	if c.AliveOnly && c.Mode == ModeCrack {
+		return errors.New("--alive-only conflicts with --mode crack (crack needs known ports)")
+	}
+	if c.Proxy != "" && c.Socks5 != "" {
+		return errors.New("--proxy and --socks5 are mutually exclusive (specify only one)")
+	}
 	if c.Host == "" && c.HostsFile == "" {
 		// Empty is allowed for subcommands like `projects list`.
 		// 子命令（如 `projects list`）允许为空。
@@ -164,37 +198,30 @@ func (c *Config) Validate() error {
 // ParsePorts parses the comma-separated Ports / ExcludePorts strings
 // into int slices. Empty input returns nil.
 //
+// Supports port groups (web/db/service/common/main), ranges (80-85),
+// and comma-separated lists (22,80,443).
+//
 // ParsePorts 把逗号分隔的 Ports / ExcludePorts 字符串解析为 int 切片。
 // 空输入返回 nil。
+//
+// 支持端口组（web/db/service/common/main）、范围（80-85）、逗号分隔列表（22,80,443）。
 func (c *Config) ParsePorts() ([]int, error) {
-	return parsePortList(c.Ports)
+	if strings.TrimSpace(c.Ports) == "" {
+		// Return default ports (MainPorts: 133 ports) / 返回默认端口（MainPorts：133个端口）
+		return config.DefaultPorts(), nil
+	}
+	return config.ParsePortSpec(c.Ports)
 }
 
 func (c *Config) ParseExcludePorts() ([]int, error) {
-	return parsePortList(c.ExcludePorts)
-}
-
-// parsePortList is a small helper shared by ParsePorts / ParseExcludePorts.
-// parsePortList 是 ParsePorts / ParseExcludePorts 共享的小工具。
-func parsePortList(s string) ([]int, error) {
-	if strings.TrimSpace(s) == "" {
+	if strings.TrimSpace(c.ExcludePorts) == "" {
 		return nil, nil
 	}
-	parts := strings.Split(s, ",")
-	out := make([]int, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		var n int
-		if _, err := fmt.Sscanf(p, "%d", &n); err != nil {
-			return nil, fmt.Errorf("invalid port %q: %w", p, err)
-		}
-		if n < 1 || n > 65535 {
-			return nil, fmt.Errorf("port out of range: %d", n)
-		}
-		out = append(out, n)
-	}
-	return out, nil
+	return config.ParsePortSpec(c.ExcludePorts)
 }
+
+// parsePortList was removed in the MINOR audit fix — it was a dead
+// helper (ParsePorts / ParseExcludePorts call config.ParsePortSpec
+// directly, not this function). / parsePortList 在 MINOR 审计修法中
+// 删除——它是死代码（ParsePorts / ParseExcludePorts 直接调
+// config.ParsePortSpec，不调本函数）。

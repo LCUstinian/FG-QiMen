@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -192,8 +193,27 @@ func (o *Output) WriteResult(r *types.Result) error {
 			ts, r.Host, r.Port, r.Service, r.Banner, credSuffix)
 	}
 	if o.jsn != nil {
+		// MINOR audit fix: apply the same redaction policy to result.json
+		// as result.txt. Without this, json.Encode(r) writes cleartext
+		// passwords to result.json even when ShowCleartext is false.
+		// We shallow-copy r and swap in a redacted Cred so the original
+		// (which may be reused by other sinks) is untouched.
+		// / MINOR 审计修法：对 result.json 施加与 result.txt 相同的脱敏
+		// 策略。否则 json.Encode(r) 会在 ShowCleartext=false 时仍把明文
+		// 密码写进 result.json。我们浅拷 r 并换入脱敏后的 Cred，原对象
+		// （可能被其他 sink 复用）不受影响。
+		out := r
+		if r.Cred != nil && !o.showCleartext {
+			cp := *r
+			cp.Cred = &types.Cred{
+				User:     types.RedactUser(r.Cred.User),
+				Pass:     types.RedactPassword(r.Cred.Pass),
+				AuthType: r.Cred.AuthType,
+			}
+			out = &cp
+		}
 		enc := json.NewEncoder(o.jsn)
-		_ = enc.Encode(r)
+		_ = enc.Encode(out)
 	}
 	return nil
 }

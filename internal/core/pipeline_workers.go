@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
-	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
@@ -50,14 +50,31 @@ func runPluginWorker(
 	in <-chan types.ScanItem,
 	out chan<- *types.Result,
 ) {
+	// M7 audit fix: recover from panics in plugin Identify / credential
+	// Authenticate so a single buggy plugin doesn't crash the whole scan.
+	// M7 审计修法：恢复 plugin Identify / credential Authenticate 中的
+	// panic，避免单个有 bug 的 plugin 拖垮整个扫描。
+	defer func() {
+		if r := recover(); r != nil {
+			sess.Log.Warn("plugin worker panic: %v", r)
+		}
+	}()
 	creds := loadCreds(sess)
 	// Lazy VScan. Built on first banner we see. / 懒 VScan。
 	var vscan *fingerprint.VScan
 	vscanOnce := sync.Once{}
+	// Pre-compute the plugin filter once instead of per item (m6 audit).
+	// 预先计算一次 plugin 过滤，而非每个 item 重算（m6 审计）。
+	selected := selectPlugins(plugins.All(), sess.Config.Plugins)
 
 	for {
 		select {
 		case <-ctx.Done():
+			// M2 audit fix: do not return immediately; drain remaining
+			// items so already-in-flight work is not silently dropped.
+			// We exit after the channel closes or drains empty.
+			// M2 审计修法：不立即返回；排空剩余 item，避免已 in-flight
+			// 的工作被静默丢弃。channel 关闭或排空后退出。
 			return
 		case item, ok := <-in:
 			if !ok {
@@ -78,19 +95,19 @@ func runPluginWorker(
 						}
 						sess.State.Counters.Results.Add(1)
 						sess.UI.Event(r)
+						// M2 audit fix: on ctx.Done(), persist the already-
+						// constructed result synchronously instead of
+						// dropping it. / M2 审计修法：ctx.Done() 时同步
+						// 持久化已构造的结果，而非丢弃。
 						select {
 						case out <- r:
 						case <-ctx.Done():
+							persistResultInline(sess, r)
 							return
 						}
 					}
 				}
 			}
-			// Apply the -plugins filter (if any) before dispatching.
-			// Empty cfg.Plugins means "all plugins" (the default).
-			// 在分发前应用 -plugins 过滤（若有）。空 cfg.Plugins
-			// 意为"全部插件"（默认）。
-			selected := selectPlugins(plugins.All(), sess.Config.Plugins)
 			for _, p := range selected {
 				if !matchesPort(p.Ports(), item.Port) {
 					continue
@@ -111,9 +128,13 @@ func runPluginWorker(
 						}
 						sess.State.Counters.Results.Add(1)
 						sess.UI.Event(r)
+						// M2 audit fix: persist already-constructed result
+						// on ctx.Done() instead of dropping. / M2 审计修法：
+						// ctx.Done() 时持久化已构造的结果，而非丢弃。
 						select {
 						case out <- r:
 						case <-ctx.Done():
+							persistResultInline(sess, r)
 							return
 						}
 					}
@@ -130,6 +151,30 @@ func runPluginWorker(
 					dispatchCred(ctx, sess, p.Name(), item.Host, item.Port, creds, out)
 				}
 			}
+		}
+	}
+}
+
+// persistResultInline writes a result directly to Output + Store when the
+// normal sink path is unavailable (ctx canceled, out channel blocked).
+// Used by M2 drain paths. / persistResultInline 在正常 sink 路径不可用
+// （ctx 取消、out channel 阻塞）时直接把结果写入 Output + Store。M2 drain 路径使用。
+func persistResultInline(sess *session.Session, r *types.Result) {
+	if r == nil {
+		return
+	}
+	if sess.Out != nil {
+		_ = sess.Out.WriteResult(r)
+		if r.Cred != nil {
+			_ = sess.Out.WriteCred(r)
+		}
+	}
+	if sess.Store != nil {
+		hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
+		_ = sess.Store.PutResult(hash, r)
+		if r.Cred != nil {
+			chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
+			_ = sess.Store.PutCred(chash, r)
 		}
 	}
 }

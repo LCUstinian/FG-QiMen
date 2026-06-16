@@ -10,12 +10,25 @@ import (
 	"strings"
 )
 
+// MaxTargets is the upper bound on the number of targets a single
+// scan can expand to. M5 audit fix: prevents OOM from huge CIDRs
+// (e.g. 10.0.0.0/8 → 16M IPs, 0.0.0.0/0 → 4B IPs).
+//
+// MaxTargets 是单次扫描可展开目标数的上限。M5 审计修法：防止
+// 巨大 CIDR（如 10.0.0.0/8 → 1600万 IP，0.0.0.0/0 → 43亿 IP）导致 OOM。
+const MaxTargets = 65536
+
 // ExpandTargets accepts a target spec string (IP / CIDR / range /
 // comma-list) and a hosts file path, and returns the deduplicated list
 // of Target structs.
 //
+// M5 audit fix: enforces MaxTargets upper bound to prevent OOM from
+// huge CIDR expansions.
+//
 // ExpandTargets 接受目标规格字符串（IP / CIDR / 范围 / 逗号列表）和
 // 主机文件路径，返回去重后的 Target 列表。
+//
+// M5 审计修法：强制 MaxTargets 上限，防止巨大 CIDR 展开导致 OOM。
 //
 // Supported forms / 支持的格式:
 //   - "192.168.1.1"
@@ -27,16 +40,21 @@ func ExpandTargets(spec, hostsFile string) ([]Target, error) {
 	var out []Target
 	seen := make(map[string]struct{})
 
-	add := func(t Target) {
+	add := func(t Target) error {
 		k := t.Key()
 		if k == "" {
-			return
+			return nil
 		}
 		if _, dup := seen[k]; dup {
-			return
+			return nil
+		}
+		// M5 audit fix: enforce MaxTargets. / M5 审计修法：强制 MaxTargets。
+		if len(out) >= MaxTargets {
+			return fmt.Errorf("too many targets: exceeded MaxTargets=%d (use a smaller CIDR or split the scan)", MaxTargets)
 		}
 		seen[k] = struct{}{}
 		out = append(out, t)
+		return nil
 	}
 
 	if spec != "" {
@@ -83,11 +101,10 @@ func ExpandTargets(spec, hostsFile string) ([]Target, error) {
 // expandOne dispatches a single token to the right expander based on
 // whether it contains '-' (range) or '/' (CIDR) or is a bare IP/host.
 // expandOne 把单个 token 根据 '-'（范围）/'/'（CIDR）/裸 IP/主机 分派到对应扩展器。
-func expandOne(s string, add func(Target)) error {
+func expandOne(s string, add func(Target) error) error {
 	// Bare IP literal? / 裸 IP 字面量？
 	if ip := net.ParseIP(s); ip != nil {
-		add(Target{Addr: s})
-		return nil
+		return add(Target{Addr: s})
 	}
 	// CIDR? / CIDR？
 	if strings.Contains(s, "/") {
@@ -96,7 +113,9 @@ func expandOne(s string, add func(Target)) error {
 			return fmt.Errorf("invalid CIDR %q: %w", s, err)
 		}
 		for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
-			add(Target{Addr: ip.String()})
+			if err := add(Target{Addr: ip.String()}); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -108,15 +127,15 @@ func expandOne(s string, add func(Target)) error {
 			return err
 		}
 		for cur := start; !cur.Equal(end); incIP(cur) {
-			add(Target{Addr: cur.String()})
+			if err := add(Target{Addr: cur.String()}); err != nil {
+				return err
+			}
 		}
-		add(Target{Addr: end.String()})
-		return nil
+		return add(Target{Addr: end.String()})
 	}
 	// Fallback: treat as hostname.
 	// 回退：视为主机名。
-	add(Target{Addr: s})
-	return nil
+	return add(Target{Addr: s})
 }
 
 // parseRange parses "a.b.c.x-y" or "a.b.c.x-a.b.c.y" and returns the

@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/network/proxy"
 )
 
 // TCPConnectProbe probes ports by completing a full TCP handshake.
@@ -67,9 +69,27 @@ func (p *TCPConnectProbe) Available() error { return nil }
 // Probe implements Probe. / Probe 实现 Probe。
 func (p *TCPConnectProbe) Probe(ctx context.Context, host string, port int, timeout time.Duration) (Result, error) {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: timeout}
+
+	// Use global proxy dialer if configured, otherwise direct connection.
+	// 如果配置了全局代理则使用代理拨号器，否则直连。
+	dialer, err := proxy.GetGlobalDialer()
+	if err != nil {
+		return Result{
+			Host:   host,
+			Port:   port,
+			State:  StateFiltered,
+			Method: MethodTCPConnect,
+			Time:   time.Now(),
+		}, fmt.Errorf("failed to get dialer: %w", err)
+	}
+
+	// Create timeout context for the connection attempt.
+	// 为连接尝试创建超时 context。
+	connCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	start := time.Now()
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := dialer.DialContext(connCtx, "tcp", addr)
 	if err != nil {
 		// Distinguish "refused" (closed) from "timeout / unreachable" (filtered).
 		// 区分"拒绝"（closed）和"超时/不可达"（filtered）。
@@ -112,8 +132,13 @@ func (p *TCPConnectProbe) Probe(ctx context.Context, host string, port int, time
 		// 修法：给重连单独建一个 dialer，用 BannerTimeout 作自身
 		// Timeout，同时带 ctx 让取消照旧生效。原 socket 已经在上
 		// 面关闭；这是新连接。
-		bannerD := net.Dialer{Timeout: p.BannerTimeout}
-		bConn, err := bannerD.DialContext(ctx, "tcp", addr)
+
+		// Use proxy dialer for banner redial as well.
+		// banner 重连也使用代理拨号器。
+		bannerCtx, bannerCancel := context.WithTimeout(ctx, p.BannerTimeout)
+		defer bannerCancel()
+
+		bConn, err := dialer.DialContext(bannerCtx, "tcp", addr)
 		if err == nil {
 			banner = readBanner(bConn, p.BannerTimeout)
 			_ = bConn.Close()

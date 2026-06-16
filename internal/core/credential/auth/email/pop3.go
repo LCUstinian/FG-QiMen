@@ -16,22 +16,23 @@ package email
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // POP3Authenticator authenticates against POP3 servers via raw
 // RFC 1939 USER/PASS. / POP3Authenticator 通过 RFC 1939 USER/PASS
 // 对 POP3 认证。
 //
-// DefaultPorts returns 110/995 (plaintext / POP3S). We don't open
-// TLS ourselves for 995 — v0.2+ can add a TLS dialer.
-// / DefaultPorts 返 110/995（明文 / POP3S）。v0.1 不为 995 开 TLS——
-// v0.2+ 可以加 TLS dialer。
+// DefaultPorts returns 110/995 (plaintext / POP3S). Port 995 uses
+// implicit TLS (M15 fix). / DefaultPorts 返 110/995（明文 / POP3S）。
+// 端口 995 用隐式 TLS（M15 修复）。
 type POP3Authenticator struct{}
 
 // NewPOP3Authenticator returns a default POP3 authenticator.
@@ -85,6 +86,17 @@ func (a *POP3Authenticator) attempt(ctx context.Context, addr, user, pass string
 		return false, err
 	}
 	defer conn.Close()
+	// M15: port 995 is POP3S (implicit TLS) — wrap the TCP conn with
+	// TLS before running the POP3 protocol. Other ports stay plaintext.
+	// / M15：端口 995 是 POP3S（隐式 TLS）——在跑 POP3 协议前把 TCP
+	// 连接包成 TLS。其他端口保持明文。
+	if strings.HasSuffix(addr, ":995") {
+		tlsConn := tls.Client(conn, transport.TLSConfig(false))
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return false, err
+		}
+		conn = tlsConn
+	}
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	// Read greeting. / 读 greeting。
@@ -129,6 +141,7 @@ func readPOP3OK(br *bufio.Reader) bool {
 func init() {
 	credential.Register(NewPOP3Authenticator())
 }
+
 // (P2 dead-code purge: fmt sentinel removed in v0.2 audit. If
 // future debug logging needs fmt, re-import on demand.)
 // （P2 死代码清理：v0.2 审计删了 fmt 哨兵。将来 debug 日志若需要

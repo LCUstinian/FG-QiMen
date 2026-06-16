@@ -69,37 +69,37 @@ func (a *ModbusAuthenticator) DefaultPorts() []int {
 //   - Read Device ID code 01
 //   - Object ID 00 (basic info）
 
-// Authenticate implements credential.Authenticator. Tries each cred;
-// Modbus TCP is technically credential-less so cred.User / cred.Pass
-// are ignored — we just probe the device. We still iterate creds to
-// keep the contract uniform. / Authenticate 实现 credential.Authenticator。
-// 按顺序尝试每个 cred；Modbus TCP 本身无凭据所以忽略 cred.User /
-// cred.Pass——只探针。仍迭代 creds 保持契约统一。
+// Authenticate implements credential.Authenticator.
+//
+// Modbus TCP is credential-less: the probe (Read Device
+// Identification) only confirms the device responds. We therefore
+// probe ONCE and, on success, return a Hit with Method=AuthNone
+// (empty User/Pass) — NOT the first candidate cred, which would
+// pollute creds.txt with a false positive.
+// / Authenticate 实现 credential.Authenticator。
+// Modbus TCP 无需凭据：探针（Read Device Identification）只确认设备
+// 响应。因此只探一次，成功则返回 Method=AuthNone 的 Hit（User/Pass
+// 为空）——不返回第一个候选凭据，避免把假命中写进 creds.txt。
 func (a *ModbusAuthenticator) Authenticate(ctx context.Context, host string, port int, creds []credential.Cred, timeout time.Duration) (*credential.Hit, error) {
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	for i, c := range creds {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if c.Method != "" && c.Method != credential.AuthPassword {
-			continue
-		}
-		ok, err := a.attempt(ctx, addr, timeout)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			return &credential.Hit{
-				Cred:     c,
-				Attempts: i + 1,
-				Time:     time.Now(),
-			}, nil
-		}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	return nil, nil
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ok, err := a.attempt(ctx, addr, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return &credential.Hit{
+		Cred:     credential.Cred{Method: credential.AuthNone},
+		Attempts: 1,
+		Time:     time.Now(),
+	}, nil
 }
 
 // attempt runs one Modbus TCP probe. / attempt 跑一次 Modbus TCP

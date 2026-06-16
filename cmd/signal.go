@@ -50,11 +50,16 @@ func installSignalHandler(timeout time.Duration, preHardExit func()) (context.Co
 	drainCh := make(chan struct{})
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	// Release the signal handler slot when the goroutine exits so a
-	// long-lived test harness doesn't leak the underlying signal fd.
-	// 在 goroutine 退出时释放 signal handler 槽位，避免长时间运行的
-	// 测试 harness 泄漏底层的 signal fd。
-	defer signal.Stop(sigs)
+	// C2 audit fix: signal.Stop must run when the goroutine exits,
+	// NOT when this function returns. The previous `defer signal.Stop(sigs)`
+	// here executed immediately on return, stopping signal delivery so
+	// the goroutine's `<-sigs` never fired and SIGINT fell through to
+	// Go's default behavior (hard kill, no drain). Moved into the goroutine.
+	//
+	// C2 审计修法：signal.Stop 必须在 goroutine 退出时执行，而不是本函
+	// 数返回时。原先此处的 `defer signal.Stop(sigs)` 在返回时立即执行，
+	// 停止信号投递，导致 goroutine 的 `<-sigs` 永远不触发，SIGINT 走
+	// Go 默认行为（硬杀，无 drain）。已移入 goroutine 内部。
 
 	// Guard the hard-exit path so it runs at most once even if both
 	// the second-signal and drain-timeout cases somehow race (they
@@ -73,6 +78,11 @@ func installSignalHandler(timeout time.Duration, preHardExit func()) (context.Co
 	}
 
 	go func() {
+		// Release the signal handler slot when the goroutine exits so a
+		// long-lived test harness doesn't leak the underlying signal fd.
+		// 在 goroutine 退出时释放 signal handler 槽位，避免长时间运行的
+		// 测试 harness 泄漏底层的 signal fd。
+		defer signal.Stop(sigs)
 		select {
 		case <-sigs:
 			// First signal: cancel and start drain.

@@ -29,6 +29,7 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver (registers "postgres" with database/sql)
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // PostgreSQLAuthenticator authenticates against PostgreSQL via lib/pq.
@@ -102,7 +103,21 @@ func (a *PostgreSQLAuthenticator) Authenticate(ctx context.Context, host string,
 			Path:   "postgres",
 		}
 		q := u.Query()
-		q.Set("sslmode", "disable")
+		// M15: negotiate TLS instead of forcing plaintext.
+		// - Default (verify): sslmode=prefer — try TLS with cert
+		//   verification, fall back to plaintext if TLS unavailable.
+		// - --insecure-tls: sslmode=require — require TLS but skip CA
+		//   verification (lib/pq's "require" doesn't verify the chain).
+		// / M15：协商 TLS 而非强制明文。
+		// - 默认（校验）：sslmode=prefer——试 TLS 带证书校验，TLS 不可
+		//   用则退到明文。
+		// - --insecure-tls：sslmode=require——要求 TLS 但跳过 CA 校验
+		//   （lib/pq 的 "require" 不校验链）。
+		sslmode := "prefer"
+		if transport.InsecureTLS.Load() {
+			sslmode = "require"
+		}
+		q.Set("sslmode", sslmode)
 		q.Set("connect_timeout", strconv.FormatInt(timeoutSec, 10))
 		u.RawQuery = q.Encode()
 

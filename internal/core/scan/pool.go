@@ -19,6 +19,7 @@ package scan
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -161,9 +162,26 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 		p.adaptiveLoop(ctx, stopAdj)
 	}()
 
-	// Semaphore-based worker pool. / 基于信号量的 worker 池。
-	threads := int(p.currentThreads.Load())
-	sem := make(chan struct{}, threads)
+	// C4 audit fix: the previous implementation closed and recreated
+	// the semaphore on every resize. Workers captured `sem` by closure
+	// reference, so after `sem = newSem` they released to the NEW
+	// semaphore while holding a slot on the OLD one. This caused:
+	//   1. Deadlock when newSem was empty (worker release blocked forever)
+	//   2. Concurrency exceeding MaxThreads (old in-flight + new acquires)
+	// The fix uses a single max-capacity semaphore (MaxThreads) plus an
+	// atomic counter `inflight` that workers check against `currentThreads`.
+	// Resize only changes `currentThreads`; no semaphore recreation.
+	//
+	// C4 审计修法：旧实现在每次 resize 时 close 并重建信号量。worker 通过
+	// 闭包引用 `sem`，`sem = newSem` 后它们向新信号量释放，却持有旧信号
+	// 量的 slot。这导致：
+	//   1. newSem 为空时死锁（worker 释放永久阻塞）
+	//   2. 并发超过 MaxThreads（旧 in-flight + 新 acquire）
+	// 修法：用单一最大容量信号量（MaxThreads）+ atomic 计数器 `inflight`，
+	// worker 检查 `inflight` 与 `currentThreads` 的关系。resize 只改
+	// `currentThreads`，不重建信号量。
+	sem := make(chan struct{}, p.opts.MaxThreads)
+	var inflight atomic.Int32
 	var wg sync.WaitGroup
 
 	for {
@@ -179,29 +197,59 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 		if !ok {
 			break
 		}
-		// Acquire a slot, but honor ctx cancellation.
-		// 取一个 slot，但尊重 ctx 取消。
-		select {
-		case <-ctx.Done():
-			close(stopAdj)
-			wg.Wait()
-			<-adjDone
-			return ctx.Err()
-		case sem <- struct{}{}:
+		// Acquire a slot, but honor ctx cancellation. We also wait
+		// until inflight < currentThreads so the adaptive controller's
+		// shrinks actually take effect.
+		// 取一个 slot，但尊重 ctx 取消。同时等待 inflight < currentThreads，
+		// 让自适应控制器的缩容真正生效。
+		for {
+			if ctx.Err() != nil {
+				close(stopAdj)
+				wg.Wait()
+				<-adjDone
+				return ctx.Err()
+			}
+			cur := p.currentThreads.Load()
+			if inflight.Load() < cur {
+				// Try to acquire the semaphore without blocking forever;
+				// fall back to ctx-aware select on failure.
+				// 尝试非阻塞获取信号量；失败则走 ctx 感知 select。
+				select {
+				case sem <- struct{}{}:
+					goto acquired
+				default:
+				}
+			}
+			select {
+			case <-ctx.Done():
+				close(stopAdj)
+				wg.Wait()
+				<-adjDone
+				return ctx.Err()
+			case <-time.After(1 * time.Millisecond):
+				// brief backoff then re-check / 短暂退避后重检
+			}
 		}
+	acquired:
+		inflight.Add(1)
 		wg.Add(1)
-		// Read current concurrency each time so the adaptive loop
-		// can grow the pool. / 每次读当前并发数，让自适应循环能扩池。
-		current := int(p.currentThreads.Load())
-		if cap(sem) != current {
-			// Resize semaphore if needed. / 按需调信号量容量。
-			newSem := make(chan struct{}, current)
-			close(sem)
-			sem = newSem
-		}
 		go func(item Item) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer func() {
+				inflight.Add(-1)
+				<-sem
+			}()
+			defer func() {
+				// M7 audit fix: recover from panics in probes so a
+				// single buggy protocol probe doesn't crash the whole
+				// scan. / M7 审计修法：恢复 probe 中的 panic，避免单个
+				// 有 bug 的协议 probe 拖垮整个扫描。
+				if r := recover(); r != nil {
+					if p.opts.OnProbeError != nil {
+						p.opts.OnProbeError(item, fmt.Errorf("probe panic: %v", r))
+					}
+				}
+			}()
 			res, err := p.opts.Probe.Probe(ctx, item.Host, item.Port, p.opts.Timeout)
 			if err != nil {
 				// (P3 / F12 in the v0.2 audit) the previous code

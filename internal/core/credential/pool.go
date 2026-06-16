@@ -223,8 +223,14 @@ type LoadOptions struct {
 // If only users are provided, each user is paired with an empty pass.
 // If only passes are provided, "anonymous" is paired with each pass.
 //
+// M5 audit fix: enforce MaxUsers / MaxPasses / MaxCredPairs limits to
+// prevent OOM from huge dictionaries (e.g. 1M users × 1M passes).
+//
 // 布局：每个 user 与每个 pass 笛卡尔配对。只给 user 时，每个 user 与空 pass
 // 配对；只给 pass 时，"anonymous" 与每个 pass 配对。
+//
+// M5 审计修法：强制 MaxUsers / MaxPasses / MaxCredPairs 上限，防止
+// 巨大字典（如 1M 用户 × 1M 密码）导致 OOM。
 func LoadInto(pool *Pool, opts LoadOptions) (int, error) {
 	method := opts.DefaultMethod
 	if method == "" {
@@ -240,6 +246,15 @@ func LoadInto(pool *Pool, opts LoadOptions) (int, error) {
 		return 0, fmt.Errorf("read passes: %w", err)
 	}
 
+	// M5 audit fix: enforce upper bounds to prevent OOM.
+	// M5 审计修法：强制上限以防 OOM。
+	if len(users) > MaxUsers {
+		return 0, fmt.Errorf("too many users: %d > MaxUsers=%d (split the file or raise the limit)", len(users), MaxUsers)
+	}
+	if len(passes) > MaxPasses {
+		return 0, fmt.Errorf("too many passes: %d > MaxPasses=%d (split the file or raise the limit)", len(passes), MaxPasses)
+	}
+
 	// If neither users nor passes provided, pool is empty.
 	// 都没给：池为空。
 	if len(users) == 0 && len(passes) == 0 {
@@ -253,6 +268,13 @@ func LoadInto(pool *Pool, opts LoadOptions) (int, error) {
 	}
 	if len(passes) == 0 {
 		passes = []string{""}
+	}
+
+	// M5 audit fix: check the cartesian product size before expanding.
+	// M5 审计修法：展开前检查笛卡尔积大小。
+	pairCount := int64(len(users)) * int64(len(passes))
+	if pairCount > int64(MaxCredPairs) {
+		return 0, fmt.Errorf("credential cartesian product too large: %d > MaxCredPairs=%d (reduce users or passes)", pairCount, MaxCredPairs)
 	}
 
 	added := 0
@@ -273,6 +295,21 @@ func LoadInto(pool *Pool, opts LoadOptions) (int, error) {
 	}
 	return added, nil
 }
+
+// MaxUsers / MaxPasses / MaxCredPairs are upper bounds enforced by
+// LoadInto to prevent OOM from huge dictionaries. M5 audit fix.
+// Operators with legitimate larger dictionaries can raise these via
+// environment variables in a future version; for now they are
+// package-level constants.
+//
+// MaxUsers / MaxPasses / MaxCredPairs 是 LoadInto 强制的上限，防止
+// 巨大字典导致 OOM。M5 审计修法。有合法更大字典的操作员可在未来版本
+// 通过环境变量提升；目前是包级常量。
+const (
+	MaxUsers     = 100000
+	MaxPasses    = 100000
+	MaxCredPairs = 10000000 // 10M pairs max
+)
 
 // readLines returns the union of inline values and file lines (one
 // per line, '#' comments and blank lines stripped). / readLines 返回

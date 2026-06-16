@@ -81,6 +81,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// 都不会观察到部分 / 默认状态。
 	applyTransport(cfg)
 
+	// Initialize global proxy manager BEFORE any network operations.
+	// 在任何网络操作前初始化全局代理管理器。
+	if err := initProxyManager(cfg); err != nil {
+		return fmt.Errorf("proxy initialization error: %w", err)
+	}
+
 	// Open workspace (ephemeral or persistent) and ensure cleanup.
 	// 打开工作区（即扫即走 / 增量扫描），并确保退出时清理。
 	proj, err := openProject(cfg)
@@ -360,6 +366,11 @@ func buildConfig() (*types.Config, error) {
 		NoState:         flagNoState,
 		Ports:           flagPorts,
 		ExcludePorts:    flagExcludePorts,
+		Proxy:           flagProxy,
+		Socks5:          flagSocks5,
+		Iface:           flagIface,
+		PortTimeout:     flagPortTimeout,
+		WebTimeout:      flagWebTimeout,
 		AliveOnly:       flagAliveOnly,
 		Threads:         flagThreads,
 		Timeout:         flagTimeout,

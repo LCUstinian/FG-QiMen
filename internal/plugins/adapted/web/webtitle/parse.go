@@ -12,14 +12,14 @@ package webtitle
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/binary"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
 )
 
 // extractTitle pulls the <title>...</title> text from a chunk of
@@ -45,13 +45,23 @@ func extractTitle(html string) string {
 }
 
 // fetchFaviconHash fetches /favicon.ico from baseURL, hashes the
-// first 1024 bytes with MD5, and returns the 4× uint32 fingerprint
-// (the same format FingerprintHub uses for favicon-based web
-// detection). Returns nil on any error — favicon is best-effort.
+// first 1024 bytes with mmh3 (the algorithm FingerprintHub uses for
+// favicon-based web detection), and returns the int32 fingerprint.
+// Returns nil on any error — favicon is best-effort.
+//
+// M12 audit fix: the previous implementation hashed with MD5 and
+// returned 4× uint32, but matchFavicon only matches mmh3 int32
+// values, so favicon fingerprints never matched. Now we call the
+// existing fingerprint.CalculateFaviconHashes (mmh3) so compute and
+// match sides agree.
 //
 // fetchFaviconHash 从 baseURL 拉 /favicon.ico，对前 1024 字节跑
-// MD5，返 4 个 uint32 的 fingerprint（FingerprintHub 用的同格式）。
+// mmh3（FingerprintHub 用的 favicon 检测算法），返 int32 fingerprint。
 // 任何错误返 nil——favicon 是尽力而为。
+//
+// M12 审计修法：旧实现用 MD5 哈希返 4 个 uint32，但 matchFavicon 只
+// 匹配 mmh3 int32 值，导致 favicon 指纹永不命中。现在调用已有的
+// fingerprint.CalculateFaviconHashes（mmh3），让计算端和匹配端一致。
 func fetchFaviconHash(ctx context.Context, baseURL string, timeout time.Duration) []int32 {
 	cli := newClient(timeout)
 	favURL := strings.TrimRight(baseURL, "/") + "/favicon.ico"
@@ -68,15 +78,8 @@ func fetchFaviconHash(ctx context.Context, baseURL string, timeout time.Duration
 	// Read up to 1024 bytes — that's the canonical FingerprintHub
 	// hash range. / 最多读 1024 字节——FingerprintHub 标准哈希范围。
 	limited := io.LimitReader(resp.Body, 1024)
-	sum := md5.Sum(mustReadAll(limited))
-	// 16-byte MD5 → 4× uint32 (big-endian, like FingerprintHub).
-	// / 16 字节 MD5 → 4 个 uint32（大端，如 FingerprintHub）。
-	return []int32{
-		int32(binary.BigEndian.Uint32(sum[0:4])),
-		int32(binary.BigEndian.Uint32(sum[4:8])),
-		int32(binary.BigEndian.Uint32(sum[8:12])),
-		int32(binary.BigEndian.Uint32(sum[12:16])),
-	}
+	data := mustReadAll(limited)
+	return fingerprint.CalculateFaviconHashes(data)
 }
 
 // mustReadAll is a tiny local helper to avoid swallowing short-
