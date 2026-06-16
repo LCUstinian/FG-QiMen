@@ -67,10 +67,10 @@ func openEphemeral() (*Project, error) {
 	}, nil
 }
 
-// openPersistent creates ./projects/<name>/ if missing, opens bbolt at
-// ./projects/<name>/fg.db, and returns the project.
-// openPersistent 创建 ./projects/<name>/（如缺失），在 ./projects/<name>/fg.db
-// 打开 bbolt，并返回 project。
+// openPersistent creates ./runs/projects/<name>/ if missing, opens bbolt
+// at ./runs/projects/<name>/fg.db, and returns the project.
+// openPersistent 创建 ./runs/projects/<name>/（如缺失），在
+// ./runs/projects/<name>/fg.db 打开 bbolt，并返回 project。
 func openPersistent(name string) (*Project, error) {
 	if name == "" {
 		return nil, fmt.Errorf("persistent project requires non-empty name")

@@ -24,7 +24,6 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
@@ -178,9 +177,6 @@ func encodeNetBIOSName(name string) []byte {
 	_ = highNibble // kept for readability; both nibbles used
 	return out
 }
-
-// _ keeps strconv referenced. / _ 保 strconv。
-var _ = strconv.Itoa
 
 // init registers the NBNS probe with the alive package so callers
 // who blank-import this package get it in alive.DefaultOptions().

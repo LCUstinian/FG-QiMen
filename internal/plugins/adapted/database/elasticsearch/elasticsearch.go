@@ -11,7 +11,6 @@ package elasticsearch
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -118,6 +117,3 @@ func extractField(s, anchor, delim string) string {
 	return rest[:end]
 }
 
-// satisfy the json import (kept for future structured parsing).
-// 满足 json 导入（保留以便未来结构化解析）。
-var _ = json.Valid

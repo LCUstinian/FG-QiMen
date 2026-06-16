@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
-	"strconv"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
@@ -93,6 +92,3 @@ func trim(s string) string {
 	}
 	return s
 }
-
-// keep strconv import used (for future port extraction). / 保留 strconv 导入供未来端口提取。
-var _ = strconv.Itoa

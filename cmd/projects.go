@@ -22,7 +22,7 @@ import (
 var projectsCmd = &cobra.Command{
 	Use:   "projects",
 	Short: "Manage project workspaces",
-	Long:  "List, create, delete, or inspect project workspaces under ./projects/.",
+	Long:  "List, create, delete, or inspect project workspaces under ./runs/projects/.",
 }
 
 var (
@@ -59,8 +59,8 @@ func init() {
 	projectsCmd.AddCommand(projectsInfoCmd)
 }
 
-// runProjectsList lists all projects under ./projects/.
-// runProjectsList 列出 ./projects/ 下的所有项目。
+// runProjectsList lists all projects under ./runs/projects/.
+// runProjectsList 列出 ./runs/projects/ 下的所有项目。
 func runProjectsList(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 	entries, err := os.ReadDir(filepath.Join("runs", "projects"))

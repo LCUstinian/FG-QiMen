@@ -19,7 +19,6 @@ package network
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -196,6 +195,14 @@ func init() {
 	credential.Register(NewLDAPAuthenticator())
 }
 
-// Keep tls import alive for future LDAPS support. / tls 保留供将来
-// LDAPS 支持。
-var _ = tls.Config{}
+// (P2 dead-code purge: removed tls sentinel and import in v0.2.3.
+// The audit's F-scan found `var _ = tls.Config{}` keeping the
+// crypto/tls import alive "for future LDAPS support" — but Go's
+// compiler will catch the unused import immediately, so the
+// sentinel served no purpose. To re-enable LDAPS, import
+// crypto/tls and use it directly.)
+//
+// （P2 死代码清理：v0.2.3 删了 tls 哨兵和 import。审计 F-scan
+// 发现 `var _ = tls.Config{}` 保 crypto/tls "以备未来 LDAPS"——
+// 但 Go 编译器立即标未用 import，所以哨兵无意义。重新启用 LDAPS
+// 时直接 import crypto/tls 并使用。）
