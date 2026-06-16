@@ -73,7 +73,7 @@ fg-qimen projects list
 - `creds.txt` — credential hits (only; never any post-auth action)
 - `rdp.json` / `rdp.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
 
-### Plugins (v0.1) / 插件
+### Plugins (v0.2) / 插件 (v0.2)
 
 | Plugin | Default ports | Identify | Credential |
 |---|---|---|---|
@@ -106,24 +106,24 @@ fg-qimen projects list
 | `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write to coils/registers) |
 | `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
 | `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |
-| `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS in v0.1) |
+| `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS) |
 
 30 plugins / authenticators covering enterprise-internal + cloud-native
 + industrial control + building automation services. Credential testing
-covers **26 services** in v0.1 (SSH + FTP + MySQL + Redis + Memcached
+covers **26 services** in v0.2 (SSH + FTP + MySQL + Redis + Memcached
 + MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
 Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
 + RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS), with full no-exploit
 enforcement (`creds.txt` is the only side-effect).
 
 30 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控服务。
-v0.1 凭据测试覆盖 **26 个服务**（SSH + FTP + MySQL + Redis + Memcached +
+v0.2 凭据测试覆盖 **26 个服务**（SSH + FTP + MySQL + Redis + Memcached +
 MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
 Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
 + RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS），完整"不做漏洞利用"
 约束（`creds.txt` 是唯一副作用）。
 
-### Credential testing (v0.1) / 凭据测试
+### Credential testing (v0.2) / 凭据测试 (v0.2)
 
 | Service | Mechanism | Driver / Library | Tests |
 |---|---|---|---|
@@ -436,6 +436,37 @@ Global flags (subset; run `fg-qimen --help` for the full list):
 |     | `--no-icmp` | false | skip ICMP probe |
 | `-v` | `--verbose` | false | debug logging |
 |     | `--shutdown-timeout` | `5s` | graceful drain timeout |
+
+Dictionary file examples / 字典文件示例:
+
+`--user-file` (one username per line) / `--user-file`（每行一个用户名）:
+
+```
+admin
+root
+test
+oracle
+postgres
+```
+
+`--pass-file` (one password per line; `#` lines are skipped) /
+`--pass-file`（每行一个密码；`#` 开头的行被跳过）:
+
+```
+# top-10 worst passwords
+123456
+password
+admin
+root
+qwerty
+```
+
+Usage / 用法:
+
+```bash
+fg-qimen -H 10.0.0.0/24 -p 22,3306 --user-file users.txt --pass-file pass.txt
+fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass.txt -p corp
+```
 
 ---
 

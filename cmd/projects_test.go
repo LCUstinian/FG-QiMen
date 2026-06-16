@@ -31,6 +31,7 @@
 package cmd
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,6 +39,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 )
 
 // TestValidProjectName — table-driven. The audit (P2 / F08)
@@ -174,4 +177,245 @@ func newCmdForTest(t *testing.T, _ func(*cobra.Command, []string) error) *cobra.
 	c := &cobra.Command{Use: "test"}
 	c.SetOut(io.Discard)
 	return c
+}
+
+// newCmdForTestCapture is like newCmdForTest but pipes output to a
+// buffer the test can read. Used by the List / Info / Create
+// tests that assert on printed output.
+//
+// newCmdForTestCapture 像 newCmdForTest 但把输出接到 buffer，
+// 测试可读。List / Info / Create 测试需要断言打印输出时用。
+func newCmdForTestCapture(t *testing.T, _ func(*cobra.Command, []string) error) (*cobra.Command, *bytes.Buffer) {
+	t.Helper()
+	c := &cobra.Command{Use: "test"}
+	buf := &bytes.Buffer{}
+	c.SetOut(buf)
+	c.SetErr(buf)
+	return c, buf
+}
+
+// TestRunProjectsCreate — happy-path creation. The audit (P2 / F08)
+// flagged runProjectsCreate as untested. We chdir into a temp
+// dir, call the function with a valid name, then verify the
+// project directory + bbolt DB were materialised.
+//
+// Invalid-name path is covered by TestValidProjectName's table
+// (it gates Create via the same function). We don't re-test the
+// rejection here.
+//
+// TestRunProjectsCreate — happy-path 创建。审计（P2 / F08）标
+// runProjectsCreate 未测。我们切到 temp 目录，用合法名调函数，
+// 然后验证 project 目录 + bbolt DB 已被物化。
+func TestRunProjectsCreate(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	cmd, _ := newCmdForTestCapture(t, runProjectsCreate)
+	if err := runProjectsCreate(cmd, []string{"alpha"}); err != nil {
+		t.Fatalf("runProjectsCreate: %v", err)
+	}
+
+	// The function joins "runs/projects/<name>" relative to cwd
+	// and calls workspace.Open, which creates the directory + opens
+	// the bbolt DB at fg.db.
+	// / 函数相对 cwd join "runs/projects/<name>" 并调
+	// workspace.Open，后者创建目录 + 在 fg.db 打开 bbolt。
+	dir := filepath.Join(tmp, "runs", "projects", "alpha")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("expected project dir at %s, got stat err %v", dir, err)
+	}
+	dbPath := filepath.Join(dir, "fg.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Errorf("expected bbolt DB at %s, got err %v", dbPath, err)
+	}
+}
+
+// TestRunProjectsCreate_InvalidName — verify the gating flow: a
+// name rejected by validProjectName bubbles up as an error and
+// leaves the workspace untouched.
+//
+// TestRunProjectsCreate_InvalidName — 验门控流：被 validProjectName
+// 拒绝的名字作为错冒上来，且 workspace 不动。
+func TestRunProjectsCreate_InvalidName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	cmd, _ := newCmdForTestCapture(t, runProjectsCreate)
+	if err := runProjectsCreate(cmd, []string{"../escape"}); err == nil {
+		t.Errorf("expected error for invalid name, got nil")
+	}
+
+	// And no project dir was created.
+	// / 并且没创建 project 目录。
+	dir := filepath.Join(tmp, "runs", "projects", "escape")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("expected no project dir at %s, got stat err %v", dir, err)
+	}
+}
+
+// TestRunProjectsList_Empty — when ./runs/projects/ doesn't exist
+// (fresh checkout), the List subcommand prints the "no projects
+// yet" hint instead of erroring.
+//
+// TestRunProjectsList_Empty — 当 ./runs/projects/ 不存在（全新
+// checkout）时，List 子命令打印"no projects yet"提示而不是报错。
+func TestRunProjectsList_Empty(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsList)
+	if err := runProjectsList(cmd, nil); err != nil {
+		t.Fatalf("runProjectsList: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "no projects yet") {
+		t.Errorf("expected hint in output, got %q", out)
+	}
+}
+
+// TestRunProjectsList_Populated — when two project dirs exist,
+// List prints both, sorted by name. We don't pin the exact
+// tabwriter formatting (whitespace is brittle); we just assert
+// that both names appear and the longer-named one comes after
+// the shorter one (proxy for "sorted").
+//
+// TestRunProjectsList_Populated — 当两个 project 目录存在，
+// List 打印两者，按名排序。我们不固定 tabwriter 精确格式（空
+// 白易碎）；只断两个名都出现且长名在短名后（"已排序"的代理）。
+func TestRunProjectsList_Populated(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	// Materialise two project dirs by going through workspace.Open
+	// (which creates the dir + opens bbolt).
+	// / 通过 workspace.Open 物化两个 project 目录（创建目录 +
+	// 开 bbolt）。
+	for _, n := range []string{"alpha", "beta"} {
+		p, err := openProjectForTest(t, n)
+		if err != nil {
+			t.Fatalf("setup Open(%q): %v", n, err)
+		}
+		_ = p.Close()
+	}
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsList)
+	if err := runProjectsList(cmd, nil); err != nil {
+		t.Fatalf("runProjectsList: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("expected 'alpha' in output, got %q", out)
+	}
+	if !strings.Contains(out, "beta") {
+		t.Errorf("expected 'beta' in output, got %q", out)
+	}
+	// Sorted: alpha before beta. / 排序：alpha 在 beta 前。
+	if i, j := strings.Index(out, "alpha"), strings.Index(out, "beta"); i > j {
+		t.Errorf("expected 'alpha' before 'beta' in output, got positions %d vs %d", i, j)
+	}
+}
+
+// TestRunProjectsInfo — happy-path. We materialise a project with
+// a couple of result files, then call Info and verify the output
+// reports them as "X bytes" rather than "(missing)".
+//
+// TestRunProjectsInfo — happy-path。物化一个带几个结果文件的
+// project，然后调 Info 并验证输出报它们为 "X bytes" 而不是
+// "(missing)"。
+func TestRunProjectsInfo(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	p, err := openProjectForTest(t, "alpha")
+	if err != nil {
+		t.Fatalf("setup Open: %v", err)
+	}
+	_ = p.Close()
+
+	// Drop a targets.txt and result.txt so the file listing shows
+	// something other than "(missing)".
+	// / 放一个 targets.txt 和 result.txt，让文件列表显示非
+	// "(missing)"。
+	dir := filepath.Join(tmp, "runs", "projects", "alpha")
+	for _, fn := range []string{"targets.txt", "result.txt"} {
+		if err := writeFile(filepath.Join(dir, fn), "stub"); err != nil {
+			t.Fatalf("setup write %s: %v", fn, err)
+		}
+	}
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsInfo)
+	if err := runProjectsInfo(cmd, []string{"alpha"}); err != nil {
+		t.Fatalf("runProjectsInfo: %v", err)
+	}
+
+	out := buf.String()
+	for _, must := range []string{
+		"Project: alpha",
+		"Root:",
+		"runs/projects/alpha",
+		"DB:",
+		"targets.txt",
+		"result.txt",
+	} {
+		if !strings.Contains(out, must) {
+			t.Errorf("expected %q in output, got %q", must, out)
+		}
+	}
+	// missing-file rows show "(missing)". With our stub present
+	// for two of the six files, the literal "(missing)" should
+	// still appear for the others. / 缺失文件行显 "(missing)"。
+	// 我们为 6 个文件中的 2 个放了 stub，所以 "(missing)" 应
+	// 该还在为其它文件出现。
+	if !strings.Contains(out, "(missing)") {
+		t.Errorf("expected '(missing)' for absent files, got %q", out)
+	}
+}
+
+// TestRunProjectsInfo_CreatesIfMissing — workspace.Open is
+// "create-or-open", so Info on a never-seen-before project name
+// silently creates it. This test pins that behavior so a future
+// change to Open (e.g., one that refuses to auto-create) doesn't
+// regress Info. After the call, the project dir + fg.db exist.
+//
+// TestRunProjectsInfo_CreatesIfMissing — workspace.Open 是
+// "create-or-open"，所以对从未见过的 project 名调 Info 会
+// 静默创建。本测试锁定该行为，以防 Open 未来的修改（如拒绝
+// 自动创建）让 Info 倒退。调用后，project dir + fg.db 存在。
+func TestRunProjectsInfo_CreatesIfMissing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsInfo)
+	if err := runProjectsInfo(cmd, []string{"ghost"}); err != nil {
+		t.Fatalf("runProjectsInfo(ghost): unexpected error: %v", err)
+	}
+
+	// Output should mention the project. / 输出应提到 project。
+	if !strings.Contains(buf.String(), "Project: ghost") {
+		t.Errorf("expected 'Project: ghost' in output, got %q", buf.String())
+	}
+
+	// And the dir + DB should now exist. / dir + DB 现在应存在。
+	dir := filepath.Join(tmp, "runs", "projects", "ghost")
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("expected project dir at %s after Info, got err %v", dir, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fg.db")); err != nil {
+		t.Errorf("expected fg.db after Info, got err %v", err)
+	}
+}
+
+// openProjectForTest is a thin wrapper around workspace.Open that
+// calls t.Fatal on error. It exists so the populated-list and
+// info tests read top-down without "and now jump to a 3-line
+// open-and-check-error dance".
+//
+// openProjectForTest 是 workspace.Open 的薄包装，err 时 t.Fatal。
+// 存在是为了让 populated-list 和 info 测试自顶向下读，无需
+// "然后跳到 3 行 open-and-check-error 套路"。
+func openProjectForTest(t *testing.T, name string) (*workspace.Project, error) {
+	t.Helper()
+	return workspace.Open(name)
 }
