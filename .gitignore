@@ -18,7 +18,6 @@ runs/
 
 # IDE / 编辑器
 .idea/
-.vscode/
 *.swp
 *.swo
 *~
