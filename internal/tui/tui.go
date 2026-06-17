@@ -459,6 +459,19 @@ func (m Model) View() string {
 	// Keymap / 快捷键
 	sb.WriteString(m.renderKeymap())
 	sb.WriteString("\n")
+
+	// Fill remaining terminal height to prevent ghost content
+	// 填充剩余终端高度，防止上一帧内容残留
+	if m.height > 0 {
+		currentHeight := strings.Count(sb.String(), "\n") + 1
+		remaining := m.height - currentHeight
+		if remaining > 0 {
+			for i := 0; i < remaining; i++ {
+				sb.WriteString("\n")
+			}
+		}
+	}
+
 	return sb.String()
 }
 
