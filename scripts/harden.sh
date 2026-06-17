@@ -167,15 +167,32 @@ log ""
 log "Stage 2/4: UPX compression"
 log "--------------------------"
 
-check_tool upx "winget install upx (Windows) | apt install upx-ucl (Linux) | brew install upx (macOS)"
+# Detect binary format
+BIN_FMT=""
+if file "$BINARY" 2>/dev/null | grep -qi "PE32\|MS-DOS\|Windows"; then
+    BIN_FMT="PE"
+elif file "$BINARY" 2>/dev/null | grep -qi "ELF"; then
+    BIN_FMT="ELF"
+elif file "$BINARY" 2>/dev/null | grep -qi "Mach-O"; then
+    BIN_FMT="Mach-O"
+fi
 
-log "Compressing with UPX $UPX_ARGS ..."
-upx $UPX_ARGS "$BINARY"
+log "Binary format: $BIN_FMT"
 
-log "Compressed: $(show_size "$BINARY")"
+if [[ "$BIN_FMT" == "Mach-O" ]]; then
+    warn "UPX does not support Mach-O (macOS) binaries. Skipping compression."
+else
+    check_tool upx "winget install upx (Windows) | apt install upx-ucl (Linux) | brew install upx (macOS)"
 
-warn "UPX-compressed binaries may have 50-200ms startup delay (in-memory decompression)."
-warn "UPX outputs are frequently flagged by antivirus software. Consider whitelisting."
+    log "Compressing with UPX $UPX_ARGS ..."
+    if ! upx $UPX_ARGS "$BINARY" 2>&1; then
+        warn "UPX compression failed (exit code $?). Binary may be incompatible. Continuing without compression."
+    else
+        log "Compressed: $(show_size "$BINARY")"
+        warn "UPX-compressed binaries may have 50-200ms startup delay (in-memory decompression)."
+        warn "UPX outputs are frequently flagged by antivirus software. Consider whitelisting."
+    fi
+fi
 
 # ── Stage 3: UPX Signature Stripping ─────────────────────────────────────
 
@@ -188,9 +205,11 @@ if [[ ! -f "$STRIP_SCRIPT" ]]; then
 fi
 
 log "Stripping UPX signatures with strip_upx.py ..."
-$PYTHON "$STRIP_SCRIPT" "$BINARY"
-
-log "Signatures stripped: $(show_size "$BINARY")"
+if ! $PYTHON "$STRIP_SCRIPT" "$BINARY" 2>&1; then
+    warn "UPX signature stripping skipped (exit code $?). Binary may not be UPX-compressed."
+else
+    log "Signatures stripped: $(show_size "$BINARY")"
+fi
 
 # ── Stage 4: Certificate Cloning (Optional) / 证书克隆（可选） ─────────
 

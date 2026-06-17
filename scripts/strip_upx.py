@@ -276,8 +276,8 @@ def main():
     elif fmt == "ELF":
         replacements = strip_elf(data, args.dry_run)
     else:
-        print(f"Error: unsupported format (not PE or ELF)", file=sys.stderr)
-        sys.exit(1)
+        print("[*] Unsupported format (not PE or ELF) — skipping")
+        sys.exit(0)
 
     if replacements == 0:
         print("[*] No UPX signatures found — file may not be UPX-compressed")
