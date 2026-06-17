@@ -71,6 +71,17 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statsMsg:
 		d.inner.counters = m.view
 		d.inner.elapsed = m.elapsed
+		// First statsMsg = first sign of life from the pipeline.
+		// We flip runState so the status bar chip changes from
+		// IDLE to SCANNING. The transition is one-way until
+		// doneMsg; a subsequent paused/resume cycle shouldn't
+		// rewind the indicator.
+		// 第一条 statsMsg = pipeline 的第一声"有动静"。我们翻
+		// 转 runState 让状态条芯片从 IDLE 变 SCANNING。转换单
+		// 向（直到 doneMsg）；后续暂停/恢复不应倒转指示。
+		if d.inner.runState == runIdle {
+			d.inner.runState = runScanning
+		}
 		return d, nil
 	case eventMsg:
 		// Stream straight into the model's pending buffer. The
@@ -80,14 +91,34 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 直接流入 model 的 pending 缓冲。model 在下一次 Update
 		// tick 把 pending → events（见 tui.go 的 Model.Update），
 		// 100 条事件爆发只触发 1 次重渲染，不是 100 次。
+		// An event arriving before any statsMsg is also a sign of
+		// life (the first cred or open port often lands before
+		// the first 1Hz tick). Promote runState here too.
+		// 任何 statsMsg 之前到达的事件也算"有动静"（第一个凭据
+		// 或开放端口常常先于第一个 1Hz tick 到达）。这里也提升
+		// runState。
+		if d.inner.runState == runIdle {
+			d.inner.runState = runScanning
+		}
 		d.inner.appendEvent(liveEvent{
 			when: m.when, tag: m.tag, host: m.host, port: m.port, svc: m.svc, text: m.text,
 		})
 		return d, nil
 	case doneMsg:
 		d.inner.finalSummary = m.summary
-		d.inner.quitting = true
-		return d, tea.Quit
+		// runState = runDone kicks off the linger. We don't set
+		// quitting yet — the model will quit from its own
+		// tickMsg handler after `lingerTicks` frames. This
+		// keeps the final summary visible inside the TUI frame
+		// long enough to read, fixing the "I can't tell if it
+		// finished" complaint.
+		// runState = runDone 启动 linger。我们此时不置 quitting
+		// —— model 会在 `lingerTicks` 帧后从自己的 tickMsg 处
+		// 理器退出。这让最终摘要在 TUI 框内可见够长时间可读，
+		// 修复"我分不清它完没完成"的痛点。
+		d.inner.runState = runDone
+		d.inner.lingerLeft = lingerTicks
+		return d, nil
 	}
 	// Fall through to the wrapped model for key/window messages.
 	// 透传按键/窗口消息到底层 model。

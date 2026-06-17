@@ -37,12 +37,29 @@ import (
 // Color palette / 配色方案
 // (kept as plain strings so we can swap them at test time if needed)
 // （用纯字符串保存，方便测试时替换）
+//
+// The palette is intentionally broader than the strict cyberpunk
+// "green / amber / red" triad: a small set of accent colors lets
+// us give each dashboard region its own visual identity (target
+// counters, live events, paused state, status banner) without
+// losing the geek-terminal feel. Cyan = live / scanning, magenta
+// = informational, yellow = transitional state, violet = idle /
+// stopped. All five accents are tuned for AA contrast on the
+// slate background.
+// 调色板有意比严格的赛博朋克"绿/琥珀/红"三元更宽：一小组口
+// 音色让每个 dashboard 区域有独立视觉身份（目标计数、实时事件、
+// 暂停、状态条），仍保留极客终端感。cyan = 实时/扫描，magenta
+// = 信息，yellow = 过渡态，violet = 空闲/停止。5 个口音都对 slate
+// 背景做了 AA 对比度调校。
 const (
 	colBg     = "#0B0F12" // deep slate (was #000000 — pure black crushed dim text on some terminals)
 	colPanel  = "#11181D" // subtle panel fill
 	colAccent = "#00E676" // matrix green (geek terminal signature) — slightly cooler than #00FF41 for readability
 	colAmber  = "#FFB300" // amber (creds / focus) — bumped from #FFB000 for AA contrast on dark bg
 	colRed    = "#FF4D5E" // coral red (errors) — softer than #FF3344 but still clearly an error
+	colCyan   = "#22D3EE" // electric cyan (scanning / live state)
+	colYellow = "#F4D03F" // warm yellow (transitional / in-progress)
+	colViolet = "#A78BFA" // soft violet (idle / stopped / done)
 	colDim    = "#5A6470" // slate gray (secondary info) — brighter than #3A3A3A so it survives on dark bg
 	colMuted  = "#8A95A1" // light slate (tertiary)
 	colBright = "#FFFFFF" // white (rare, emphasis only)
@@ -52,17 +69,23 @@ const (
 //
 // Kept compact and ASCII-leaning where possible so the dashboard
 // is readable on terminals that don't ship the heavier Unicode
-// glyphs (Windows console hosts, some SSH gateways). Only the
-// spinner/warn glyphs use non-ASCII, mirroring common terminal
-// tool conventions (lazygit / k9s / btop).
+// glyphs (Windows console hosts, some SSH gateways). The spinner
+// cycles through four frames at ~100ms (see tui.go tickMsg) for
+// a proper "is it actually doing something?" indicator — a static
+// glyph (the old ◐) didn't read as a spinner on a 1Hz update.
+// 尽量紧凑并偏 ASCII，让 dashboard 在不带宽 Unicode 字形的终端
+// （Windows console、SSH 跳板）也可读。spinner 通过 4 帧约 100ms
+// 循环（见 tui.go tickMsg）形成真正"在动吗？"的视觉信号——静态
+// ◐ 在 1Hz 更新下读不出 spinner 感。
 const (
-	symSpinner = "◐" // half-filled circle (geek aesthetic, not a spinner per se)
-	symSuccess = "▸" // play / hit
-	symError   = "✗"
-	symDone    = "✓"
-	symWarn    = "⚠"
-	symActive  = "▶"
-	symDot     = "·"
+	spinnerFrames = "◐◓◑◒" // four-frame half-filled circle rotation
+	symSpinner    = "◐"    // initial frame; View() picks by frameIdx
+	symSuccess    = "▸"    // play / hit
+	symError      = "✗"
+	symDone       = "✓"
+	symWarn       = "⚠"
+	symActive     = "▶"
+	symDot        = "·"
 )
 
 // Box drawing / 边框
@@ -98,11 +121,14 @@ const (
 	// 时右栏会激进换行；高于此值则自由伸展。
 	eventsColMin = 48
 	// chromeLines is the number of rows consumed by the title bar,
-	// stats bar, keymap and surrounding newlines. View() uses this
-	// to size the events list to fit the terminal without
-	// scrolling.
-	// chromeLines 是标题栏、状态条、按键提示和换行占用的行数。
-	// View() 据此把事件列表裁剪到不超出终端高度。
+	// title separator, stats bar, keymap and surrounding newlines.
+	// View() uses this to size the events list to fit the terminal
+	// without scrolling. Title (1) + separator (1) + stats (1) +
+	// blank (1) + blank after panels (1) + keymap (1) = 6.
+	// chromeLines 是标题栏、标题分割线、状态条、按键提示和换行
+	// 占用的行数。View() 据此把事件列表裁剪到不超出终端高度。
+	// 标题(1) + 分割线(1) + 状态(1) + 空行(1) + 面板后空行(1) +
+	// 按键(1) = 6。
 	chromeLines = 6
 )
 
@@ -152,6 +178,31 @@ var (
 	// stHelp is the help overlay body (rendered when '?' is pressed).
 	// stHelp 是帮助浮层（按 '?' 时渲染）。
 	stHelp lipgloss.Style
+	// stRunning styles the "SCANNING" chip in the stats bar when
+	// the pipeline is active. Cyan signals "live"; the bold makes
+	// it pop above the dim surrounding text.
+	// stRunning 是 pipeline 激活时状态条上"SCANNING"芯片的样式。
+	// cyan 表达"实时"；加粗让它在周边 dim 文本中跳出。
+	stRunning lipgloss.Style
+	// stIdle styles the "IDLE" chip before the first stats push
+	// arrives. Violet reads as "waiting" without looking broken
+	// (red would imply error, amber would imply warning).
+	// stIdle 是首条 stats 到达前"IDLE"芯片的样式。violet 读作
+	// "等待"，不显得出错（红=错误，琥珀=警告）。
+	stIdle lipgloss.Style
+	// stFinished styles the "DONE" chip + final summary header.
+	// Green signals success; we reuse the accent so the eye reads
+	// "scan complete" as a positive close to the run.
+	// stFinished 是"DONE"芯片 + 最终摘要头部的样式。绿色表达成
+	// 功；复用 accent 让眼睛把"扫描完成"读作运行的正向收尾。
+	stFinished lipgloss.Style
+	// stStatNum is for the right-aligned numeric counters — now
+	// in the cyan accent so the numbers visually anchor the
+	// stats panel even when there are no events yet. The label
+	// stays dim; only the digits get the accent treatment.
+	// stStatNum 是右对齐数字计数器——现用 cyan 口音让数字在无
+	// 事件时也视觉锚定统计面板。标签仍 dim，只数字上口音。
+	stStatNum lipgloss.Style
 )
 
 func init() {
@@ -170,11 +221,21 @@ func init() {
 		mutedFg = colDim
 	}
 
+	// Title bar: no background, just bold + accent foreground. An
+	// earlier version painted the full row with the accent bg
+	// (lipgloss.Background) which, combined with Padding(0,1) and
+	// the stats bar / panel borders below, produced a "box
+	// inside a box inside a box" visual stack — operators
+	// read it as redundant chrome, not as a header. Foreground-
+	// only keeps the bar's identity without claiming a slab of
+	// the screen.
+	// 标题栏：纯粗体 + accent 前景，零背景。早一版用 accent 背景
+	// 涂满整行（lipgloss.Background），叠加 Padding(0,1) 和下面
+	// 状态条 / 面板边框后形成"框套框套框"——操作员读作冗余 chrome
+	// 而非标题。纯前景保留身份感，又不抢整行。
 	stTitle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBright)).
-		Background(lipgloss.Color(colAccent)).
-		Bold(true).
-		Padding(0, 1)
+		Foreground(lipgloss.Color(accent)).
+		Bold(true)
 
 	stDim = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(dimFg))
@@ -192,15 +253,30 @@ func init() {
 	stError = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(colRed))
 
+	// Panel box: dim border so the box reads as "container"
+	// without competing with the accent panel header. The
+	// previous accent border + accent header piled two accent
+	// strokes on top of each other and looked like a
+	// double-boxed region.
+	// 面板框：dim 边框让它读作"容器"，不与 accent 面板头争抢。
+	// 之前的 accent 边框 + accent 头叠了两道 accent 笔画，看
+	// 起来像双重框。
 	stBox = lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(accent)).
+		BorderForeground(lipgloss.Color(dimFg)).
 		Padding(0, 1)
 
+	// Panel header: accent + bold + a 1-row gap below. The gap
+	// gives the header room to breathe above the content row
+	// (the previous MarginBottom(0) butted text against the
+	// header and read as crowded on 80×24 terminals).
+	// 面板头：accent + 粗体 + 下方 1 行空隙。空隙让标题在内容
+	// 行之上有呼吸空间（之前 MarginBottom(0) 把文字紧贴头部，
+	// 在 80×24 终端上读起来拥挤）。
 	stPanelHeader = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(accent)).
 		Bold(true).
-		MarginBottom(0)
+		MarginBottom(1)
 
 	stKeyHint = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(colBg)).
@@ -218,6 +294,32 @@ func init() {
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color(accent)).
 		Padding(1, 2)
+
+	// Status chip: padding(0,0) so the chip hugs the title
+	// text without claiming extra space. The bg color is the
+	// signal; the chip's own padding was the thing that
+	// pushed the title row out to "highlight bar" width.
+	// 状态芯片：padding(0,0) 让芯片紧贴标题文字，不占额外宽
+	// 度。背景色才是信号；芯片自带 padding 才是把标题行推成
+	// "高亮条"宽度的元凶。
+	stRunning = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colBg)).
+		Background(lipgloss.Color(colCyan)).
+		Bold(true)
+
+	stIdle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colBright)).
+		Background(lipgloss.Color(colViolet)).
+		Bold(true)
+
+	stFinished = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colBg)).
+		Background(lipgloss.Color(accent)).
+		Bold(true)
+
+	stStatNum = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colCyan)).
+		Bold(true)
 }
 
 // isNoColor reports whether NO_COLOR is set per the spec at

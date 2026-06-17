@@ -93,31 +93,101 @@ func TestDispatcherEventMsg(t *testing.T) {
 }
 
 // TestDispatcherDoneMsg — doneMsg sets the final summary, flips
-// the quitting flag, and returns tea.Quit (the canonical bubbletea
-// quit command that the runtime translates into a QuitMsg). We
-// can't compare function values in Go (func can only be compared
-// to nil), so we invoke cmd and type-assert the result to QuitMsg.
+// runState to runDone, primes the linger countdown, and returns
+// nil cmd. The actual quit is fired by the model from its
+// tickMsg handler after `lingerTicks` frames (so the dashboard
+// can show the final summary inside the TUI frame long enough
+// to read). We verify the contract is "ready to linger" rather
+// than "already quit".
 //
-// TestDispatcherDoneMsg — doneMsg 设置最终摘要、置 quitting 标志、
-// 返回 tea.Quit（bubbletea 用于指示退出的标准命令，runtime 会把它
-// 翻译成 QuitMsg）。Go 不允许 func 与 func 直接比较（func 只能与
-// nil 比较），所以我们调用 cmd 并对结果做 QuitMsg 类型断言。
+// TestDispatcherDoneMsg — doneMsg 设置最终摘要、把 runState 翻
+// 为 runDone、启动 linger 倒计时、返回 nil cmd。真正退出由 model
+// 在 `lingerTicks` 帧后从自己的 tickMsg 处理器触发（让 dashboard
+// 在 TUI 框内显示最终摘要够久可读）。我们验证契约是"准备 linger"
+// 而非"已退出"。
 func TestDispatcherDoneMsg(t *testing.T) {
 	m := NewModel(nil)
 	d := dispatcher{inner: &m}
 	newM, cmd := d.Update(doneMsg{summary: "scan complete: 1 cred"})
-	dd := newM.(dispatcher)
-	if !dd.inner.quitting {
-		t.Error("quitting = false, want true")
+	if cmd != nil {
+		t.Errorf("doneMsg returned non-nil cmd: %v (want nil; quit comes from tickMsg)", cmd)
 	}
+	dd := newM.(dispatcher)
 	if dd.inner.finalSummary != "scan complete: 1 cred" {
 		t.Errorf("finalSummary = %q", dd.inner.finalSummary)
 	}
+	if dd.inner.runState != runDone {
+		t.Errorf("runState = %d, want runDone (%d)", dd.inner.runState, runDone)
+	}
+	if dd.inner.lingerLeft != lingerTicks {
+		t.Errorf("lingerLeft = %d, want %d", dd.inner.lingerLeft, lingerTicks)
+	}
+	if dd.inner.quitting {
+		t.Error("quitting should be false right after doneMsg; quit fires from tickMsg")
+	}
+}
+
+// TestModelLingerExits — drives the model through a full linger
+// cycle via tickMsg and asserts it quits when the countdown
+// reaches zero. The model is value-typed, so we thread the
+// returned model through the loop (same pattern as
+// TestDispatcherEventMsg).
+//
+// TestModelLingerExits — 通过 tickMsg 驱动 model 走完一个完整
+// linger 周期，断言倒计时归零时 model 退出。Model 是值类型，所
+// 以循环里把返回的 model 串联下去（同 TestDispatcherEventMsg）。
+func TestModelLingerExits(t *testing.T) {
+	m := NewModel(nil)
+	m.runState = runDone
+	m.lingerLeft = 3
+	// First two ticks: lingerLeft decrements, no quit.
+	// 前两 tick：lingerLeft 递减，不退出。
+	for i := 0; i < 2; i++ {
+		newM, _ := m.Update(tickMsg(time.Time{}))
+		m = newM.(Model)
+		if m.quitting {
+			t.Fatalf("tick %d: quitting = true, want false (lingerLeft=%d)", i, m.lingerLeft)
+		}
+	}
+	// Third tick: lingerLeft hits 0, model quits and returns
+	// tea.Quit. We invoke the cmd and type-assert the result to
+	// QuitMsg (functions aren't comparable in Go, only to nil).
+	// 第三 tick：lingerLeft 归零，model 退出并返回 tea.Quit。
+	// 调用 cmd 并对结果做 QuitMsg 类型断言（Go 里 func 不能互比，
+	// 只能与 nil 比）。
+	_, cmd := m.Update(tickMsg(time.Time{}))
 	if cmd == nil {
-		t.Fatal("doneMsg returned nil cmd, want tea.Quit")
+		t.Fatal("third tick returned nil cmd, want tea.Quit")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Errorf("cmd() did not return tea.QuitMsg; got %T", cmd())
+		t.Errorf("third tick cmd() did not return tea.QuitMsg; got %T", cmd())
+	}
+}
+
+// TestModelTickAdvancesSpinner — the tickMsg handler advances
+// frameIdx modulo len(spinnerFrames); after N ticks the frame
+// should have advanced by N.
+//
+// TestModelTickAdvancesSpinner — tickMsg 处理器把 frameIdx 按
+// len(spinnerFrames) 取模推进；N 次 tick 后 frame 应推进 N。
+func TestModelTickAdvancesSpinner(t *testing.T) {
+	m := NewModel(nil)
+	// Pre-seed runState = runScanning so the linger path doesn't
+	// fire (lingerLeft is 0 in runScanning, which is the no-op
+	// branch). The spinner still advances either way.
+	// 预置 runState = runScanning 避免走 linger 路径（runScanning
+	// 下 lingerLeft 为 0 走 no-op 分支）。spinner 无论如何都推
+	// 进。
+	m.runState = runScanning
+	before := m.frameIdx
+	// Thread the returned model through: Model.Update is a value
+	// receiver, so the mutation is on a copy unless we re-bind.
+	// 串联返回的 model：Model.Update 是值接收者，不重绑等于在副
+	// 本上改。
+	newM, _ := m.Update(tickMsg(time.Time{}))
+	m = newM.(Model)
+	if m.frameIdx != (before+1)%len(spinnerFrames) {
+		t.Errorf("frameIdx = %d, want %d", m.frameIdx, (before+1)%len(spinnerFrames))
 	}
 }
 

@@ -182,14 +182,29 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	}
 
 	// Wire logger (silent flag suppresses to file-only; -v adds debug).
+	//
+	// 装配 logger（silent 抑制控制台；-v 开启 debug）。
+	//
+	// In TUI mode we ALWAYS use the discard logger, regardless of
+	// cfg.Silent: the dashboard is the sole event surface and any
+	// log line written to stderr will smear across the alt screen
+	// and visually duplicate information already shown by the
+	// dashboard (status bar counters, LIVE EVENTS column). The
+	// TUI user opts into "no log" by running fg-qimen without
+	// flags, and into "see logs" by passing --no-tui.
+	// TUI 模式下**始终**用 discard logger，与 cfg.Silent 无关：
+	// dashboard 是唯一事件面，任何写到 stderr 的日志都会糊在
+	// alt screen 上，与 dashboard 已展示的信息（状态条计数、
+	// LIVE EVENTS 列）视觉重复。TUI 用户用"不传 flag"表示
+	// "不要日志"，用 --no-tui 表示"我要看日志"。
+	//
 	// The TUI is unaffected by Silent — the dashboard is the live event
 	// surface, the logger is the secondary channel; both can be quiet
 	// or noisy independently.
 	//
-	// 装配 logger（silent 抑制控制台；-v 开启 debug）。TUI 不受 Silent
-	// 影响——dashboard 是实时事件展示，logger 是次要通道；两者可以独
-	// 立地安静或嘈杂。
-	if !cfg.Silent {
+	// TUI 不受 Silent 影响——dashboard 是实时事件展示，logger 是次要
+	// 通道；两者可以独立地安静或嘈杂。
+	if cfg.NoTUI && !cfg.Silent {
 		sess.Log = types.NewStderrLogger()
 	} else {
 		sess.Log = types.DiscardLogger{}
