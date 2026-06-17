@@ -1,0 +1,126 @@
+{
+  // VSCode 调试配置 / VSCode debug launch configs for FG-QiMen
+  //
+  // 前置 / Pre-flight:
+  //   "🐞 调试 构建调试版二进制" 任务会构建 release/fg-qimen-debug.exe
+  //   带 -gcflags=all=-N -l(关闭优化与内联),让 dlv 准确定位断点。
+  //   注意:调试构建**不走 garble**——混淆会破坏 dlv 的符号解析,
+  //   且混淆后的栈跟踪需要 `garble reverse` 才能读。
+  //
+  // TUI 提示 / TUI caveat:
+  //   Bubbletea 在 TUI 模式下会独占 stdin/stdout。如果需要逐步
+  //   进入 dispatcher / 事件循环代码,优先用 "无 TUI" 路径——
+  //   或临时在 main.go 注入环境变量强制 TextUI,避免 dlv 与
+  //   bubbletea 抢终端。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🐞 启动调试二进制(默认扫描)/ Launch built debug binary (default scan)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}/release/fg-qimen-debug${env:EXE_SUFFIX}",
+      "env": {
+        "CGO_ENABLED": "0",
+        "EXE_SUFFIX": ""
+      },
+      "args": [
+        "-H", "127.0.0.1",
+        "--ports", "22,80,3306",
+        "-t", "5",
+        "--shutdown-timeout", "2s"
+      ],
+      "preLaunchTask": "🐞 调试 构建调试版二进制 / Build: debug (no inlining)",
+      "cwd": "${workspaceFolder}",
+      "showLog": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "stopOnEntry": false,
+      "dlvFlags": ["--check-go-version=false"]
+    },
+
+    {
+      "name": "🐞 启动调试二进制(自定义参数)/ Launch built debug binary (custom args)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}/release/fg-qimen-debug${env:EXE_SUFFIX}",
+      "env": {
+        "CGO_ENABLED": "0",
+        "EXE_SUFFIX": ""
+      },
+      "args": [],
+      "preLaunchTask": "🐞 调试 构建调试版二进制 / Build: debug (no inlining)",
+      "cwd": "${workspaceFolder}",
+      "showLog": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "stopOnEntry": false,
+      "dlvFlags": ["--check-go-version=false"]
+    },
+
+    {
+      "name": "🧪 调试测试(当前文件)/ Debug Test (current file)",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${file}",
+      "env": { "CGO_ENABLED": "0" },
+      "args": ["-test.v", "-test.run", ".*"],
+      "cwd": "${workspaceFolder}",
+      "showLog": false,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "dlvFlags": ["--check-go-version=false"]
+    },
+
+    {
+      "name": "🧪 调试测试(当前包)/ Debug Test (current package)",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "env": { "CGO_ENABLED": "0" },
+      "args": ["-test.v"],
+      "cwd": "${workspaceFolder}",
+      "showLog": false,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "dlvFlags": ["--check-go-version=false"]
+    },
+
+    {
+      "name": "🧪 调试测试(正则过滤)/ Debug Test (filtered -run regex)",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}",
+      "env": { "CGO_ENABLED": "0" },
+      "args": ["-test.v", "-test.run", "${input:testRunRegex}"],
+      "cwd": "${workspaceFolder}",
+      "showLog": false,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "dlvFlags": ["--check-go-version=false"]
+    },
+
+    {
+      "name": "🔌 附加到 fg-qimen / Attach to fg-qimen (dlv dap listen)",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "debugServer": 2345,
+      "showLog": true,
+      "internalConsoleOptions": "neverOpen",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testRunRegex",
+      "type": "promptString",
+      "description": "go test -run 正则(如 ^TestDispatcher$)/ go test -run regex",
+      "default": "^Test"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  // VSCode workspace settings for FG-QiMen (github.com/LCUstinian/FG-QiMen)
+  //
+  // These complement tasks.json / launch.json — gopls tooling,
+  // file associations, and a couple of Windows-shell quirks.
+  //
+  // CGO is disabled project-wide (matches justfile export CGO_ENABLED=0).
+  // The repo is pure-Go: bubbletea, lipgloss, bbolt, go-mssqldb,
+  // hirochachacha/go-smb2, jlaffaye/ftp, x/crypto/ssh, go-sql-driver/mysql.
+  // Static binary, no libc.
+
+  // ─── Go / gopls ────────────────────────────────────────────────────
+  "go.useLanguageServer": true,
+  "go.alternateTools": {
+    // point at the toolchain under /c/Program_CodeEnv/GO when gopls
+    // looks for `go` on PATH and finds nothing user-friendly.
+    "go": "C:/Program_CodeEnv/GO/bin/go.exe"
+  },
+  "go.toolsEnvVars": {
+    "CGO_ENABLED": "0",
+    "GOFLAGS": "-trimpath"
+  },
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": ["--fast"],
+  "go.testFlags": ["-count=1"],
+
+  "gopls": {
+    "usePlaceholders": true,
+    "completeUnimported": true,
+    "staticcheck": true,
+    "semanticTokens": true,
+    "ui.semanticTokens": true,
+    // go 1.26 module — pin the build env so gopls never tries cgo
+    "build.env": {
+      "CGO_ENABLED": "0",
+      "GOFLAGS": "-trimpath"
+    },
+    // analyse runs vet + staticcheck on save; matches the
+    // `just vet` task below.
+    "analyses": {
+      "unusedparams": true,
+      "unusedwrite": true,
+      "nilness": true,
+      "shadow": true
+    }
+  },
+
+  // ─── File associations ─────────────────────────────────────────────
+  "files.associations": {
+    "*.go": "go",
+    "go.sum": "go.sum",
+    "justfile": "makefile",
+    "Justfile": "makefile"
+  },
+
+  // ─── Shell / terminal ──────────────────────────────────────────────
+  // FG-QiMen justfile uses `set shell := ["bash", "-uc"]` and bash-isms
+  // everywhere. Default the integrated terminal to bash so `just` works
+  // without translation.
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "terminal.integrated.profiles.windows": {
+    "Git Bash": {
+      "path": "C:/Program Files/Git/bin/bash.exe",
+      "args": ["-li"]
+    }
+  },
+
+  // ─── Excludes (mirrors .gitignore + .vscode-internal) ──────────────
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/release": true,
+    "**/runs": true,
+    "**/coverage.out": true
+  },
+  "search.exclude": {
+    "**/release/**": true,
+    "**/runs/**": true,
+    "**/coverage.out": true
+  },
+
+  // ─── Misc ──────────────────────────────────────────────────────────
+  "editor.formatOnSave": false,
+  "go.formatTool": "gofmt",
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  }
+}

@@ -1,0 +1,524 @@
+{
+  // FG-QiMen 的 VSCode 任务配置 / VSCode tasks for FG-QiMen
+  //
+  // 任务命名约定 / Task naming convention:
+  //   "<emoji> 中文名 / English name"
+  //
+  //   🔨 构建 (Build)       ⚙️ 质量 (Quality)   🚀 运行 (Run)
+  //   🧪 测试 (Test)         🧹 清理 (Clean)     ℹ️ 信息 (Info)
+  //   📦 发布 (Release)      🐞 调试 (Debug)
+  //
+  // 设计要点 / Design notes:
+  //  - 所有构建/测试任务强制 CGO_ENABLED=0(与 justfile 一致;纯 Go 静态二进制)。
+  //  - justfile 有 recipe 的任务一律委派给 `just`,与 CI 行为锁同步。
+  //  - 细粒度场景(单包测试、覆盖率、go run 带参)用裸 `go` 调用。
+  //  - `version` 默认 "0.2.0",与 internal/version.Value 常量保持一致。
+  //  - problemMatcher: $go 匹配 go build/test 错误;
+  //    本项目 CGO=0,所以无需 $gcc / $windows.dll。
+
+  "version": "2.0.0",
+
+  // 共享 options:每个未覆盖 env 的任务都会继承 / Shared env inherited by every task
+  "options": {
+    "env": {
+      "CGO_ENABLED": "0",
+      "GOFLAGS": "-trimpath",
+      // 把 just 和 go 的目录提前注入 PATH,避免 VSCode 子进程
+      // 拿不到 PATH(常见的 auto mode / 任务运行器问题)。
+      // Adjust these if your toolchain lives elsewhere.
+      "PATH": "${env:PATH};C:/Program_CodeEnv/just;C:/Program_CodeEnv/GO/bin"
+    },
+    "shell": {
+      // 用 Git Bash 的绝对路径,避免 VSCode 子进程拿不到 bash。
+      // Windows 上默认装在 C:\Program Files\Git\bin\bash.exe;
+      // 如果你的 Git 装在别的盘,请改成对应的路径。
+      //
+      // Use the absolute path to Git Bash — VSCode's child process
+      // doesn't always inherit bash on PATH. Adjust if Git is
+      // installed somewhere else.
+      "executable": "C:/Program Files/Git/bin/bash.exe",
+      "args": ["-lc"]
+    }
+  },
+
+  // ─── Inputs(可复用输入)──────────────────────────────────────
+  "inputs": [
+    {
+      "id": "goPackage",
+      "type": "promptString",
+      "description": "Go 包路径(默认 ./...)/ Go package path (e.g. ./cmd, ./internal/tui, ./...)",
+      "default": "./..."
+    },
+    {
+      "id": "runArgs",
+      "type": "promptString",
+      "description": "fg-qimen 启动参数 / Arguments passed to fg-qimen",
+      "default": "-H 127.0.0.1 --ports 22,80,3306 -t 5 --shutdown-timeout 2s"
+    },
+    {
+      "id": "buildVersion",
+      "type": "promptString",
+      "description": "注入的版本号(默认 0.2.0,与 internal/version.Value 一致)/ Version string baked into the binary",
+      "default": "0.2.0"
+    },
+    {
+      "id": "testFilter",
+      "type": "promptString",
+      "description": "go test -run 正则 / go test -run filter (regex)",
+      "default": ""
+    },
+    {
+      "id": "garbleSeed",
+      "type": "promptString",
+      "description": "garble -seed 值（random = 每次随机;base64 字符串 = 固定可复现)/ garble -seed value (random or base64)",
+      "default": "o9WDTZ4CN4w="
+    }
+  ],
+
+  // ─── Tasks ───────────────────────────────────────────────────────
+  "tasks": [
+
+    /* ━━━━━━━━━━━━━━ 🔨 构建 / Build ━━━━━━━━━━━━━━
+       (默认通过 garble 混淆; 调试二进制 build:debug 跳过混淆) */
+
+    {
+      "label": "🔨 构建 当前平台 / Build: current platform",
+      "type": "shell",
+      "command": "just",
+      "args": ["build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "echo": false },
+      "detail": "为当前 OS/arch 构建 fg-qimen(CGO=0,strip + 版本注入)。Build fg-qimen for the current OS/arch via `just build`."
+    },
+
+    {
+      "label": "🔨 构建 指定版本号 / Build: custom version",
+      "type": "shell",
+      "command": "just",
+      "args": ["version=${input:buildVersion}", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "通过 -ldflags 注入自定义版本号。Build with a custom version string injected via -ldflags."
+    },
+
+    {
+      "label": "🔨 构建 全平台交叉编译 / Build: cross-compile all",
+      "type": "shell",
+      "command": "just",
+      "args": ["all"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "交叉编译到 windows/linux/darwin × amd64/arm64,产出在 release/。Cross-compile to 5 platforms into release/."
+    },
+
+    {
+      "label": "🔨 构建 go build(快速)/ Build: go build (no ldflags)",
+      "type": "shell",
+      "command": "go",
+      "args": ["build", "-o", "${workspaceFolder}/release/fg-qimen${env:EXE_SUFFIX}"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "CGO_ENABLED": "0", "EXE_SUFFIX": "" }
+      },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "裸 `go build`,无 ldflags——快速迭代时用。Raw `go build` without ldflags for quick iteration."
+    },
+
+    /* ━━━━━━━━━━━━━━ 🧪 测试 / Test ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "🧪 测试 全部(静默)/ Test: all (quiet)",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "跑全模块的 `go test`(默认 ./...)。Run `go test` over the whole module (default: ./...)."
+    },
+
+    {
+      "label": "🧪 测试 详细输出 / Test: verbose",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "-v", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go test -v` — 完整 t.Logf / t.Run 输出。Full t.Logf / t.Run output."
+    },
+
+    {
+      "label": "🧪 测试 数据竞争检测 / Test: race detector",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "-race", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go test -race`(本项目 CGO=0,Windows 上 race 需要 cgo,可能失败——这是项目设计使然)。Race detection; Windows+CGO=0 build is unsupported by design."
+    },
+
+    {
+      "label": "🧪 测试 名字过滤 / Test: filtered (run regex)",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "-v", "-run", "${input:testFilter}", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "按名字过滤(如 ^TestDispatcher$)。Narrow the test set by name."
+    },
+
+    {
+      "label": "🧪 测试 覆盖率 / Test: coverage",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "-coverprofile=coverage.out", "-covermode=atomic", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "生成 coverage.out 原子模式覆盖率文件——可用 Coverage Gutters 扩展或 `go tool cover -html=coverage.out` 查看。"
+    },
+
+    {
+      "label": "🧪 测试 覆盖率(HTML)/ Test: coverage (html)",
+      "type": "shell",
+      "command": "go",
+      "args": ["test", "-coverprofile=coverage.out", "-covermode=atomic", "${input:goPackage}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "生成 coverage.out,后续手动 `go tool cover -html=coverage.out` 打开。"
+    },
+
+    /* ━━━━━━━━━━━━━━ ⚙️ 质量 / Quality ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "⚙️ 格式化 go fmt / Fmt: go fmt ./...",
+      "type": "shell",
+      "command": "go",
+      "args": ["fmt", "./..."],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": { "kind": "build", "isDefault": false },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "对所有 Go 文件执行 gofmt。Apply gofmt to every file."
+    },
+
+    {
+      "label": "⚙️ 静态检查 vet / Vet: go vet ./...",
+      "type": "shell",
+      "command": "go",
+      "args": ["vet", "./..."],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go vet ./...` 静态检查;默认构建任务会自动暴露 vet 问题。"
+    },
+
+    {
+      "label": "⚙️ 全面体检 fmt+vet+test / Check: fmt + vet + test",
+      "type": "shell",
+      "command": "just",
+      "args": ["check"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "等同于 `just check`——CI 闸门,fmt + vet + test 三合一。The CI gate."
+    },
+
+    {
+      "label": "⚙️ 依赖 tidy / Deps: tidy",
+      "type": "shell",
+      "command": "go",
+      "args": ["mod", "tidy"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go mod tidy`——钉住间接依赖;提交前仔细检查 go.mod / go.sum diff。"
+    },
+
+    {
+      "label": "⚙️ 依赖 下载+校验 / Deps: download + verify",
+      "type": "shell",
+      "command": "just",
+      "args": ["deps"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`just deps`——下载模块缓存并校验校验和。"
+    },
+
+    /* ━━━━━━━━━━━━━━ 🚀 运行 / Run ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "🚀 运行 go run .(带参)/ Run: go run . (with args)",
+      "type": "shell",
+      "command": "go",
+      "args": ["run", ".", "${input:runArgs}"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go run .`——进程内运行(不产出 release/ 制品)。默认参数:本机常见端口扫描。"
+    },
+
+    {
+      "label": "🚀 运行 已构建的二进制 / Run: built binary",
+      "type": "shell",
+      "command": "just",
+      "args": ["run"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`just run`——依赖 `just build`;用 justfile 默认参数跑 release/fg-qimen。"
+    },
+
+    {
+      "label": "🚀 运行 查看版本 / Run: version subcommand",
+      "type": "shell",
+      "command": "go",
+      "args": ["run", ".", "version"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "打印 Cobra `version` 子命令的输出,验证嵌入的版本字符串。"
+    },
+
+    {
+      "label": "🚀 运行 项目列表 / Run: projects list",
+      "type": "shell",
+      "command": "go",
+      "args": ["run", ".", "projects", "list"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "列出 bbolt 工作区(对应仓库根的 runs/ 目录)。Inspect bbolt workspaces."
+    },
+
+    /* ━━━━━━━━━━━━━━ 📦 发布 / Release ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "📦 发布 生成 SHA256SUMS / Release: sha256sums",
+      "type": "shell",
+      "command": "just",
+      "args": ["sha256sums"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "为 release/ 下所有产物生成 SHA256SUMS(在 `just all` 之后跑)。Generate release/SHA256SUMS over all artifacts."
+    },
+
+    /* ━━━━━━━━━━━━━━ 🎭 混淆 / Obfuscation (garble) ━━━━━━━━━━━━━━
+           默认 release 构建已走 garble; 以下配方是显式入口,
+           便于在脚本或 CI 中明确意图。 / `build` / `all` already
+           route through garble by default; these are explicit entry
+           points for clarity. */
+
+    {
+      "label": "🎭 混淆 当前平台(显式)/ Obfuscate: current platform",
+      "type": "shell",
+      "command": "just",
+      "args": ["obfuscate"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "等价于 `just use_garble=1 build` — 当前平台 garble 混淆构建,seed 随机。Same as `just use_garble=1 build`; default seed=random."
+    },
+
+    {
+      "label": "🎭 混淆 全平台交叉编译 / Obfuscate: all platforms",
+      "type": "shell",
+      "command": "just",
+      "args": ["obfuscate-all"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "等价于 `just use_garble=1 all` — 5 平台 garble 混淆交叉编译。Same as `just use_garble=1 all`."
+    },
+
+    {
+      "label": "🎭 混淆 纯净构建(不混淆)/ Obfuscate: plain build (no garble)",
+      "type": "shell",
+      "command": "just",
+      "args": ["use_garble=0", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "绕过 garble,纯净 `go build` — 用于 CI 静态扫描对照、dlv 符号解析等场景。Bypass garble for CI sanity checks or dlv symbol resolution."
+    },
+
+    {
+      "label": "🎭 混淆 固定 seed 可复现构建 / Obfuscate: fixed seed (reproducible)",
+      "type": "shell",
+      "command": "just",
+      "args": ["garble_seed=${input:garbleSeed}", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "用输入的 base64 seed 构建可复现二进制 — 同一 seed 多次构建产出完全相同的 SHA256(便于回归 diff / 比对)。Build reproducibly with a fixed seed."
+    },
+
+    {
+      "label": "🎭 混淆 查看 garble 信息 / Obfuscate: info",
+      "type": "shell",
+      "command": "just",
+      "args": ["obfuscate-info"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "显示 garble 版本与当前生效的 seed,便于诊断 garble 不可用或 seed 错误。"
+    },
+
+    /* ━━━━━━━━━━━━━━ 🧹 清理 / Clean ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "🧹 清理 构建产物 / Clean: build artifacts",
+      "type": "shell",
+      "command": "just",
+      "args": ["clean-build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "删 release/fg-qimen(保留 release/ 目录)。Remove release/fg-qimen only."
+    },
+
+    {
+      "label": "🧹 清理 全部 release+runs+test / Clean: all",
+      "type": "shell",
+      "command": "just",
+      "args": ["clean"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "激进清理:release/ + runs/ + test/ + 构建产物。Aggressive clean — release/, runs/, test/, build artifacts."
+    },
+
+    {
+      "label": "🧹 清理 仅扫描产物 / Clean: scan runs only",
+      "type": "shell",
+      "command": "just",
+      "args": ["clean-runs"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "删 runs/(即扫即走 + project 模式输出)。Delete runs/ only."
+    },
+
+    /* ━━━━━━━━━━━━━━ ℹ️ 信息 / Info ━━━━━━━━━━━━━━ */
+
+    {
+      "label": "ℹ️ 信息 Go 模块 / Info: go module",
+      "type": "shell",
+      "command": "just",
+      "args": ["modinfo"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "`go list -m -json`——模块信息(Go 版本、依赖、replace)。"
+    },
+
+    {
+      "label": "ℹ️ 信息 代码行数 / Info: source line counts",
+      "type": "shell",
+      "command": "just",
+      "args": ["loc"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "统计 Go 源代码行数(排除 release/)。Count lines of Go source."
+    },
+
+    {
+      "label": "ℹ️ 信息 justfile 配方清单 / Info: justfile recipes",
+      "type": "shell",
+      "command": "just",
+      "args": ["--list"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "列出 justfile 所有配方(canonical reference)。Show all available `just` recipes."
+    },
+
+    /* ━━━━━━━━━━━━━━ 🐞 调试(launch.json preLaunchTask)━━━━━━━━━━━━━━ */
+
+    {
+      "label": "🐞 调试 构建调试版二进制 / Build: debug (no inlining)",
+      "type": "shell",
+      "command": "go",
+      "args": [
+        "build",
+        "-gcflags=all=-N -l",
+        "-ldflags=-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=0.2.0",
+        "-trimpath", "-buildvcs=false",
+        "-o", "${workspaceFolder}/release/fg-qimen-debug${env:EXE_SUFFIX}",
+        "."
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "CGO_ENABLED": "0", "EXE_SUFFIX": "" }
+      },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "isBackground": false,
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "pre-debug 构建:产出 release/fg-qimen-debug,关闭优化与内联(-N -l),便于 dlv 下断点。作为 launch.json 的 preLaunchTask。"
+    },
+
+    {
+      "label": "🐞 调试 构建+启动 dlv / Build: debug + run dlv",
+      "type": "shell",
+      "command": "go",
+      "args": [
+        "build",
+        "-gcflags=all=-N -l",
+        "-ldflags=-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=0.2.0",
+        "-trimpath", "-buildvcs=false",
+        "-o", "${workspaceFolder}/release/fg-qimen-debug${env:EXE_SUFFIX}",
+        "."
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "CGO_ENABLED": "0", "EXE_SUFFIX": "" }
+      },
+      "problemMatcher": ["$go"],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "构建调试版二进制后立刻用 dlv 启动。建议用 launch.json 里的 'Launch built debug binary' 配置获得完整断点体验。"
+    }
+  ]
+}

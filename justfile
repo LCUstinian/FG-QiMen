@@ -30,6 +30,30 @@ binary := "fg-qimen"
 # `just version=v0.x.y build` 覆盖。
 version := "0.2.0"
 
+# Code obfuscation via garble (https://github.com/burrowers/garble).
+# 仅作用于 release 构建；`go run .` / `go test` / `go build -gcflags=...
+# -N -l`（调试）等场景保持纯净，避免混淆栈跟踪与 dlv 断点受影响。
+#
+# use_garble=1: 默认开启混淆。set to "0" to disable (CI sanity build).
+# garble_seed: 默认 "random" 每次构建产出不同 Hash；可填 base64
+#   字符串固定 seed 做可复现构建。
+# garble_bin: garble 可执行文件路径；默认从 $(go env GOPATH)/bin/garble 推导。
+#
+# / 仅作用于 release 构建；调试/测试链不混淆。
+# / use_garble=0 可关闭（CI 静态扫描等场景）。
+# / garble_seed=random 每次产出不同 Hash，对抗文件 Hash 识别。
+#
+# 注意：garble 标志必须放在 `build` 子命令前，例如：
+#   garble -seed=random build -ldflags=... -o out.exe .
+# 而不是 build 命令的参数；justfile 模板会自动处理。
+use_garble := "1"
+garble_seed := "random"
+garble_bin := if env_var_or_default("GARBLE", "") != "" {
+    env_var("GARBLE")
+} else {
+    "$(go env GOPATH)/bin/garble"
+}
+
 # Build ldflags (strip + clear build-id + version injection) / 构建 ldflags
 # -s: omit symbol table
 # -w: omit DWARF debug info
@@ -76,15 +100,49 @@ default:
 # -trimpath: strip filesystem paths from binary (smaller, reproducible)
 # -buildvcs=false: omit VCS info embedded by default in a git checkout
 # / -trimpath：去文件路径；-buildvcs=false：去 git 信息
+#
+# Default behaviour:
+#   - use_garble=1: invoke `garble -seed=random build ...` for code-name
+#     obfuscation. The garble layer rewrites function/variable/package
+#     names; the resulting binary has a different SHA256 on every build.
+#     No literal obfuscation (-literals) and no -tiny, so stack traces
+#     remain readable and the toolchain footprint stays small.
+#   - use_garble=0: fall back to plain `go build` (useful for CI
+#     sanity checks that compare the unobfuscated binary against a
+#     known-good fingerprint, or for `delve` symbol resolution).
+#
+# 默认行为: use_garble=1 时通过 garble 走混淆构建;产物的 SHA256
+# 每次构建都不同。仅混淆名称，不混淆字面量、不开 -tiny,栈跟踪
+# 仍可读（garble reverse 还原）。
 build:
-    @echo "==> Building {{binary}} {{version}} (cgo=off)"
     @mkdir -p {{release_dir}}
-    go build -ldflags="{{ldflags}}" -trimpath -buildvcs=false -o {{release_dir}}/{{binary}}{{exe_suffix}} .
+    @if [ "{{use_garble}}" = "1" ]; then \
+        if ! command -v {{garble_bin}} >/dev/null 2>&1; then \
+            echo "==> garble not found at {{garble_bin}}; installing mvdan.cc/garble@latest" >&2; \
+            go install mvdan.cc/garble@latest; \
+        fi; \
+        echo "==> Building {{binary}} {{version}} (cgo=off, garble obfuscated, seed={{garble_seed}})"; \
+        {{garble_bin}} -seed={{garble_seed}} build \
+            -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+            -o {{release_dir}}/{{binary}}{{exe_suffix}} . 2>&1 \
+            | { grep -v "^warning: -seed only uses the first 8 bytes" || true; }; \
+    else \
+        echo "==> Building {{binary}} {{version}} (cgo=off, plain go build)"; \
+        go build -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+            -o {{release_dir}}/{{binary}}{{exe_suffix}} .; \
+    fi
 
 # Cross-compile to all platforms / 交叉编译到所有平台
+#
+# 同样遵守 use_garble — 默认混淆构建。
+# / Same use_garble gate as `build`.
 all: clean-build
-    @echo "==> Cross-compiling {{binary}} {{version}} for all platforms (cgo=off)"
     @mkdir -p {{release_dir}}
+    @if [ "{{use_garble}}" = "1" ] && ! command -v {{garble_bin}} >/dev/null 2>&1; then \
+        echo "==> garble not found at {{garble_bin}}; installing mvdan.cc/garble@latest" >&2; \
+        go install mvdan.cc/garble@latest; \
+    fi
+    @echo "==> Cross-compiling {{binary}} {{version}} for all platforms (cgo=off, garble={{use_garble}})"
     @os_archs="windows/amd64/.exe linux/amd64/ darwin/amd64/ linux/arm64/ darwin/arm64/"; \
     for entry in $os_archs; do \
         goos="${entry%%/*}"; \
@@ -94,13 +152,46 @@ all: clean-build
         if [ -z "$goos" ] || [ -z "$goarch" ]; then continue; fi; \
         out="{{release_dir}}/{{binary}}-$goos-$goarch$ext"; \
         echo "  -> $goos/$goarch"; \
-        GOOS=$goos GOARCH=$goarch go build \
-            -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
-            -o "$out" . || exit 1; \
+        if [ "{{use_garble}}" = "1" ]; then \
+            GOOS=$goos GOARCH=$goarch {{garble_bin}} -seed={{garble_seed}} build \
+                -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+                -o "$out" . 2>&1 \
+                | { grep -v "^warning: -seed only uses the first 8 bytes" || true; } || exit 1; \
+        else \
+            GOOS=$goos GOARCH=$goarch go build \
+                -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+                -o "$out" . || exit 1; \
+        fi; \
     done
     @ls -lh {{release_dir}}/
 
-# Generate SHA256SUMS for all release artifacts. Run after `just all`
+# ─────────────────────────────────────────────────────────────────────
+# Obfuscation (garble) / 混淆构建
+# ─────────────────────────────────────────────────────────────────────
+#
+# `build` / `all` 默认已经走 garble(use_garble=1)。
+# 下面这些配方是显式别名，方便脚本与文档引用。
+# / `build` / `all` already go through garble by default; the recipes
+# / below are explicit aliases for documentation / scripting clarity.
+
+# Force-on obfuscated build (alias of `use_garble=1 build`) / 强制混淆构建当前平台
+obfuscate:
+    @just use_garble=1 build
+
+# Force-on obfuscated cross-compile (alias of `use_garble=1 all`) / 强制混淆交叉编译
+obfuscate-all:
+    @just use_garble=1 all
+
+# Show garble version + effective seed / 显示 garble 版本与生效的 seed
+obfuscate-info:
+    @if command -v {{garble_bin}} >/dev/null 2>&1; then \
+        echo "==> garble: $({{garble_bin}} version 2>&1 | head -1)"; \
+        echo "    binary: {{garble_bin}}"; \
+        echo "    seed:   {{garble_seed}} (override with: just garble_seed=...)"; \
+    else \
+        echo "garble not found at {{garble_bin}}; run 'just build' once to auto-install, or: go install mvdan.cc/garble@latest" >&2; \
+        exit 1; \
+    fi
 # (or any build that produces files in release/). Emits a single
 # `release/SHA256SUMS` file in the standard two-column format
 # that `sha256sum -c SHA256SUMS` can verify.
