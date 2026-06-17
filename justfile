@@ -48,11 +48,7 @@ version := "0.2.0"
 # 而不是 build 命令的参数；justfile 模板会自动处理。
 use_garble := "1"
 garble_seed := "random"
-garble_bin := if env_var_or_default("GARBLE", "") != "" {
-    env_var("GARBLE")
-} else {
-    "$(go env GOPATH)/bin/garble"
-}
+garble_bin := if env_var_or_default("GARBLE", "") != "" { env_var("GARBLE") } else { "$(go env GOPATH)/bin/garble" }
 
 # Build ldflags (strip + clear build-id + version injection) / 构建 ldflags
 # -s: omit symbol table
@@ -64,7 +60,19 @@ ldflags := "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.V
 # CGO disabled — all our deps are pure Go (bubbletea, lipgloss, bbolt, go-mssqldb,
 # hirochachacha/go-smb2, jlaffaye/ftp, x/crypto/ssh, go-sql-driver/mysql).
 # Pure-Go build = statically linked, no libc dependency, easier distribution.
+#
+# Go 1.16+ PIE compatibility: CGO_ENABLED=0 disables PIE (position-independent
+# executable). PIE binaries carry ASLR segments that UPX/Mangle cannot handle
+# correctly — compressed PIE binaries may crash on startup. Disabling CGO
+# (and thus PIE) ensures the hardened binary is a flat, statically-linked
+# executable that UPX and Mangle can process safely.
+#
 # / 关闭 CGO——所有依赖都是纯 Go。纯 Go 编译 = 静态链接、无 libc 依赖、便于分发。
+#
+# Go 1.16+ PIE 兼容性：CGO_ENABLED=0 禁用 PIE（位置无关可执行文件）。PIE
+# 二进制携带 ASLR 段，UPX/Mangle 无法正确处理——压缩后的 PIE 二进制可能
+# 启动崩溃。禁用 CGO（从而禁用 PIE）确保加固后的二进制是扁平、静态链接的
+# 可执行文件，UPX 和 Mangle 可以安全处理。
 export CGO_ENABLED := "0"
 
 # Release output directory / 发布产物目录
@@ -102,34 +110,32 @@ default:
 # / -trimpath：去文件路径；-buildvcs=false：去 git 信息
 #
 # Default behaviour:
-#   - use_garble=1: invoke `garble -seed=random build ...` for code-name
-#     obfuscation. The garble layer rewrites function/variable/package
-#     names; the resulting binary has a different SHA256 on every build.
-#     No literal obfuscation (-literals) and no -tiny, so stack traces
-#     remain readable and the toolchain footprint stays small.
+#   - use_garble=1: invoke `garble -seed=random -literals build ...` for
+#     code-name AND string-literal obfuscation. The garble layer rewrites
+#     function/variable/package names and encrypts string constants; the
+#     resulting binary has a different SHA256 on every build.
 #   - use_garble=0: fall back to plain `go build` (useful for CI
 #     sanity checks that compare the unobfuscated binary against a
 #     known-good fingerprint, or for `delve` symbol resolution).
 #
-# 默认行为: use_garble=1 时通过 garble 走混淆构建;产物的 SHA256
-# 每次构建都不同。仅混淆名称，不混淆字面量、不开 -tiny,栈跟踪
-# 仍可读（garble reverse 还原）。
+# 默认行为: use_garble=1 时通过 garble 走混淆构建;产物 SHA256
+# 每次构建都不同。混淆名称 + 字面量（-literals 加密字符串常量）。
 build:
-    @mkdir -p {{release_dir}}
-    @if [ "{{use_garble}}" = "1" ]; then \
-        if ! command -v {{garble_bin}} >/dev/null 2>&1; then \
-            echo "==> garble not found at {{garble_bin}}; installing mvdan.cc/garble@latest" >&2; \
+    @mkdir -p {{ release_dir }}
+    @if [ "{{ use_garble }}" = "1" ]; then \
+        if ! command -v {{ garble_bin }} >/dev/null 2>&1; then \
+            echo "==> garble not found at {{ garble_bin }}; installing mvdan.cc/garble@latest" >&2; \
             go install mvdan.cc/garble@latest; \
         fi; \
-        echo "==> Building {{binary}} {{version}} (cgo=off, garble obfuscated, seed={{garble_seed}})"; \
-        {{garble_bin}} -seed={{garble_seed}} build \
-            -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
-            -o {{release_dir}}/{{binary}}{{exe_suffix}} . 2>&1 \
+        echo "==> Building {{ binary }} {{ version }} (cgo=off, garble obfuscated, seed={{ garble_seed }}, literals)"; \
+        {{ garble_bin }} -seed={{ garble_seed }} -literals build \
+            -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
+            -o {{ release_dir }}/{{ binary }}{{ exe_suffix }} . 2>&1 \
             | { grep -v "^warning: -seed only uses the first 8 bytes" || true; }; \
     else \
-        echo "==> Building {{binary}} {{version}} (cgo=off, plain go build)"; \
-        go build -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
-            -o {{release_dir}}/{{binary}}{{exe_suffix}} .; \
+        echo "==> Building {{ binary }} {{ version }} (cgo=off, plain go build)"; \
+        go build -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
+            -o {{ release_dir }}/{{ binary }}{{ exe_suffix }} .; \
     fi
 
 # Cross-compile to all platforms / 交叉编译到所有平台
@@ -137,12 +143,12 @@ build:
 # 同样遵守 use_garble — 默认混淆构建。
 # / Same use_garble gate as `build`.
 all: clean-build
-    @mkdir -p {{release_dir}}
-    @if [ "{{use_garble}}" = "1" ] && ! command -v {{garble_bin}} >/dev/null 2>&1; then \
-        echo "==> garble not found at {{garble_bin}}; installing mvdan.cc/garble@latest" >&2; \
+    @mkdir -p {{ release_dir }}
+    @if [ "{{ use_garble }}" = "1" ] && ! command -v {{ garble_bin }} >/dev/null 2>&1; then \
+        echo "==> garble not found at {{ garble_bin }}; installing mvdan.cc/garble@latest" >&2; \
         go install mvdan.cc/garble@latest; \
     fi
-    @echo "==> Cross-compiling {{binary}} {{version}} for all platforms (cgo=off, garble={{use_garble}})"
+    @echo "==> Cross-compiling {{ binary }} {{ version }} for all platforms (cgo=off, garble={{ use_garble }})"
     @os_archs="windows/amd64/.exe linux/amd64/ darwin/amd64/ linux/arm64/ darwin/arm64/"; \
     for entry in $os_archs; do \
         goos="${entry%%/*}"; \
@@ -150,20 +156,20 @@ all: clean-build
         goarch="${rest%%/*}"; \
         ext="${rest#*/}"; \
         if [ -z "$goos" ] || [ -z "$goarch" ]; then continue; fi; \
-        out="{{release_dir}}/{{binary}}-$goos-$goarch$ext"; \
+        out="{{ release_dir }}/{{ binary }}-$goos-$goarch$ext"; \
         echo "  -> $goos/$goarch"; \
-        if [ "{{use_garble}}" = "1" ]; then \
-            GOOS=$goos GOARCH=$goarch {{garble_bin}} -seed={{garble_seed}} build \
-                -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+        if [ "{{ use_garble }}" = "1" ]; then \
+            GOOS=$goos GOARCH=$goarch {{ garble_bin }} -seed={{ garble_seed }} -literals build \
+                -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
                 -o "$out" . 2>&1 \
                 | { grep -v "^warning: -seed only uses the first 8 bytes" || true; } || exit 1; \
         else \
             GOOS=$goos GOARCH=$goarch go build \
-                -ldflags="{{ldflags}}" -trimpath -buildvcs=false \
+                -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
                 -o "$out" . || exit 1; \
         fi; \
     done
-    @ls -lh {{release_dir}}/
+    @ls -lh {{ release_dir }}/
 
 # ─────────────────────────────────────────────────────────────────────
 # Obfuscation (garble) / 混淆构建
@@ -184,14 +190,85 @@ obfuscate-all:
 
 # Show garble version + effective seed / 显示 garble 版本与生效的 seed
 obfuscate-info:
-    @if command -v {{garble_bin}} >/dev/null 2>&1; then \
-        echo "==> garble: $({{garble_bin}} version 2>&1 | head -1)"; \
-        echo "    binary: {{garble_bin}}"; \
-        echo "    seed:   {{garble_seed}} (override with: just garble_seed=...)"; \
+    @if command -v {{ garble_bin }} >/dev/null 2>&1; then \
+        echo "==> garble: $({{ garble_bin }} version 2>&1 | head -1)"; \
+        echo "    binary: {{ garble_bin }}"; \
+        echo "    seed:   {{ garble_seed }} (override with: just garble_seed=...)"; \
     else \
-        echo "garble not found at {{garble_bin}}; run 'just build' once to auto-install, or: go install mvdan.cc/garble@latest" >&2; \
+        echo "garble not found at {{ garble_bin }}; run 'just build' once to auto-install, or: go install mvdan.cc/garble@latest" >&2; \
         exit 1; \
     fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Binary hardening (UPX + modern signature stripping) / 二进制加固
+# ─────────────────────────────────────────────────────────────────────
+#
+# The hardening pipeline runs AFTER garble build via scripts/harden.sh:
+#   1. UPX --best --lzma       → 极限压缩（通常再减 40-60% 体积）
+#   2. scripts/strip_upx.py    → 原地替换 UPX 区段名 + 版本标识
+#   3. osslsigncode (optional) → 克隆合法 PE 签名（仅 Windows）
+#
+# 加固管线在 garble 构建之后通过 scripts/harden.sh 运行：
+#   1. UPX --best --lzma       → 极限压缩（通常再减 40-60% 体积）
+#   2. scripts/strip_upx.py    → 原地替换 UPX 区段名 + 版本标识
+#   3. osslsigncode (optional) → 克隆合法 PE 签名（仅 Windows）
+#
+# No file bloat, no external Go tools — pure Python 3 stdlib for
+# signature stripping. The script handles both PE and ELF formats.
+#
+# 无文件膨胀、无外部 Go 工具——签名消除用纯 Python 3 标准库。脚本
+# 同时处理 PE 和 ELF 格式。
+#
+# WARNINGS / 警告:
+#   - UPX 压缩的二进制首次启动有 50-200ms 解压延迟（内存中解压）。
+#     UPX-compressed binaries have a 50-200ms decompression delay on
+#     first launch (in-memory decompression).
+#   - UPX 压缩产物常被杀毒软件误报为恶意软件（这是安全工具的常见
+#     现象）。建议用户将 release/ 加入杀软白名单。
+#     UPX-compressed outputs are frequently flagged by AV as malware
+#     (common for security tools). Recommend whitelisting release/.
+#   - 证书克隆（osslsigncode -C）仅支持 Windows PE 文件。Linux/macOS
+#     产物跳过此步骤。
+#     Certificate cloning (osslsigncode -C) only supports Windows PE
+#     files. Linux/macOS outputs skip this step.
+#   - 证书克隆仅限授权渗透测试场景，非授权克隆他人签名违法。
+#     Certificate cloning is for authorized penetration testing only;
+#     cloning others' signatures without authorization is illegal.
+
+# Harden a single binary via scripts/harden.sh / 通过脚本加固单个二进制
+# skip_build: pass "1" to skip garble (e.g. when caller already built)
+harden binary="release/fg-qimen" skip_build="":
+    @if [ "{{ skip_build }}" = "1" ]; then \
+        bash scripts/harden.sh "{{ binary }}" "{{ version }}" "--skip-build"; \
+    else \
+        bash scripts/harden.sh "{{ binary }}" "{{ version }}"; \
+    fi
+
+# Full release pipeline: garble build + harden / 完整发布管线
+release: build
+    @just harden binary={{ release_dir }}/{{ binary }}{{ exe_suffix }} skip_build=1
+
+# Full release pipeline for all platforms / 全平台完整发布管线
+release-all: all
+    @echo "==> Hardening all release binaries"
+    @for f in {{ release_dir }}/{{ binary }}-*; do \
+        if [ -f "$f" ]; then \
+            echo "  -> $f"; \
+            just harden binary="$f" skip_build=1; \
+        fi; \
+    done
+    @# Also harden the current-platform binary if present / 加固当前平台产物
+    @if [ -f "{{ release_dir }}/{{ binary }}{{ exe_suffix }}" ]; then \
+        echo "  -> {{ release_dir }}/{{ binary }}{{ exe_suffix }}"; \
+        just harden binary="{{ release_dir }}/{{ binary }}{{ exe_suffix }}" skip_build=1; \
+    fi
+    @ls -lh {{ release_dir }}/
+
+# ─────────────────────────────────────────────────────────────────────
+# Checksums / 校验和
+# ─────────────────────────────────────────────────────────────────────
+#
+# Generate SHA256SUMS for all release artifacts. Run after `just all`
 # (or any build that produces files in release/). Emits a single
 # `release/SHA256SUMS` file in the standard two-column format
 # that `sha256sum -c SHA256SUMS` can verify.
@@ -203,43 +280,43 @@ obfuscate-info:
 # release/ 写文件的 build）后跑。输出标准两列格式的 release/SHA256SUMS，
 # `sha256sum -c SHA256SUMS` 可校验。
 sha256sums:
-    @if [ -z "$(ls -A {{release_dir}} 2>/dev/null | grep -v SHA256SUMS)" ]; then \
-        echo "no release artifacts in {{release_dir}}/ — run 'just build' or 'just all' first" >&2; \
+    @if [ -z "$(ls -A {{ release_dir }} 2>/dev/null | grep -v SHA256SUMS)" ]; then \
+        echo "no release artifacts in {{ release_dir }}/ — run 'just build' or 'just all' first" >&2; \
         exit 1; \
     fi
-    @cd {{release_dir}} && \
-        find . -maxdepth 1 -type f -name '{{binary}}*' \! -name 'SHA256SUMS' -print0 | \
+    @cd {{ release_dir }} && \
+        find . -maxdepth 1 -type f -name '{{ binary }}*' \! -name 'SHA256SUMS' -print0 | \
         xargs -0 sha256sum > SHA256SUMS
-    @echo "[*] {{release_dir}}/SHA256SUMS:"
-    @cat {{release_dir}}/SHA256SUMS
+    @echo "[*] {{ release_dir }}/SHA256SUMS:"
+    @cat {{ release_dir }}/SHA256SUMS
 
 # Build and run with default flags / 构建并以默认参数运行
 run: build
-    @./{{release_dir}}/{{binary}}{{exe_suffix}} -H 127.0.0.1
+    @./{{ release_dir }}/{{ binary }}{{ exe_suffix }} -H 127.0.0.1
 
 # Quick local test against 127.0.0.1:18080 (assumes a local service) / 本地快速测试
 test-local: build
-    @./{{release_dir}}/{{binary}}{{exe_suffix}} -H 127.0.0.1 --ports 18080,22,80,3306 -t 5 --shutdown-timeout 2s
+    @./{{ release_dir }}/{{ binary }}{{ exe_suffix }} -H 127.0.0.1 --ports 18080,22,80,3306 -t 5 --shutdown-timeout 2s
 
 # Clean ephemeral-mode outputs / 清理即扫即走输出
 clean-out:
-    @rm -rf {{runs_dir}}/default
-    @echo "[*] {{runs_dir}}/default cleaned"
+    @rm -rf {{ runs_dir }}/default
+    @echo "[*] {{ runs_dir }}/default cleaned"
 
 # Clean a project's outputs (usage: just clean-project NAME) / 清理某个项目产物
 clean-project name:
-    @rm -rf {{runs_dir}}/projects/{{name}}
-    @echo "[*] {{runs_dir}}/projects/{{name}} cleaned"
+    @rm -rf {{ runs_dir }}/projects/{{ name }}
+    @echo "[*] {{ runs_dir }}/projects/{{ name }} cleaned"
 
 # Clean all scan-run outputs / 清理所有扫描运行产物
 clean-runs:
-    @rm -rf {{runs_dir}}
-    @echo "[*] {{runs_dir}}/ cleaned"
+    @rm -rf {{ runs_dir }}
+    @echo "[*] {{ runs_dir }}/ cleaned"
 
 # Clean test data / 清理测试数据
 clean-test:
-    @rm -rf {{test_dir}}
-    @echo "[*] {{test_dir}}/ cleaned"
+    @rm -rf {{ test_dir }}
+    @echo "[*] {{ test_dir }}/ cleaned"
 
 # ─────────────────────────────────────────────────────────────────────
 # Dependency / 依赖
@@ -283,12 +360,12 @@ check: fmt vet test
 
 # Remove build artifacts and release/ / 清理构建产物
 clean: clean-build
-    @rm -rf {{release_dir}}
+    @rm -rf {{ release_dir }}
     @echo "[*] clean done"
 
 # Remove only local binary (keep release/) / 仅清理本地二进制
 clean-build:
-    @rm -f {{release_dir}}/{{binary}}{{exe_suffix}}
+    @rm -f {{ release_dir }}/{{ binary }}{{ exe_suffix }}
 
 # ─────────────────────────────────────────────────────────────────────
 # Documentation / 文档
@@ -297,8 +374,8 @@ clean-build:
 # Show line counts / 显示行数
 loc:
     @echo "==> Go source line counts"
-    @find . -name "*.go" -not -path "./{{release_dir}}/*" | xargs wc -l 2>/dev/null | tail -1
-    @echo "  ({{go_files}} files)"
+    @find . -name "*.go" -not -path "./{{ release_dir }}/*" | xargs wc -l 2>/dev/null | tail -1
+    @echo "  ({{ go_files }} files)"
 
 # Show Go module info / 显示 go module 信息
 modinfo:

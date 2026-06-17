@@ -33,3 +33,9 @@ runs/
 # Local environment / 本地环境
 .env
 .env.local
+
+# Trae IDE / 编辑器
+.trae/
+
+# Accidental artifact directory / 意外产物目录
+binary=release/
