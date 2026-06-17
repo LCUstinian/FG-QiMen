@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/types"
-	"github.com/LCUstinian/FG-QiMen/internal/version"
 )
 
 // TextUI writes events to stderr. Safe for concurrent use.
@@ -72,9 +71,10 @@ func (u *TextUI) Banner(cfg *types.Config) {
 	if cfg == nil {
 		return
 	}
+	fmt.Fprint(os.Stderr, RenderBanner(u.stderrIsTTY))
 	fmt.Fprintf(os.Stderr,
-		"\n[*] FG-QiMen %s  project=%q  mode=%s  ports=%s  threads=%d  timeout=%s\n",
-		version.Value, cfg.Project, cfg.Mode, cfg.Ports, cfg.Threads, cfg.Timeout)
+		"  project=%q  mode=%s  ports=%s  threads=%d  timeout=%s\n",
+		cfg.Project, cfg.Mode, cfg.Ports, cfg.Threads, cfg.Timeout)
 }
 
 // Stats pushes an updated counter snapshot.
