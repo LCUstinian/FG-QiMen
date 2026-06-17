@@ -8,7 +8,6 @@
 # 运行 `just` 查看所有可用 recipe。
 
 set shell := ["bash", "-uc"]
-set dotenv-load
 
 # Binary name / 二进制名
 binary := "fg-qimen"
@@ -345,11 +344,11 @@ vet:
 
 # Run go test / 运行测试
 test:
-    go test ./...
+    CGO_ENABLED=0 go test ./...
 
 # Run go test with verbose / 详细测试输出
 testv:
-    go test -v ./...
+    CGO_ENABLED=0 go test -v ./...
 
 # Run all quality checks (fmt + vet + test) / 运行所有质量检查
 check: fmt vet test

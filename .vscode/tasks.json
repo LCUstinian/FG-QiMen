@@ -11,8 +11,8 @@
   // 任务命名约定 / Task naming convention:
   //   "<emoji> 中文名 / English name"
   //
-  //   🔨 构建 (Build)       ⚙️ 质量 (Quality)   🚀 运行 (Run)
-  //   🧪 测试 (Test)         🧹 清理 (Clean)     ℹ️ 信息 (Info)
+  //   🔨 构建 (Build)       ️ 质量 (Quality)    运行 (Run)
+  //    测试 (Test)         🧹 清理 (Clean)     ℹ️ 信息 (Info)
   //   📦 发布 (Release)      🐞 调试 (Debug)
   //   🎭 混淆 (Obfuscate)    🛡️ 加固 (Harden)
   //   📊 阶段 (Stage)        🔬 对比 (Compare)
@@ -60,13 +60,19 @@
       "id": "garbleSeed",
       "type": "promptString",
       "description": "garble -seed 值（random = 每次随机;base64 字符串 = 固定可复现)/ garble -seed value (random or base64)",
-      "default": "o9WDTZ4CN4w="
+      "default": "random"
     },
     {
       "id": "cloneSource",
       "type": "promptString",
       "description": "合法 PE 文件路径(用于证书克隆)/ Path to legitimate PE for signature cloning",
       "default": "C:/Windows/System32/notepad.exe"
+    },
+    {
+      "id": "projectName",
+      "type": "promptString",
+      "description": "项目名称(用于清理指定项目产物)/ Project name (for clean-project)",
+      "default": "test"
     }
   ],
 
@@ -84,7 +90,7 @@
       "args": ["build", "-o", "${workspaceFolder}/release/fg-qimen-native.exe", "."],
       "options": { "cwd": "${workspaceFolder}", "env": { "CGO_ENABLED": "0" } },
       "problemMatcher": ["$go"],
-      "group": { "kind": "build", "isDefault": true },
+      "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "detail": "Layer 1: 裸 go build，无 -ldflags strip，无 garble。基线体积最大。Baseline — largest binary."
     },
@@ -137,9 +143,9 @@
       "args": ["build"],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": ["$go"],
-      "group": "build",
+      "group": { "kind": "build", "isDefault": true },
       "presentation": { "reveal": "always", "panel": "shared" },
-      "detail": "Layer 2: garble -seed=random -literals build。产物在 release/fg-qimen.exe。SHA256 每次不同。"
+      "detail": "Layer 2: garble -seed=random -literals build。产物在 release/fg-qimen.exe。SHA256 每次不同。Default build task."
     },
 
     {
@@ -193,6 +199,7 @@
     /* ═══════════════════════════════════════════════════════════
        Layer 3: 🛡️ 全流程 / Full Pipeline
        garble + UPX + 去特征 + (可选)签名克隆
+       注意：所有 Layer 3 任务都传 --skip-build，因为 caller 已构建
        ═══════════════════════════════════════════════════════════ */
 
     {
@@ -203,7 +210,8 @@
         "-ExecutionPolicy", "Bypass",
         "-File", "${workspaceFolder}/scripts/harden.ps1",
         "release/fg-qimen-full.exe",
-        "${input:buildVersion}"
+        "${input:buildVersion}",
+        "--skip-build"
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
@@ -220,7 +228,8 @@
         "/c",
         "${workspaceFolder}\\scripts\\harden.bat",
         "release\\fg-qimen-full.exe",
-        "${input:buildVersion}"
+        "${input:buildVersion}",
+        "--skip-build"
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
@@ -242,7 +251,7 @@
     },
 
     {
-      "label": "📦 发布 just release-all / Release: just release-all",
+      "label": " 发布 just release-all / Release: just release-all",
       "type": "shell",
       "command": "just",
       "args": ["release-all"],
@@ -260,7 +269,7 @@
       "args": [
         "-ExecutionPolicy", "Bypass",
         "-Command",
-        "$env:CLONE_SOURCE = '${input:cloneSource}'; & '${workspaceFolder}/scripts/harden.ps1' 'release/fg-qimen-full.exe' '${input:buildVersion}'"
+        "$env:CLONE_SOURCE = '${input:cloneSource}'; & '${workspaceFolder}/scripts/harden.ps1' 'release/fg-qimen-full.exe' '${input:buildVersion}' '--skip-build'"
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
@@ -269,13 +278,13 @@
       "detail": "Layer 3 + 证书克隆: 全流程加固 + osslsigncode 克隆合法 PE 签名。仅限授权测试。"
     },
 
-    /* ═══════════════════════════════════════════════════════════
+    /* ══════════════════════════════════════════════════════════
         各阶段独立 / Individual Pipeline Stages
        单独跑管线的某一阶段，用于调试和对比
        ══════════════════════════════════════════════════════════ */
 
     {
-      "label": "📊 UPX 压缩 / Stage: UPX compress only",
+      "label": " UPX 压缩 / Stage: UPX compress only",
       "type": "shell",
       "command": "upx",
       "args": ["--best", "--lzma", "-q", "${workspaceFolder}/release/fg-qimen.exe"],
@@ -329,18 +338,50 @@
     /* ═══════════════════════════════════════════════════════════
        🔬 一键对比 / Compare All Layers
        构建三层产物并对比体积
-       ═══════════════════════════════════════════════════════════ */
+       ══════════════════════════════════════════════════════════ */
 
     {
-      "label": "🔬 对比 三层构建+体积对比 / Compare: build all 3 layers + size",
+      "label": "🔬 对比 三层构建+体积对比 (Bash)/ Compare: 3 layers (Bash)",
       "type": "shell",
       "command": "bash",
-      "args": ["-c", "scripts/compare-layers.sh"],
+      "args": ["-c", "scripts/compare-layers.sh ${input:buildVersion}"],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "detail": "🔬 一键构建三层产物并对比体积: 原生 → 混淆 → 全流程。输出 release/ 下各产物大小对比表。"
+    },
+
+    {
+      "label": "🔬 对比 三层构建+体积对比 (PowerShell)/ Compare: 3 layers (PowerShell)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/compare-layers.ps1",
+        "${input:buildVersion}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "🔬 构建三层产物并对比体积 (PowerShell 原生)。"
+    },
+
+    {
+      "label": " 对比 三层构建+体积对比 (CMD)/ Compare: 3 layers (CMD)",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "${workspaceFolder}\\scripts\\compare-layers.bat",
+        "${input:buildVersion}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "🔬 构建三层产物并对比体积 (CMD 原生)。"
     },
 
     /* ═══════════════════════════════════════════════════════════
@@ -396,7 +437,7 @@
     },
 
     {
-      "label": "🧪 测试 覆盖率 / Test: coverage",
+      "label": " 测试 覆盖率 / Test: coverage",
       "type": "shell",
       "command": "go",
       "args": ["test", "-coverprofile=coverage.out", "-covermode=atomic", "${input:goPackage}"],
@@ -471,7 +512,7 @@
       "detail": "just deps — 下载模块缓存并校验校验和。"
     },
 
-    /* ═══════════════════════════════════════════════════════════
+    /* ══════════════════════════════════════════════════════════
        🚀 运行 / Run
        ══════════════════════════════════════════════════════════ */
 
@@ -521,6 +562,18 @@
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "detail": "列出 bbolt 工作区(对应仓库根的 runs/ 目录)。"
+    },
+
+    {
+      "label": " 本地快速测试 / Run: test-local",
+      "type": "shell",
+      "command": "just",
+      "args": ["test-local"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "just test-local — 针对 127.0.0.1:18080,22,80,3306 的快速测试。"
     },
 
     /* ═══════════════════════════════════════════════════════════
@@ -579,6 +632,30 @@
       "detail": "删 runs/(即扫即走 + project 模式输出)。"
     },
 
+    {
+      "label": " 清理 仅扫描产物(默认)/ Clean: ephemeral outputs",
+      "type": "shell",
+      "command": "just",
+      "args": ["clean-out"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "仅清理 runs/default/（即扫即走产物）。Clean ephemeral-mode outputs only."
+    },
+
+    {
+      "label": "🧹 清理 指定项目 / Clean: specific project",
+      "type": "shell",
+      "command": "just",
+      "args": ["clean-project", "${input:projectName}"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "清理指定项目产物（如 runs/projects/test）。Clean a specific project's outputs."
+    },
+
     /* ═══════════════════════════════════════════════════════════
        ℹ️ 信息 / Info
        ═══════════════════════════════════════════════════════════ */
@@ -608,7 +685,7 @@
     },
 
     {
-      "label": "ℹ️ 信息 justfile 配方清单 / Info: justfile recipes",
+      "label": "️ 信息 justfile 配方清单 / Info: justfile recipes",
       "type": "shell",
       "command": "just",
       "args": ["--list"],
@@ -621,7 +698,7 @@
 
     /* ═══════════════════════════════════════════════════════════
         调试 / Debug (launch.json preLaunchTask)
-       ═══════════════════════════════════════════════════════════ */
+       ══════════════════════════════════════════════════════════ */
 
     {
       "label": "🐞 调试 构建调试版二进制 / Build: debug (no inlining)",
