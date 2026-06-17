@@ -1,5 +1,5 @@
 // tui/program.go — Bubbletea program wrapper implementing ui.UI.
-// tui/program.go — Bubbletea program 包装，实现 ui.UI。
+// tui/program.go — Bubbletea 包装，实现 ui.UI。
 package tui
 
 import (
@@ -15,6 +15,19 @@ import (
 // Custom message types
 // 自定义消息类型
 // ─────────────────────────────────────────────────────────────────────
+
+// statsThrottle is the minimum gap between statsMsg dispatches.
+// The pipeline ticks at 1Hz (see pipeline.go) but a slow consumer
+// could still smear the screen; we coalesce faster pushes by
+// keeping a pending snapshot and letting the runtime flush it on
+// the next tick. 250ms = 4Hz ceiling, which is plenty for a
+// dashboard a human is reading.
+//
+// statsThrottle 是 statsMsg 派发之间的最小间隔。pipeline 1Hz 滴答
+// （见 pipeline.go），但慢消费者仍可能让屏幕花；我们合并更快的推
+// 送，保留一个待定快照让 runtime 在下一 tick 刷出。250ms = 4Hz
+// 上限，对人眼读的 dashboard 绰绰有余。
+const statsThrottle = 250 * time.Millisecond
 
 type statsMsg struct {
 	view    types.CountersView
@@ -35,8 +48,20 @@ type doneMsg struct {
 // dispatcher 包装 Model 并能处理自定义消息。
 // ─────────────────────────────────────────────────────────────────────
 
+// dispatcher is the bubbletea model façade. The inner Model is
+// mutated through pointer-receiver methods (appendEvent) for
+// streaming events, and through value-returning Update for
+// bubbletea messages. We do NOT swap the inner model in place
+// (as we used to) — that pattern was redundant once the model
+// grew the pending→events drain in Update().
+//
+// dispatcher 是 bubbletea model 的外观。内部 Model 通过指针接收者
+// 方法（appendEvent）变更以处理流式事件，通过值返回的 Update 处理
+// bubbletea 消息。我们不再像以前那样原地替换 inner model —— 一旦
+// model 在 Update() 里加上了 pending→events drain，那个模式就多
+// 余了。
 type dispatcher struct {
-	inner Model
+	inner *Model
 }
 
 func (d dispatcher) Init() tea.Cmd { return d.inner.Init() }
@@ -48,11 +73,16 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.inner.elapsed = m.elapsed
 		return d, nil
 	case eventMsg:
-		ev := liveEvent{when: m.when, tag: m.tag, host: m.host, port: m.port, svc: m.svc, text: m.text}
-		d.inner.events = append(d.inner.events, ev)
-		if len(d.inner.events) > maxLiveEvents*2 {
-			d.inner.events = d.inner.events[len(d.inner.events)-maxLiveEvents:]
-		}
+		// Stream straight into the model's pending buffer. The
+		// model drains pending → events on the next Update tick
+		// (see Model.Update in tui.go), so a burst of 100 events
+		// results in a single re-render, not 100.
+		// 直接流入 model 的 pending 缓冲。model 在下一次 Update
+		// tick 把 pending → events（见 tui.go 的 Model.Update），
+		// 100 条事件爆发只触发 1 次重渲染，不是 100 次。
+		d.inner.appendEvent(liveEvent{
+			when: m.when, tag: m.tag, host: m.host, port: m.port, svc: m.svc, text: m.text,
+		})
 		return d, nil
 	case doneMsg:
 		d.inner.finalSummary = m.summary
@@ -63,7 +93,7 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// 透传按键/窗口消息到底层 model。
 	newInner, cmd := d.inner.Update(msg)
 	if mm, ok := newInner.(Model); ok {
-		d.inner = mm
+		*d.inner = mm
 	}
 	return d, cmd
 }
@@ -102,7 +132,18 @@ type Program struct {
 	// 第二次 Done() 会把 doneMsg 投进正在退出的 program。守卫
 	// scanner.go 成功 + 早错两次调用。
 	doneOnce bool
-	ran      time.Time
+	// lastStats is the last stats snapshot we successfully
+	// dispatched. Stats() compares against it and short-circuits
+	// if the counters + elapsed are unchanged AND the last send
+	// is still inside the throttle window. This kills the "1Hz
+	// tick that re-renders an idle screen" problem.
+	// lastStats 是我们成功派发的最后一份 stats 快照。Stats() 与
+	// 之对比，若计数器 + elapsed 未变且上次发送仍在节流窗口内
+	// 则短路。干掉"1Hz 滴答在空闲屏上空转渲染"的问题。
+	lastStats   types.CountersView
+	lastWhen    time.Time
+	lastElapsed string
+	ran         time.Time
 	// cfg is the source of truth for ShowCleartext (P0#3 redaction).
 	// Held by value; cfg is immutable in practice (cobra flags are
 	// populated once at startup). The TUI never mutates it.
@@ -126,7 +167,8 @@ type Program struct {
 // 经拥有 SIGINT 驱动的关闭逻辑。仍然可以通过调用 Done() 或 Quit() 让
 // program 退出。
 func NewProgram(cfg *types.Config) *Program {
-	d := &dispatcher{inner: NewModel(cfg)}
+	m := NewModel(cfg)
+	d := &dispatcher{inner: &m}
 	p := tea.NewProgram(*d, tea.WithoutSignalHandler(), tea.WithAltScreen())
 	return &Program{
 		p:   p,
@@ -162,12 +204,32 @@ func (p *Program) Quit() { p.p.Quit() }
 func (p *Program) Banner(*types.Config) {}
 
 // Stats implements ui.UI by pushing a fresh counters snapshot.
-// Stats 实现 ui.UI——推送最新计数器快照。
+// Implements a short-circuit: identical snapshots inside the
+// throttle window are dropped, and the last dispatch is held
+// in lastStats so a no-op tick doesn't wake the render loop.
+//
+// Stats 实现 ui.UI——推送最新计数器快照。带短路：节流窗口内相同
+// 快照直接丢弃；最近一次派发记在 lastStats，空 tick 不会叫醒
+// 渲染循环。
 func (p *Program) Stats(s *types.State) {
 	if s == nil {
 		return
 	}
-	p.p.Send(statsMsg{view: s.Snapshot(), elapsed: time.Since(p.ran).Round(time.Second).String()})
+	view := s.Snapshot()
+	elapsed := time.Since(p.ran).Round(time.Second).String()
+	// Fast path: identical counters + elapsed within the throttle
+	// window is a no-op. This is the common case on an idle scan
+	// (no new creds, no new ports, no new errors).
+	// 快路径：节流窗口内计数器 + elapsed 都相同则空操作。这是空
+	// 闲扫描的常见情况（无新凭据、新端口、新错误）。
+	now := time.Now()
+	if view == p.lastStats && elapsed == p.lastElapsed && now.Sub(p.lastWhen) < statsThrottle {
+		return
+	}
+	p.lastStats = view
+	p.lastElapsed = elapsed
+	p.lastWhen = now
+	p.p.Send(statsMsg{view: view, elapsed: elapsed})
 }
 
 // Event implements ui.UI — push a non-cred live event.

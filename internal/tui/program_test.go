@@ -24,7 +24,8 @@ import (
 // TestDispatcherStatsMsg — statsMsg 更新 model 的 counters 和 elapsed
 // 字段，返回 nil cmd（无后续工作）。
 func TestDispatcherStatsMsg(t *testing.T) {
-	d := &dispatcher{inner: NewModel(nil)}
+	m := NewModel(nil)
+	d := dispatcher{inner: &m}
 	view := types.CountersView{Alive: 7, Ports: 12, Results: 3, Creds: 1, Errors: 0}
 	newM, cmd := d.Update(statsMsg{view: view, elapsed: "5s"})
 	if cmd != nil {
@@ -59,13 +60,25 @@ func TestDispatcherStatsMsg(t *testing.T) {
 // 更新的 dispatcher。循环中必须串联返回的 dispatcher，否则原始
 // d.inner.events 永远不会被更新。
 func TestDispatcherEventMsg(t *testing.T) {
-	m := tea.Model(dispatcher{inner: NewModel(nil)})
+	mm := NewModel(nil)
+	m := tea.Model(dispatcher{inner: &mm})
 	ev := eventMsg{when: "12:00:00", tag: "scan", host: "1.1.1.1", port: 22, svc: "ssh", text: "OpenSSH 9.0"}
 	for i := 0; i < maxLiveEvents*5; i++ {
 		newM, _ := m.Update(ev)
 		m = newM
 	}
-	got := m.(dispatcher).inner.events
+	// Drain pending → events by sending a benign WindowSizeMsg
+	// through the dispatcher's fallthrough path. Without this
+	// the model would just keep growing its pending buffer (the
+	// dispatcher appends to pending, but pending is only flushed
+	// on a non-eventMsg Update).
+	// 通过 dispatcher 的 fallthrough 路径发一条 WindowSizeMsg 把
+	// pending → events。否则 model 只会无限增长 pending 缓冲
+	// （dispatcher 往 pending 里加，但 pending 只在非 eventMsg 的
+	// Update 时刷入）。
+	wm := tea.Model(dispatcher{inner: &mm})
+	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	got := wm.(dispatcher).inner.events
 	if len(got) > maxLiveEvents*2 {
 		t.Errorf("events exceeded cap: len=%d, want <= %d", len(got), maxLiveEvents*2)
 	}
@@ -90,7 +103,8 @@ func TestDispatcherEventMsg(t *testing.T) {
 // 翻译成 QuitMsg）。Go 不允许 func 与 func 直接比较（func 只能与
 // nil 比较），所以我们调用 cmd 并对结果做 QuitMsg 类型断言。
 func TestDispatcherDoneMsg(t *testing.T) {
-	d := &dispatcher{inner: NewModel(nil)}
+	m := NewModel(nil)
+	d := dispatcher{inner: &m}
 	newM, cmd := d.Update(doneMsg{summary: "scan complete: 1 cred"})
 	dd := newM.(dispatcher)
 	if !dd.inner.quitting {
@@ -114,7 +128,8 @@ func TestDispatcherDoneMsg(t *testing.T) {
 // TestDispatcherFallthrough — 非自定义消息（WindowSizeMsg、KeyMsg）
 // 透传到底层 Model。通过发 WindowSizeMsg 验证 width/height 被设置。
 func TestDispatcherFallthrough(t *testing.T) {
-	d := &dispatcher{inner: NewModel(nil)}
+	m := NewModel(nil)
+	d := dispatcher{inner: &m}
 	newM, _ := d.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dd := newM.(dispatcher)
 	if dd.inner.width != 120 || dd.inner.height != 40 {
@@ -131,7 +146,8 @@ func TestDispatcherFallthrough(t *testing.T) {
 // 断言确切字符串（lipgloss 样式随环境变），但 dispatcher.View 必须
 // 在新 model 上非空且不 panic。
 func TestDispatcherViewDelegates(t *testing.T) {
-	d := &dispatcher{inner: NewModel(nil)}
+	m := NewModel(nil)
+	d := dispatcher{inner: &m}
 	v := d.View()
 	if v == "" {
 		t.Error("View() returned empty string on fresh model")
