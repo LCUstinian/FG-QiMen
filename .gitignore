@@ -24,6 +24,10 @@ runs/
 *~
 .DS_Store
 
+# Claude / agent tooling (local settings, per-machine permissions)
+# Claude / agent 工具配置（本机权限设置）
+.claude/
+
 # Logs / 日志
 *.log
 
