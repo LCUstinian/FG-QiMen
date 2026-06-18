@@ -98,15 +98,14 @@ func TestSSHCallbackFallsBackToFlag(t *testing.T) {
 	}
 }
 
-// TestSSHCallbackV0_2CompatDefault — when neither known_hosts nor
-// the flag are set, the callback must (a) still accept the key for
-// backward compat and (b) write a warning to stderr so an attentive
-// operator sees it.
+// TestSSHCallbackV0_3SecureDefault — when neither known_hosts nor
+// the flag are set, the callback must REJECT the key (v0.3 secure default)
+// and write a warning to stderr so an attentive operator sees it.
 //
-// v0.2 kept the insecure default; v0.3+ plan is to flip to
-// "refuse by default". The v0.2 behavior must be preserved in this
-// test (regression guard for the v0.2 → v0.3 transition).
-func TestSSHCallbackV0_2CompatDefault(t *testing.T) {
+// v0.2 kept the insecure default; v0.3 flipped to "refuse by default"
+// to eliminate MITM risk. This test is a regression guard for the
+// v0.2 → v0.3 security improvement.
+func TestSSHCallbackV0_3SecureDefault(t *testing.T) {
 	resetGates(t)
 
 	// Capture stderr. / 捕获 stderr。
@@ -120,14 +119,16 @@ func TestSSHCallbackV0_2CompatDefault(t *testing.T) {
 
 	cb := SSHHostKeyCallback()
 	k := mustHostKey(t)
-	if err := cb("example.com", &net.TCPAddr{}, k); err != nil {
-		t.Errorf("v0.2 default: callback rejected key: %v", err)
+	// v0.3: callback should REJECT the key by default (secure default)
+	// v0.3：callback 默认应拒绝 key（安全默认）
+	if err := cb("example.com", &net.TCPAddr{}, k); err == nil {
+		t.Errorf("v0.3 secure default: callback accepted key; expected rejection")
 	}
 	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	if !strings.Contains(buf.String(), "ssh:") {
-		t.Errorf("v0.2 default: expected stderr warning containing 'ssh:'; got %q", buf.String())
+		t.Errorf("v0.3 secure default: expected stderr warning containing 'ssh:'; got %q", buf.String())
 	}
 }
 

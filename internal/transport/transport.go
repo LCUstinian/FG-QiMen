@@ -155,14 +155,18 @@ func SSHHostKeyCallback() ssh.HostKeyCallback {
 	if InsecureSSH.Load() {
 		return ssh.InsecureIgnoreHostKey() //nolint:gosec // operator-opt-in
 	}
-	// v0.2-compatible default: insecure, with a one-line stderr
-	// warning so an attentive operator sees it. Future versions
-	// will flip this to refuse-by-default.
+	// v0.3 secure default: refuse to accept any host key unless operator
+	// explicitly opts in via --insecure-ssh or provides --known-hosts file.
+	// This eliminates the MITM risk present in v0.2's permissive default.
 	//
-	// v0.2 兼容默认：不安全，附 stderr 单行警告让留心操作员能看到。
-	// 未来版本会把默认翻成"默认拒绝"。
+	// v0.3 安全默认：拒绝接受任何主机密钥，除非操作员通过 --insecure-ssh
+	// 显式 opt-in 或提供 --known-hosts 文件。这消除了 v0.2 宽松默认中
+	// 存在的 MITM 风险。
 	_, _ = os.Stderr.WriteString(
-		"[!] ssh: no --insecure-ssh flag and no known_hosts file; accepting any host key (MITM possible). See --insecure-ssh / -o KnownHostsFile=<path>.\n",
+		"[!] ssh: no --insecure-ssh flag and no known_hosts file; refusing to spray credentials. " +
+			"Use --insecure-ssh to accept any host key (MITM possible) or --known-hosts <path> to verify.\n",
 	)
-	return ssh.InsecureIgnoreHostKey() //nolint:gosec // v0.2 default; see warning above
+	return func(_ string, _ net.Addr, _ ssh.PublicKey) error {
+		return fmt.Errorf("ssh: no known_hosts file and --insecure-ssh not set; refusing to accept host key")
+	}
 }

@@ -64,11 +64,12 @@ type Config struct {
 	WebTimeout  time.Duration // Web probe timeout (default: same as Timeout)
 
 	// Behavior / 行为
-	AliveOnly bool
-	Threads   int
-	Timeout   time.Duration
-	NoICMP    bool
-	Plugins   string // comma-separated plugin names; empty = all
+	AliveOnly        bool
+	Threads          int
+	Timeout          time.Duration
+	NoICMP           bool
+	Plugins          string // comma-separated plugin names; empty = all
+	MaxPluginWorkers int    // maximum number of plugin workers; 0 = default (16)
 
 	// Credentials / 凭据
 	Users    []string

@@ -67,6 +67,10 @@ func runPluginWorker(
 	// 预先计算一次 plugin 过滤，而非每个 item 重算（m6 审计）。
 	selected := selectPlugins(plugins.All(), sess.Config.Plugins)
 
+	// Build port-to-plugins index for O(1) lookup instead of O(n) linear search.
+	// 构建端口到插件的索引，实现 O(1) 查找而非 O(n) 线性搜索。
+	portIndex := buildPortIndex(selected)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -108,10 +112,9 @@ func runPluginWorker(
 					}
 				}
 			}
-			for _, p := range selected {
-				if !matchesPort(p.Ports(), item.Port) {
-					continue
-				}
+			// Use port index for O(1) lookup instead of iterating all plugins
+			// 使用端口索引实现 O(1) 查找，而非遍历所有插件
+			for _, p := range portIndex[item.Port] {
 				// Identify / 识别
 				if sess.Config.Mode == types.ModeScan || sess.Config.Mode == types.ModeLinked {
 					hash := types.HashKey(item.Host, fmt.Sprintf("%d", item.Port), p.Name(), "identify")

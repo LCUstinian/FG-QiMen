@@ -61,9 +61,10 @@ var (
 	flagWebTimeout  time.Duration
 
 	// 5. Concurrency & timing / 并发与超时
-	flagThreads      int
-	flagTimeout      time.Duration
-	flagShutdownTime time.Duration
+	flagThreads          int
+	flagTimeout          time.Duration
+	flagShutdownTime     time.Duration
+	flagMaxPluginWorkers int
 
 	// 6. Credentials / 凭据
 	flagUser     []string
@@ -146,6 +147,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"per-operation timeout (e.g. 3s, 500ms)")
 	pf.DurationVar(&flagShutdownTime, "shutdown-timeout", 5*time.Second,
 		"graceful shutdown drain timeout")
+	pf.IntVar(&flagMaxPluginWorkers, "max-workers", 16,
+		"maximum number of plugin workers (overrides --threads if lower)")
 
 	// 6. Credentials / 凭据
 	pf.StringSliceVarP(&flagUser, "user", "u", nil,

@@ -96,6 +96,21 @@ func matchesPort(ports []int, p int) bool {
 	return false
 }
 
+// buildPortIndex creates a map from port number to plugins that handle it.
+// This enables O(1) lookup instead of O(n) linear search for each item.
+//
+// buildPortIndex 创建端口号到处理该端口的插件的映射。
+// 这使得每个 item 的查找从 O(n) 线性搜索优化为 O(1)。
+func buildPortIndex(pluginList []plugins.Plugin) map[int][]plugins.Plugin {
+	index := make(map[int][]plugins.Plugin)
+	for _, p := range pluginList {
+		for _, port := range p.Ports() {
+			index[port] = append(index[port], p)
+		}
+	}
+	return index
+}
+
 func nowOrZero(t time.Time) time.Time {
 	if t.IsZero() {
 		return time.Now()

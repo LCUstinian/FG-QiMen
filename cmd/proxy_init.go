@@ -82,8 +82,19 @@ func normalizeSocks5Address(addr string) string {
 }
 
 // extractSocks5Auth extracts username and password from socks5://user:pass@host:port
-// extractSocks5Auth 从 socks5://user:pass@host:port 提取用户名和密码
+// Environment variables FG_QIMEN_SOCKS5_USER and FG_QIMEN_SOCKS5_PASS take precedence
+// to avoid credential leakage in command-line history.
+//
+// extractSocks5Auth 从 socks5://user:pass@host:port 提取用户名和密码。
+// 环境变量 FG_QIMEN_SOCKS5_USER 和 FG_QIMEN_SOCKS5_PASS 优先，以避免凭据泄露到命令行历史。
 func extractSocks5Auth(addr string) (string, string) {
+	// Environment variables take precedence / 环境变量优先
+	user := os.Getenv("FG_QIMEN_SOCKS5_USER")
+	pass := os.Getenv("FG_QIMEN_SOCKS5_PASS")
+	if user != "" {
+		return user, pass
+	}
+
 	// Remove socks5:// prefix
 	addr = strings.TrimPrefix(addr, "socks5://")
 

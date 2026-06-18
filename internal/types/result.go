@@ -2,7 +2,10 @@
 // result.go — 管线中流转的 Result / Cred / ScanItem 类型。
 package types
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Cred is a single (user, pass) credential pair to test.
 // Cred 是单个 (user, pass) 待测凭据对。
@@ -53,4 +56,36 @@ type Result struct {
 	Banner  string    `json:"banner,omitempty"`
 	Extra   any       `json:"extra,omitempty"`
 	Cred    *Cred     `json:"cred,omitempty"`
+}
+
+// resultPool reuses Result objects to reduce GC pressure.
+// resultPool 复用 Result 对象以减少 GC 压力。
+var resultPool = sync.Pool{
+	New: func() any {
+		return &Result{}
+	},
+}
+
+// GetResult retrieves a Result from the pool.
+// GetResult 从池中获取 Result。
+func GetResult() *Result {
+	return resultPool.Get().(*Result)
+}
+
+// PutResult returns a Result to the pool after resetting fields.
+// PutResult 重置字段后把 Result 归还池中。
+func PutResult(r *Result) {
+	if r == nil {
+		return
+	}
+	r.Time = time.Time{}
+	r.Project = ""
+	r.Host = ""
+	r.Port = 0
+	r.Service = ""
+	r.Plugin = ""
+	r.Banner = ""
+	r.Extra = nil
+	r.Cred = nil
+	resultPool.Put(r)
 }

@@ -92,14 +92,15 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 	o := &Output{showCleartext: cfg.ShowCleartext}
 	type opener struct {
 		path string
+		perm os.FileMode
 		set  func(*flushCloser)
 	}
 	openers := []opener{
-		{cfg.ResultTXTPath, func(w *flushCloser) { o.txt = w }},
-		{cfg.ResultJSONPath, func(w *flushCloser) { o.jsn = w }},
-		{cfg.CredsPath, func(w *flushCloser) { o.creds = w }},
-		{cfg.RDPJSONPath, func(w *flushCloser) { o.rdpjson = w }},
-		{cfg.RDPTXTPath, func(w *flushCloser) { o.rdptxt = w }},
+		{cfg.ResultTXTPath, 0o644, func(w *flushCloser) { o.txt = w }},
+		{cfg.ResultJSONPath, 0o644, func(w *flushCloser) { o.jsn = w }},
+		{cfg.CredsPath, 0o600, func(w *flushCloser) { o.creds = w }},
+		{cfg.RDPJSONPath, 0o644, func(w *flushCloser) { o.rdpjson = w }},
+		{cfg.RDPTXTPath, 0o644, func(w *flushCloser) { o.rdptxt = w }},
 	}
 	for _, op := range openers {
 		if op.path == "" {
@@ -109,7 +110,7 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 			_ = o.Close()
 			return nil, fmt.Errorf("mkdir for %s: %w", op.path, err)
 		}
-		f, err := os.OpenFile(op.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(op.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, op.perm)
 		if err != nil {
 			_ = o.Close()
 			return nil, fmt.Errorf("open %s: %w", op.path, err)

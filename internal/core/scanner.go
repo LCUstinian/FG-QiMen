@@ -70,10 +70,8 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	}
 
 	// Channel sizes / 通道容量
-	const itemsBuf = 1024
-
-	items := make(chan types.ScanItem, itemsBuf)
-	results := make(chan *types.Result, itemsBuf)
+	items := make(chan types.ScanItem, DefaultChannelBuffer)
+	results := make(chan *types.Result, DefaultChannelBuffer)
 
 	var wg sync.WaitGroup
 
@@ -90,13 +88,13 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 		// 覆盖所有返回路径。此处早先的重复 defer close(items) 会在每
 		// 次扫描时 double-close 并 panic。v0.2 审计删除。
 		ports, _ := cfg.ParsePorts()
-		scanRes := make(chan scan.Result, itemsBuf)
+		scanRes := make(chan scan.Result, DefaultChannelBuffer)
 		sc := scan.NewScanner(scan.ScanOptions{
 			Probe:      scan.NewTCPConnectProbe(),
 			Timeout:    cfg.Timeout,
 			Threads:    cfg.Threads,
-			MinThreads: 1,
-			MaxThreads: 500,
+			MinThreads: DefaultMinThreads,
+			MaxThreads: DefaultMaxThreads,
 			// P3 / F12 audit fix: surface probe errors (ctx cancel,
 			// conn reset, etc.) to the session log instead of
 			// silently dropping them. The pool worker records the
@@ -167,10 +165,14 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	// Stage 2: plugin worker pool. / 阶段 2：plugin worker 池。
 	workerCount := cfg.Threads
 	if workerCount <= 0 {
-		workerCount = 200
+		workerCount = DefaultPluginWorkers
 	}
-	if workerCount > 16 {
-		workerCount = 16
+	maxWorkers := cfg.MaxPluginWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = DefaultPluginWorkers
+	}
+	if workerCount > maxWorkers {
+		workerCount = maxWorkers
 	}
 
 	var workersWG sync.WaitGroup

@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/transport"
 )
 
 // startFakeSSHServer runs a minimal SSH server in a goroutine.
@@ -108,6 +109,11 @@ func (s *fakeSSHServer) Addr() string { return s.listener.Addr().String() }
 // TestSSHAuthenticator_PositiveHit — v0.2 审计缺的正命中路径。开
 // 真实 SSH 服务器接受 "alice" / "hunter2"，任何其它凭据都拒。
 func TestSSHAuthenticator_PositiveHit(t *testing.T) {
+	// v0.3 secure default rejects unknown host keys; opt in for the fake server.
+	// v0.3 安全默认拒绝未知主机密钥；为 fake server 开启 insecure 模式。
+	transport.InsecureSSH.Store(true)
+	defer transport.InsecureSSH.Store(false)
+
 	srv := startFakeSSHServer(t, map[string]string{
 		"alice": "hunter2",
 		"bob":   "correct horse battery staple",
@@ -161,6 +167,11 @@ func TestSSHAuthenticator_PositiveHit(t *testing.T) {
 // 环返首个命中（按实现注释）；用 3 条凭据验证顺序契约，cred[1]
 // 是对的口令。
 func TestSSHAuthenticator_MultipleCredsFirstHit(t *testing.T) {
+	// v0.3 secure default rejects unknown host keys; opt in for the fake server.
+	// v0.3 安全默认拒绝未知主机密钥；为 fake server 开启 insecure 模式。
+	transport.InsecureSSH.Store(true)
+	defer transport.InsecureSSH.Store(false)
+
 	srv := startFakeSSHServer(t, map[string]string{
 		"bob": "right-pw",
 	})
