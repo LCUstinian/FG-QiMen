@@ -16,7 +16,7 @@
 // File layout:
 //   - root.go     — rootCmd, Execute() entry point
 //   - scan.go     — runScan + helpers (also serves as rootCmd.RunE
-//                   and the explicit `scan` subcommand)
+//     and the explicit `scan` subcommand)
 //   - resume.go   — `resume` subcommand (alias that forces --resume)
 //   - projects.go — `projects {list,create,delete,info}`
 //   - version.go  — `version` subcommand
@@ -54,6 +54,23 @@ import (
 	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted"
 )
 
+// Flag group identifiers. Used by both the custom usage template and the
+// flag-group annotations below. Keep in sync with FlagGroupIDs() in flags.go.
+//
+// Flag 分组标识符。同时用于自定义 usage 模板和下方分组标注。
+// 与 flags.go 中的 FlagGroupIDs() 保持同步。
+const (
+	groupTarget      = "Target"
+	groupWorkspace   = "Workspace"
+	groupPorts       = "Ports"
+	groupNetwork     = "Network"
+	groupConcurrency = "Concurrency"
+	groupCreds       = "Credentials"
+	groupOutput      = "Output"
+	groupBehavior    = "Behavior"
+	groupSafety      = "Safety"
+)
+
 // rootCmd is the top-level fg-qimen command.
 // rootCmd 是 fg-qimen 的顶级命令。
 var rootCmd = &cobra.Command{
@@ -83,11 +100,51 @@ func Execute() error {
 }
 
 func init() {
-	// Persistent flags (23 of them) are defined in flags.go and
-	// inherited by every subcommand.
-	// 持久化 flag（共 23 个）定义在 flags.go，被每个子命令继承。
+	// Persistent flags are defined in flags.go and inherited by every
+	// subcommand.
+	// 持久化 flag 定义在 flags.go，被每个子命令继承。
 	registerGlobalFlags(rootCmd.PersistentFlags())
 
 	// Subcommands are registered from their own files via init().
 	// 子命令由各自文件的 init() 注册。
+
+	// Custom usage template adds a "Flag Groups" reference section
+	// above the default alphabetical flags list. This is opt-in:
+	// callers wanting the stock template can call
+	// rootCmd.SetUsageTemplate(rootCmd.UsageTemplate()).
+	//
+	// 自定义 usage 模板在默认字母序 flag 列表之上加了"Flag Groups"
+	// 参考小节。这是 opt-in：需要默认模板的调用方可以
+	// rootCmd.SetUsageTemplate(rootCmd.UsageTemplate())。
+	rootCmd.SetUsageTemplate(usageTemplate)
 }
+
+// usageTemplate adds a grouped reference list above cobra's default
+// usage block. We render the same flag set twice on purpose: the
+// grouped list is the navigation aid, the alphabetical list is the
+// canonical one. Operators who only need to find a flag by name still
+// have the default lookup; operators who don't know the flag name
+// (e.g. "where do I set the proxy?") can scan the groups.
+//
+// usageTemplate 在 cobra 默认 usage 块之上加了分组参考列表。我们故意
+// 渲染两次同一 flag 集：分组列表是导航辅助，字母序列表是规范的。
+// 只需按名找 flag 的操作员有默认查找；不知 flag 名（比如"代理在哪
+// 设？"）的操作员可扫分组。
+const usageTemplate = `Usage:
+  {{.UseLine}}
+
+{{.Long}}
+
+Flag groups (alphabetical list below) / 分组参考（下方有字母序列表）:
+  Target       -H, -f / --host, --hosts-file
+  Workspace    -p, --project-key, --mode, --resume, --no-state
+  Ports        --ports, --exclude-ports, --alive-only
+  Network      --proxy, --socks5, --iface, --port-timeout, --web-timeout
+  Concurrency  -t, --timeout, --shutdown-timeout, --max-workers
+  Credentials  -u, -P, --user-file, --pass-file
+  Output       -o, -j, --output-csv
+  Behavior     --silent, --no-tui, --no-icmp, -v, --plugins
+  Safety       --show-creds, --insecure-tls, --insecure-ssh, --known-hosts
+
+{{.Flags.FlagUsages | trimTrailingWhitespaces}}
+`

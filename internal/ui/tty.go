@@ -75,12 +75,12 @@ func TerminalWidth() (int, error) {
 // Buildkite / Drone / AppVeyor / TeamCity）。
 func IsCI() bool {
 	for _, k := range []string{
-		"CI",                // generic + GitHub Actions / GitLab / Travis / AppVeyor
+		"CI",                     // generic + GitHub Actions / GitLab / Travis / AppVeyor
 		"CONTINUOUS_INTEGRATION", // TeamCity generic
-		"BUILD_NUMBER",      // Jenkins / TeamCity (combined with above)
-		"CI_NAME",           // Buildkite
-		"DRONE",             // Drone
-		"CIRCLECI",          // CircleCI explicit
+		"BUILD_NUMBER",           // Jenkins / TeamCity (combined with above)
+		"CI_NAME",                // Buildkite
+		"DRONE",                  // Drone
+		"CIRCLECI",               // CircleCI explicit
 	} {
 		if v, ok := os.LookupEnv(k); ok && v != "" && v != "false" && v != "0" {
 			return true

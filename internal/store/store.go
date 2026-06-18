@@ -37,17 +37,43 @@ var (
 //
 // 底层 *bolt.DB 不归 Store 所有；调用方（workspace.Project）负责开关。
 // 应在 Project.Open() 之后用 NewStore() 构造 Store，传 nil 禁用持久化。
+//
+// When enc is non-nil, PutResult / PutCred encrypt their JSON payloads
+// with AES-256-GCM (see crypto.go). The seen-set bucket is always
+// plaintext (it stores only non-secret hashes). When enc is nil, all
+// writes are plaintext (v0.2.x on-disk format) so legacy DBs remain
+// readable without any migration step.
+//
+// 当 enc 非 nil 时,PutResult / PutCred 用 AES-256-GCM 加密 JSON 负载
+// (见 crypto.go)。seen-set bucket 始终明文(只存非机密 hash)。
+// enc 为 nil 时所有写入为明文(v0.2.x 磁盘格式),旧 DB 无需迁移即可读取。
 type Store struct {
-	db *bolt.DB
+	db  *bolt.DB
+	enc *EncryptedValue
 }
 
 // NewStore wraps an existing *bolt.DB. Returns nil when db is nil.
 // NewStore 包装一个现有 *bolt.DB。db 为 nil 时返回 nil。
 func NewStore(db *bolt.DB) *Store {
+	return NewStoreWithEnc(db, nil)
+}
+
+// NewStoreWithEnc wraps an existing *bolt.DB and an optional encryption
+// layer. Pass nil enc to disable encryption (v0.2.x behavior).
+//
+// NewStoreWithEnc 包装现有 *bolt.DB 和可选加密层。
+// 传 nil enc 禁用加密(v0.2.x 行为)。
+func NewStoreWithEnc(db *bolt.DB, enc *EncryptedValue) *Store {
 	if db == nil {
 		return nil
 	}
-	return &Store{db: db}
+	return &Store{db: db, enc: enc}
+}
+
+// Encrypted reports whether the store encrypts PutResult/PutCred values.
+// Encrypted 报告 store 是否加密 PutResult/PutCred 值。
+func (s *Store) Encrypted() bool {
+	return s != nil && s.enc != nil
 }
 
 // MarkSeenPersisted persists a "seen" hash to the targets bucket so
@@ -116,6 +142,14 @@ func (s *Store) LoadSeenHashes() ([]string, error) {
 //
 // M4 audit fix: use CreateBucketIfNotExists to avoid nil panic.
 // M4 审计修法：用 CreateBucketIfNotExists 避免 nil panic。
+//
+// When the store was constructed with NewStoreWithEnc(db, enc), the
+// marshaled JSON is encrypted with AES-256-GCM before being written
+// to bbolt. Plaintext writes remain the default when no key is set,
+// so existing v0.2.x projects keep working without migration.
+//
+// 当 store 用 NewStoreWithEnc(db, enc) 构造时,JSON 在写入 bbolt 前
+// 用 AES-256-GCM 加密。未设密钥时仍写明文,v0.2.x 项目无需迁移。
 func (s *Store) PutResult(hash string, v any) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -124,12 +158,16 @@ func (s *Store) PutResult(hash string, v any) error {
 	if err != nil {
 		return err
 	}
+	stored, err := s.sealIfNeeded(data)
+	if err != nil {
+		return err
+	}
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bk, err := tx.CreateBucketIfNotExists(bucketResults)
 		if err != nil {
 			return err
 		}
-		return bk.Put([]byte(hash), data)
+		return bk.Put([]byte(hash), stored)
 	})
 }
 
@@ -138,6 +176,16 @@ func (s *Store) PutResult(hash string, v any) error {
 //
 // M4 audit fix: use CreateBucketIfNotExists to avoid nil panic.
 // M4 审计修法：用 CreateBucketIfNotExists 避免 nil panic。
+//
+// When encryption is configured, the marshaled JSON (which contains
+// cleartext credentials) is encrypted at rest. This is the strongest
+// reason to set FG_QIMEN_PROJECT_KEY — without it, an attacker who
+// copies runs/projects/<name>/fg.db can read every password with a
+// hex editor.
+//
+// 当启用加密时,序列化 JSON(含明文凭据)在落盘前加密。这是设置
+// FG_QIMEN_PROJECT_KEY 的最强理由——不设则攻击者只需拷贝
+// runs/projects/<name>/fg.db 即可用十六进制编辑器读出所有密码。
 func (s *Store) PutCred(hash string, v any) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -146,13 +194,30 @@ func (s *Store) PutCred(hash string, v any) error {
 	if err != nil {
 		return err
 	}
+	stored, err := s.sealIfNeeded(data)
+	if err != nil {
+		return err
+	}
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bk, err := tx.CreateBucketIfNotExists(bucketCreds)
 		if err != nil {
 			return err
 		}
-		return bk.Put([]byte(hash), data)
+		return bk.Put([]byte(hash), stored)
 	})
+}
+
+// sealIfNeeded applies AES-256-GCM to plaintext when the store has an
+// encryption layer; otherwise wraps with the 0x00 magic byte for forward
+// compatibility with the Open() path.
+//
+// sealIfNeeded 在 store 有加密层时对明文施加 AES-256-GCM；否则用
+// 0x00 magic 包装以便 Open() 正确处理。
+func (s *Store) sealIfNeeded(plain []byte) ([]byte, error) {
+	if s.enc == nil {
+		return SealPlain(plain), nil
+	}
+	return s.enc.Seal(plain)
 }
 
 // Sync forces an fsync of the underlying bbolt mmap.

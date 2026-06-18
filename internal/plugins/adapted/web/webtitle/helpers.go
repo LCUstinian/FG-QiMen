@@ -1,9 +1,9 @@
 // helpers.go — webtitle package entry point. The implementation
 // is split by concern:
 //
-//   http.go    — HTTP client setup, redirect following, scheme detect
-//   parse.go   — HTML / header / favicon parsing
-//   display.go — banner string assembly for the result
+//	http.go    — HTTP client setup, redirect following, scheme detect
+//	parse.go   — HTML / header / favicon parsing
+//	display.go — banner string assembly for the result
 //
 // Each file is small (~50-80 LOC) and self-contained, so the
 // next person who wants to extend any one of them can find the
@@ -11,9 +11,9 @@
 //
 // helpers.go — webtitle 包入口。实现按关注点拆分：
 //
-//   http.go    — HTTP 客户端搭建、重定向跟随、协议探测
-//   parse.go   — HTML / 头 / favicon 解析
-//   display.go — 结果的 banner 串构造
+//	http.go    — HTTP 客户端搭建、重定向跟随、协议探测
+//	parse.go   — HTML / 头 / favicon 解析
+//	display.go — 结果的 banner 串构造
 //
 // 各文件都小（~50-80 LOC）且独立，下一个想扩展任一块的人能在几秒
 // 内找到相关代码。

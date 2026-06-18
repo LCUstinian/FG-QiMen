@@ -2,14 +2,14 @@
 // Package fingerprint 是 webtitle 指纹匹配引擎。
 //
 // Three matcher layers, run in order:
-//   1. Hardcoded regex rules (rules.go) — fast path for known names
-//   2. FingerprintHub JSON (enhanced.go) — 3139 community rules
-//   3. (Per-rule favicon hash) — most precise; weighted higher
+//  1. Hardcoded regex rules (rules.go) — fast path for known names
+//  2. FingerprintHub JSON (enhanced.go) — 3139 community rules
+//  3. (Per-rule favicon hash) — most precise; weighted higher
 //
 // 三层匹配器，按顺序跑：
-//   1. 硬编码正则规则（rules.go）——已知名字的快速路径
-//   2. FingerprintHub JSON（enhanced.go）——3139 条社区规则
-//   3. （每条规则的 favicon 哈希）——最精确；权重更高
+//  1. 硬编码正则规则（rules.go）——已知名字的快速路径
+//  2. FingerprintHub JSON（enhanced.go）——3139 条社区规则
+//  3. （每条规则的 favicon 哈希）——最精确；权重更高
 package fingerprint
 
 // CheckData is the per-source input to the matcher. We support

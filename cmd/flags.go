@@ -2,25 +2,27 @@
 //
 // flags.go — fg-qimen 命令树的全局 flag。
 //
-// All 23 persistent flags live here (not in root.go) so root.go stays
+// All persistent flags live here (not in root.go) so root.go stays
 // a pure Cobra-scaffolding file: the command-tree definition lives
 // there, and everything flag-related lives here. scan.go and
 // resume.go consume the flag values via buildConfig(), which is the
 // only function that reads them.
 //
-// 23 个持久化 flag 都在这里（不在 root.go），让 root.go 保持纯
-// Cobra 脚手架形态：命令树定义在 root.go，flag 相关都在这里。scan.go
-// 和 resume.go 通过 buildConfig() 消费 flag 值——buildConfig 是唯一
+// 持久化 flag 都在这里（不在 root.go），让 root.go 保持纯 Cobra
+// 脚手架形态：命令树定义在 root.go，flag 相关都在这里。scan.go 和
+// resume.go 通过 buildConfig() 消费 flag 值——buildConfig 是唯一
 // 读取 flag 的函数。
 //
-// Flag groups:
-//   1. Target selection (host, hosts-file)
-//   2. Workspace (project, mode, resume, no-state)
-//   3. Port selection (ports, exclude-ports, alive-only)
-//   4. Concurrency & timing (threads, timeout, shutdown-timeout)
-//   5. Credentials (user, pass, user-file, pass-file)
-//   6. Output files (output-txt, output-json)
-//   7. Behaviour (silent, no-tui, no-icmp, verbose, plugins)
+// Flag groups (v0.3.0, rendered as section headers in --help):
+//  1. Target    — host, hosts-file
+//  2. Workspace — project, project-key, mode, resume, no-state
+//  3. Ports     — ports, exclude-ports, alive-only
+//  4. Network   — proxy, socks5, iface, port-timeout, web-timeout
+//  5. Concurrency — threads, timeout, shutdown-timeout, max-workers
+//  6. Credentials — user, pass, user-file, pass-file
+//  7. Output    — output-txt, output-json, output-csv
+//  8. Behavior  — silent, no-tui, no-icmp, verbose, plugins
+//  9. Safety    — show-creds, insecure-tls, insecure-ssh, known-hosts
 package cmd
 
 import (
@@ -43,10 +45,11 @@ var (
 	flagHostsFile string
 
 	// 2. Workspace / 工作区
-	flagProject string
-	flagMode    string
-	flagResume  bool
-	flagNoState bool
+	flagProject    string
+	flagProjectKey string
+	flagMode       string
+	flagResume     bool
+	flagNoState    bool
 
 	// 3. Port selection / 端口选择
 	flagPorts        string
@@ -75,6 +78,7 @@ var (
 	// 7. Output files / 输出文件
 	flagOutputTXT  string
 	flagOutputJSON string
+	flagOutputCSV  string
 
 	// 8. Behaviour / 行为
 	flagSilent        bool
@@ -103,6 +107,24 @@ var (
 // 所有 flag 都是 PersistentFlags，确保每个子命令（scan / resume /
 // projects / version）继承它们。子命令通过上述包级变量读取
 // （如 flagProject、flagOutputTXT）。
+// annotate flags with their group for --help output. Cobra renders
+// annotations["cobra_annotation_group_name"] as section headers.
+//
+// 用 pflag.Annotations 标记分组，cobra 会用 "group" 注解渲染
+// --help 中的分组小节。
+func annotate(pf *pflag.FlagSet, names []string, group string) {
+	for _, n := range names {
+		f := pf.Lookup(n)
+		if f == nil {
+			continue
+		}
+		if f.Annotations == nil {
+			f.Annotations = map[string][]string{}
+		}
+		f.Annotations["group"] = []string{group}
+	}
+}
+
 func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 1. Target selection / 目标选择
 	pf.StringVarP(&flagHost, "host", "H", "",
@@ -113,6 +135,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 2. Workspace / 工作区
 	pf.StringVarP(&flagProject, "project", "p", "",
 		"project name (empty = ephemeral oneshot mode)")
+	pf.StringVar(&flagProjectKey, "project-key", "",
+		"passphrase to encrypt the project DB at rest (AES-256-GCM). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
 	pf.StringVar(&flagMode, "mode", "scan",
 		"run mode: scan | crack | linked")
 	pf.BoolVarP(&flagResume, "resume", "", false,
@@ -165,8 +189,10 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"path to TXT result file (default: <project>/result.txt or ./result.txt)")
 	pf.StringVarP(&flagOutputJSON, "output-json", "j", "",
 		"path to NDJSON result file (default: <project>/result.json or ./result.json)")
+	pf.StringVar(&flagOutputCSV, "output-csv", "",
+		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written.")
 
-	// 8. Behaviour / 行为
+	// 8. Behavior / 行为
 	pf.BoolVar(&flagSilent, "silent", false,
 		"suppress info log to console; file output still works")
 	pf.BoolVar(&flagNoTUI, "no-tui", false,
@@ -175,6 +201,10 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"skip ICMP probe, use TCP-ping fallback only")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false,
 		"verbose debug logging")
+	pf.StringVar(&flagPlugins, "plugins", "",
+		"comma-separated plugin names to enable (default: all)")
+
+	// 9. Safety / 安全
 	pf.BoolVar(&flagShowCleartext, "show-creds", false,
 		"render discovered credentials in cleartext on stderr / TUI / result.txt (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword)")
 	pf.BoolVar(&flagInsecureTLS, "insecure-tls", false,
@@ -183,6 +213,21 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"disable SSH host-key verification (accept any key) (P1#4). Default is v0.2-compatible insecure-ignore with a stderr warning; use -o KnownHostsFile=<path> for real verification.")
 	pf.StringVar(&flagKnownHosts, "known-hosts", "",
 		"path to SSH known_hosts file for host-key verification (sets transport.KnownHostsFile; takes precedence over --insecure-ssh when set)")
-	pf.StringVar(&flagPlugins, "plugins", "",
-		"comma-separated plugin names to enable (default: all)")
+
+	// Group annotations (rendered by cobra's "group" annotation key
+	// when SetUsageTemplate is configured in root.go). This is a
+	// single source of truth — keep the flag name list aligned with
+	// the StringVarP/Var calls above.
+	//
+	// 分组标注（root.go 的 SetUsageTemplate 用 "group" 注解渲染）。
+	// 这是单一真源——flag 名列表要与上面的 StringVarP/Var 调用对齐。
+	annotate(pf, []string{"host", "hosts-file"}, groupTarget)
+	annotate(pf, []string{"project", "project-key", "mode", "resume", "no-state"}, groupWorkspace)
+	annotate(pf, []string{"ports", "exclude-ports", "alive-only"}, groupPorts)
+	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout"}, groupNetwork)
+	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
+	annotate(pf, []string{"user", "pass", "user-file", "pass-file"}, groupCreds)
+	annotate(pf, []string{"output-txt", "output-json", "output-csv"}, groupOutput)
+	annotate(pf, []string{"silent", "no-tui", "no-icmp", "verbose", "plugins"}, groupBehavior)
+	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

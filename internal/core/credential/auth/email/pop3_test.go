@@ -125,4 +125,3 @@ func TestPOP3Authenticator_ConnRefused(t *testing.T) {
 		t.Errorf("expected conn error, got nil")
 	}
 }
-

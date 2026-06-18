@@ -48,11 +48,11 @@ import (
 // cfg 是 redact 门（P0#3）的真源：cfg.ShowCleartext 为 false 时，明文
 // 凭据对替换为仅含长度的指纹。按值持有；永不修改。
 type TextUI struct {
-	mu           sync.Mutex
-	ran          time.Time
-	doneOnce     bool
-	stderrIsTTY  bool
-	cfg          *types.Config
+	mu          sync.Mutex
+	ran         time.Time
+	doneOnce    bool
+	stderrIsTTY bool
+	cfg         *types.Config
 }
 
 // NewTextUI returns a fresh text ui.UI. / NewTextUI 返回一个纯文本 ui.UI。

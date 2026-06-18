@@ -10,23 +10,23 @@
 //
 // Pipeline data flow (orchestrated from cmd/scan.go → scanner.go):
 //
-//   port scan items → pipeline_workers.runPluginWorker
-//                          ↓
-//                      plugin Identify + dispatchCred
-//                          ↓
-//                      pipeline_sink.runResultSink
-//                          ↓
-//                      Output + bbolt + UI
+//	port scan items → pipeline_workers.runPluginWorker
+//	                       ↓
+//	                   plugin Identify + dispatchCred
+//	                       ↓
+//	                   pipeline_sink.runResultSink
+//	                       ↓
+//	                   Output + bbolt + UI
 //
 // 管线数据流（从 cmd/scan.go → scanner.go 编排）：
 //
-//   port scan items → pipeline_workers.runPluginWorker
-//                          ↓
-//                      plugin Identify + dispatchCred
-//                          ↓
-//                      pipeline_sink.runResultSink
-//                          ↓
-//                      Output + bbolt + UI
+//	port scan items → pipeline_workers.runPluginWorker
+//	                       ↓
+//	                   plugin Identify + dispatchCred
+//	                       ↓
+//	                   pipeline_sink.runResultSink
+//	                       ↓
+//	                   Output + bbolt + UI
 package core
 
 import (

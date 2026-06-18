@@ -252,7 +252,7 @@ func TestIsNoColor(t *testing.T) {
 		raw  string // value to set; "" unsets
 		want bool
 	}{
-		{"", false},  // unset
+		{"", false}, // unset
 		{"0", false},
 		{"false", false},
 		{"False", false},

@@ -49,4 +49,3 @@ const (
 	ProtocolHYBRID    uint32 = 0x00000002 // NLA (CredSSP)
 	ProtocolHYBRID_EX uint32 = 0x00000008 // NLA extended
 )
-

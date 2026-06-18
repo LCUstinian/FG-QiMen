@@ -151,11 +151,11 @@ func TestX224CC_DecodesHYBRID(t *testing.T) {
 	// / 构造一个假 CC：TPKT(4) 长度 15 + length(1)=10 + CC(1)=0xD0 +
 	// DST-REF(2)=1 + SRC-REF(2)=2 + Class Option(1)=0 + selectedProtocol(4)。
 	cc := []byte{0x03, 0x00, 0x00, 0x0F,
-		10,               // length of remaining X.224 PDU
-		0xD0,             // CC
-		0, 1,             // DST-REF
-		0, 2,             // SRC-REF
-		0x00,             // Class Option
+		10,   // length of remaining X.224 PDU
+		0xD0, // CC
+		0, 1, // DST-REF
+		0, 2, // SRC-REF
+		0x00,                   // Class Option
 		0x02, 0x00, 0x00, 0x00, // selectedProtocol = PROTOCOL_HYBRID
 	}
 	conf, err := DecodeX224CC(bytes.NewReader(cc))

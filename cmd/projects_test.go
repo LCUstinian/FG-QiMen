@@ -80,14 +80,14 @@ func TestValidProjectName(t *testing.T) {
 
 		// Forbidden characters.
 		// 禁止字符。
-		{"corp intranet", false}, // space
-		{"corp.intranet", false}, // dot is not in the allow-list
-		{"corp/intranet", false}, // slash
+		{"corp intranet", false},  // space
+		{"corp.intranet", false},  // dot is not in the allow-list
+		{"corp/intranet", false},  // slash
 		{"corp\\intranet", false}, // backslash
 		{"corp:intranet", false},  // colon (Windows-illegal anyway)
 		{"corp/intra/net", false},
 		{"corp!", false},
-		{"中国", false},  // non-ASCII rune
+		{"中国", false},        // non-ASCII rune
 		{"corp\tnet", false}, // tab
 
 		// Path traversal: even if the chars were legal, we

@@ -126,13 +126,13 @@ func isResourceExhaustedError(err error) bool {
 
 	// Resource exhaustion patterns from fscan / fscan 的资源耗尽模式
 	patterns := []string{
-		"too many open files",           // Linux EMFILE
-		"cannot allocate memory",        // Linux ENOMEM
-		"no buffer space available",     // BSD ENOBUFS
+		"too many open files",                             // Linux EMFILE
+		"cannot allocate memory",                          // Linux ENOMEM
+		"no buffer space available",                       // BSD ENOBUFS
 		"an operation on a socket could not be performed", // Windows socket exhaustion
-		"wsaenobufs",                    // Windows no buffer space
-		"out of socket descriptors",     // Generic
-		"resource temporarily unavailable", // EAGAIN/EWOULDBLOCK
+		"wsaenobufs",                                      // Windows no buffer space
+		"out of socket descriptors",                       // Generic
+		"resource temporarily unavailable",                // EAGAIN/EWOULDBLOCK
 	}
 
 	for _, pattern := range patterns {
@@ -147,10 +147,10 @@ func isResourceExhaustedError(err error) bool {
 // RetryStats tracks retry statistics.
 // RetryStats 追踪重试统计信息。
 type RetryStats struct {
-	TotalAttempts    int
+	TotalAttempts     int
 	SuccessfulRetries int
-	FailedRetries    int
-	ResourceErrors   int
+	FailedRetries     int
+	ResourceErrors    int
 }
 
 // ProbeWithRetryStats is like RetryableProbe but also tracks statistics.

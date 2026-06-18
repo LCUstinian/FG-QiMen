@@ -49,10 +49,10 @@ func fakeESServer(t *testing.T, rightUser, rightPass string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"name":          "test-cluster",
-			"cluster_name":  "elasticsearch",
-			"version":       map[string]any{"number": "8.10.0", "lucene_version": "9.7.0"},
-			"tagline":       "You Know, for Search",
+			"name":         "test-cluster",
+			"cluster_name": "elasticsearch",
+			"version":      map[string]any{"number": "8.10.0", "lucene_version": "9.7.0"},
+			"tagline":      "You Know, for Search",
 		})
 	}))
 	t.Cleanup(srv.Close)

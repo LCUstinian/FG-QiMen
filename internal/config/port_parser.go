@@ -20,11 +20,12 @@ import (
 //   - Special: "all" for full range 1-65535
 //
 // Examples / 示例：
-//   ParsePortSpec("web")           → 284 web ports
-//   ParsePortSpec("22,80,443")     → [22, 80, 443]
-//   ParsePortSpec("8000-8005")     → [8000, 8001, 8002, 8003, 8004, 8005]
-//   ParsePortSpec("db,3306")       → database ports + 3306
-//   ParsePortSpec("all")           → 1-65535
+//
+//	ParsePortSpec("web")           → 284 web ports
+//	ParsePortSpec("22,80,443")     → [22, 80, 443]
+//	ParsePortSpec("8000-8005")     → [8000, 8001, 8002, 8003, 8004, 8005]
+//	ParsePortSpec("db,3306")       → database ports + 3306
+//	ParsePortSpec("all")           → 1-65535
 func ParsePortSpec(spec string) ([]int, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {

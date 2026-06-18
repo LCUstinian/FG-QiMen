@@ -14,8 +14,8 @@ import (
 // probeLogWriter 返回包的 stderr writer。懒初始化，让测试能替换。
 // v0.1：始终用 os.Stderr。
 var (
-	logMu    sync.Mutex
-	logOut   io.Writer = os.Stderr
+	logMu  sync.Mutex
+	logOut io.Writer = os.Stderr
 )
 
 func probeLogWriter() io.Writer {

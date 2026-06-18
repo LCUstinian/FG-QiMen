@@ -14,18 +14,18 @@ import (
 
 // Color palette — Sliver C2 inspired
 const (
-	colBg      = "#0a0e14" // deep navy (Sliver dark)
-	colPanel   = "#0d1117" // subtle panel fill (GitHub dark-ish)
-	colAccent  = "#00d4ff" // electric cyan (Sliver primary)
-	colAmber   = "#ffb347" // warm amber (creds)
-	colRed     = "#ff4757" // coral red (errors)
-	colCyan    = "#00d4ff" // cyan (scanning/live)
-	colYellow  = "#ffd700" // gold (transitional)
-	colViolet  = "#a78bfa" // soft violet (idle)
-	colDim     = "#4a5568" // slate gray (secondary)
-	colMuted   = "#718096" // light slate (tertiary)
-	colBright  = "#e2e8f0" // off-white (primary text)
-	colBorder  = "#1a202c" // dark border (subtle)
+	colBg     = "#0a0e14" // deep navy (Sliver dark)
+	colPanel  = "#0d1117" // subtle panel fill (GitHub dark-ish)
+	colAccent = "#00d4ff" // electric cyan (Sliver primary)
+	colAmber  = "#ffb347" // warm amber (creds)
+	colRed    = "#ff4757" // coral red (errors)
+	colCyan   = "#00d4ff" // cyan (scanning/live)
+	colYellow = "#ffd700" // gold (transitional)
+	colViolet = "#a78bfa" // soft violet (idle)
+	colDim    = "#4a5568" // slate gray (secondary)
+	colMuted  = "#718096" // light slate (tertiary)
+	colBright = "#e2e8f0" // off-white (primary text)
+	colBorder = "#1a202c" // dark border (subtle)
 )
 
 // Symbols

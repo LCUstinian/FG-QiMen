@@ -95,8 +95,8 @@ func (p *Probe) fromString(data string) error {
 	return nil
 }
 
-func (p *Probe) parsePorts(line string)     { p.Ports = line[len("ports")+1:] }
-func (p *Probe) parseSSLPorts(line string)  { p.SSLPorts = line[len("sslports")+1:] }
+func (p *Probe) parsePorts(line string)    { p.Ports = line[len("ports")+1:] }
+func (p *Probe) parseSSLPorts(line string) { p.SSLPorts = line[len("sslports")+1:] }
 func (p *Probe) parseTotalWaitMS(line string) {
 	v, err := strconv.Atoi(strings.TrimSpace(line[len("totalwaitms")+1:]))
 	if err == nil {

@@ -129,4 +129,3 @@ func (s *State) Snapshot() CountersView {
 // （P2 死代码清理：v0.2 审计删了 SetPaused / IsPaused / pauseMu /
 // paused / pauseCh。TUI 的 [p] pause / [r] resume 键仍未实现；若将来
 // 真要加暂停路径，请带回有真实消费者的版本。）
-

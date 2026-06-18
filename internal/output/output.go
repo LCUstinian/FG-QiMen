@@ -4,10 +4,12 @@ package output
 
 import (
 	"bufio"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -36,8 +38,8 @@ func (fc *flushCloser) Close() error {
 	return nil
 }
 
-// Output writes results to TXT, NDJSON, creds, and RDP files.
-// Output 把结果写入 TXT、NDJSON、凭据、RDP 文件。
+// Output writes results to TXT, NDJSON, creds, RDP, and CSV files.
+// Output 把结果写入 TXT、NDJSON、凭据、RDP、CSV 文件。
 //
 // All writes are serialized through an internal mutex so that multiple
 // producer/consumer goroutines can call Write() / WriteCred() / WriteRDP()
@@ -52,7 +54,18 @@ type Output struct {
 	// json : one JSON object per line (NDJSON)
 	// creds: "host:port  plugin  user/pass  time" per hit
 	// rdpjson / rdptxt: RDP deep fingerprint
-	txt, jsn, creds, rdpjson, rdptxt *flushCloser
+	// csv  : RFC 4180 one row per result (header on first write)
+	txt, jsn, creds, rdpjson, rdptxt, csv *flushCloser
+
+	// csvHeaderWritten tracks whether the CSV header has been emitted
+	// yet. We use a plain bool (not a separate "exists in the file"
+	// check) because the file is opened with O_APPEND — the bool is
+	// always 0 after OpenOutput.
+	//
+	// csvHeaderWritten 跟踪 CSV 表头是否已写入。直接用 bool（不查
+	// "文件中是否已存在"）是因为文件以 O_APPEND 打开，OpenOutput 后
+	// bool 一定是 0。
+	csvHeaderWritten bool
 
 	// showCleartext gates the result.txt cred suffix; creds.txt is
 	// always cleartext. See OutputConfig.ShowCleartext.
@@ -65,6 +78,7 @@ type Output struct {
 type OutputConfig struct {
 	ResultTXTPath  string // empty = no txt output
 	ResultJSONPath string // empty = no json output
+	ResultCSVPath  string // empty = no csv output
 	CredsPath      string // empty = no creds output
 	RDPJSONPath    string // empty = no rdp.json output
 	RDPTXTPath     string // empty = no rdp.txt output
@@ -101,6 +115,7 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 		{cfg.CredsPath, 0o600, func(w *flushCloser) { o.creds = w }},
 		{cfg.RDPJSONPath, 0o644, func(w *flushCloser) { o.rdpjson = w }},
 		{cfg.RDPTXTPath, 0o644, func(w *flushCloser) { o.rdptxt = w }},
+		{cfg.ResultCSVPath, 0o644, func(w *flushCloser) { o.csv = w }},
 	}
 	for _, op := range openers {
 		if op.path == "" {
@@ -142,6 +157,7 @@ func (o *Output) Close() error {
 	closeAll(o.creds, "creds")
 	closeAll(o.rdpjson, "rdp.json")
 	closeAll(o.rdptxt, "rdp.txt")
+	closeAll(o.csv, "csv")
 	return firstErr
 }
 
@@ -168,6 +184,7 @@ func (o *Output) Flush() error {
 	flush(o.creds)
 	flush(o.rdpjson)
 	flush(o.rdptxt)
+	flush(o.csv)
 	return firstErr
 }
 
@@ -216,7 +233,53 @@ func (o *Output) WriteResult(r *types.Result) error {
 		enc := json.NewEncoder(o.jsn)
 		_ = enc.Encode(out)
 	}
+	// CSV sink. Same redaction policy as JSON/TXT (handled inside
+	// writeCSVvia). Errors are swallowed (best-effort) so a CSV write
+	// failure doesn't kill the scan. Header is emitted exactly once,
+	// on the first call after OpenOutput (the bool flips to true and
+	// stays true for the lifetime of this Output).
+	//
+	// CSV sink。脱敏策略与 JSON/TXT 相同（在 writeCSVvia 内处理）。
+	// 错误被吞掉（尽力而为）—— CSV 写失败不应中断扫描。表头在
+	// OpenOutput 后第一次调用时写入一次（bool 翻为 true 并保持）。
+	if o.csv != nil {
+		cw := csv.NewWriter(o.csv.bw)
+		if !o.csvHeaderWritten {
+			_ = cw.Write(csvHeader)
+			o.csvHeaderWritten = true
+		}
+		_ = o.writeCSVvia(cw, r)
+		cw.Flush()
+	}
 	return nil
+}
+
+// writeCSVvia is a thin indirection that lets us swap csv.Writer for
+// a test double (see csv_test.go). It only emits one row at a time
+// (the header is owned by writeCSV which is called on the first row).
+//
+// writeCSVvia 是薄间接层，便于在测试中替换 csv.Writer。
+// 只写一行（表头由 writeCSV 在第一行时负责）。
+func (o *Output) writeCSVvia(cw *csv.Writer, r *types.Result) error {
+	// Apply the same redaction policy as result.txt / result.json.
+	// 施加与 result.txt / result.json 相同的脱敏策略。
+	user, pass := "", ""
+	if r.Cred != nil {
+		cfg := &types.Config{ShowCleartext: o.showCleartext}
+		user, pass = splitUserPass(types.ShowUserPassword(cfg, r.Cred.User, r.Cred.Pass))
+	}
+	row := []string{
+		r.Time.Format("2006-01-02 15:04:05"),
+		r.Host,
+		strconv.Itoa(r.Port),
+		r.Service,
+		r.Plugin,
+		"open", // all results reaching the sink are "open" ports
+		truncateForCSV(r.Banner, 1024),
+		user,
+		pass,
+	}
+	return cw.Write(row)
 }
 
 // WriteCred appends a credential hit to creds.txt (separate from

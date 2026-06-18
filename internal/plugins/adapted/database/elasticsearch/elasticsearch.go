@@ -116,4 +116,3 @@ func extractField(s, anchor, delim string) string {
 	}
 	return rest[:end]
 }
-

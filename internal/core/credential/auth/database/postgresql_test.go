@@ -174,7 +174,7 @@ func startFakePGServer(t *testing.T) *fakePGServer {
 }
 
 func (s *fakePGServer) Addr() string { return s.listener.Addr().String() }
-func (s *fakePGServer) Close()      { _ = s.listener.Close() }
+func (s *fakePGServer) Close()       { _ = s.listener.Close() }
 
 // serveOne is a non-PG server: it reads the StartupMessage (which
 // lib/pq sends on every connect), then immediately closes the

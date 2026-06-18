@@ -23,11 +23,11 @@ func TestRedactUser(t *testing.T) {
 		in, want string
 	}{
 		{"", "<empty>"},
-		{"a", "*"},                                                         // len 1 → 1 star
-		{"ab", "**"},                                                       // len 2 → 2 stars
-		{"alice", "a" + stars(3) + "e"},                                    // len 5 → 3 stars
-		{"service-account-prod-01", "s" + stars(21) + "1"},                 // len 23 → 21 stars
-		{"verylongusernamethatkeepsgoingforever", "v" + stars(35) + "r"},   // len 37 → 35 stars
+		{"a", "*"},                      // len 1 → 1 star
+		{"ab", "**"},                    // len 2 → 2 stars
+		{"alice", "a" + stars(3) + "e"}, // len 5 → 3 stars
+		{"service-account-prod-01", "s" + stars(21) + "1"},               // len 23 → 21 stars
+		{"verylongusernamethatkeepsgoingforever", "v" + stars(35) + "r"}, // len 37 → 35 stars
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {

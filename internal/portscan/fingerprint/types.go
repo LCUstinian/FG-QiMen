@@ -34,34 +34,34 @@ type Match struct {
 // Directive 是 Probe 内一行 `name flag delimiter rest` 解析结果。
 type Directive struct {
 	DirectiveName string
-	Flag         string
-	Delimiter    string
-	DirectiveStr string
+	Flag          string
+	Delimiter     string
+	DirectiveStr  string
 }
 
 // Probe is one Nmap-style probe (e.g. "Probe TCP GetRequest q|GET / HTTP/1.0\r\n\r\n|").
 // Probe 是一条 Nmap 风格探测（如 "Probe TCP GetRequest q|GET / HTTP/1.0\r\n\r\n|"）。
 type Probe struct {
-	Name         string  // e.g. "GetRequest"
-	Protocol     string  // "tcp" or "udp"
-	Data         string  // probe payload (raw string, may contain escapes)
-	Ports        string  // default port list
-	SSLPorts     string  // default SSL port list
-	TotalWaitMS  int     // total wait
-	TCPWrappedMS int     // TCP wrap wait
-	Rarity       int     // 1..9
-	Fallback     string  // fallback probe name
+	Name         string   // e.g. "GetRequest"
+	Protocol     string   // "tcp" or "udp"
+	Data         string   // probe payload (raw string, may contain escapes)
+	Ports        string   // default port list
+	SSLPorts     string   // default SSL port list
+	TotalWaitMS  int      // total wait
+	TCPWrappedMS int      // TCP wrap wait
+	Rarity       int      // 1..9
+	Fallback     string   // fallback probe name
 	Matchs       *[]Match // compiled match rules
 }
 
 // VScan is the matcher + database. One VScan holds all parsed probes.
 // VScan 是匹配器 + 数据库。一个 VScan 持有所有解析好的探针。
 type VScan struct {
-	AllProbes     []Probe
-	Probes        []Probe // TCP probes
-	UDPProbes     []Probe
+	AllProbes      []Probe
+	Probes         []Probe // TCP probes
+	UDPProbes      []Probe
 	ProbesMapKName map[string]Probe
-	Exclude       string
+	Exclude        string
 }
 
 // NewVScan loads and parses the embedded probe database.

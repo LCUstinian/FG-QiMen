@@ -6,8 +6,8 @@
 // All favicon-related code lives in this file:
 //   - CalculateFaviconHashes: compute the mmh3-32 of /favicon.ico
 //   - matchFavicon:           check a matcher's hash list against the
-//                             precomputed list (moved here because
-//                             it depends only on the mmh3 contract)
+//     precomputed list (moved here because
+//     it depends only on the mmh3 contract)
 //   - mmh3Hash32:              private mmh3 implementation
 //
 // Extracted from enhanced.go so that the rule-matching logic

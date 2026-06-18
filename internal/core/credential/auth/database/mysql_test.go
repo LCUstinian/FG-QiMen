@@ -183,10 +183,10 @@ func (s *fakeMySQLServer) serveOne(c net.Conn) {
 // 字节第 2 部分、外加 1 字节 filler。
 func (s *fakeMySQLServer) writeHandshake(c net.Conn) error {
 	var b bytes.Buffer
-	b.WriteByte(0x0a) // protocol 10 / 协议 10
-	b.WriteByte(0x36) // server version major.minor.patch
+	b.WriteByte(0x0a)           // protocol 10 / 协议 10
+	b.WriteByte(0x36)           // server version major.minor.patch
 	b.WriteString("5.7.0-fake") // version string / 版本串
-	b.WriteByte(0x00) // null terminator
+	b.WriteByte(0x00)           // null terminator
 	// thread id (4 bytes LE) / thread id（4 字节 LE）
 	binary.Write(&b, binary.LittleEndian, uint32(1))
 	// auth-plugin-data part 1 (8 bytes) — first 8 of our 20-byte salt
@@ -234,13 +234,14 @@ func (s *fakeMySQLServer) writeHandshake(c net.Conn) error {
 
 // readHandshakeResponse reads the client's auth packet. Format
 // (MySQL Protocol::HandshakeResponse41):
-//   4 bytes: capability flags (LE)
-//   4 bytes: max packet size (LE)
-//   1 byte:  character set
-//   23 bytes: reserved (zeroes)
-//   nul-terminated: username
-//   len-prefixed: auth response
-//   nul-terminated: database (optional)
+//
+//	4 bytes: capability flags (LE)
+//	4 bytes: max packet size (LE)
+//	1 byte:  character set
+//	23 bytes: reserved (zeroes)
+//	nul-terminated: username
+//	len-prefixed: auth response
+//	nul-terminated: database (optional)
 //
 // The packet header is 3-byte length + 1-byte seq. The seq
 // alternates with the server: client uses seq 1 (we just sent
@@ -248,13 +249,14 @@ func (s *fakeMySQLServer) writeHandshake(c net.Conn) error {
 // actually validate the client's seq — we just read the body.
 //
 // readHandshakeResponse 读客户端认证包。格式（MySQL HandshakeResponse41）：
-//   4 字节：capability flags（LE）
-//   4 字节：最大包大小（LE）
-//   1 字节：字符集
-//   23 字节：reserved（零）
-//   null 结尾：用户名
-//   长度前缀：auth response
-//   null 结尾：数据库（可选）
+//
+//	4 字节：capability flags（LE）
+//	4 字节：最大包大小（LE）
+//	1 字节：字符集
+//	23 字节：reserved（零）
+//	null 结尾：用户名
+//	长度前缀：auth response
+//	null 结尾：数据库（可选）
 //
 // 包头是 3 字节长 + 1 字节 seq。Seq 跟服务器交替：客户端用
 // seq 1（我们刚发 seq 0），然后 seq 3（我们会发 seq 2 OK）等。
@@ -305,11 +307,12 @@ func (s *fakeMySQLServer) readHandshakeResponse(c net.Conn) (user string, authRe
 // close-after-OK as "auth succeeded".
 //
 // Layout (7 bytes):
-//   0x00         header
-//   0x00         affected_rows (lenenc int = 0)
-//   0x00         last_insert_id (lenenc int = 0)
-//   0x00 0x00    status flags (LE, 0)
-//   0x00 0x00    warnings (LE, 0)
+//
+//	0x00         header
+//	0x00         affected_rows (lenenc int = 0)
+//	0x00         last_insert_id (lenenc int = 0)
+//	0x00 0x00    status flags (LE, 0)
+//	0x00 0x00    warnings (LE, 0)
 //
 // writeOK 发最小 MySQL OK 包。确切字节布局繁复（多个偏移处长
 // 度编码整数；驱动严格）。对仅探针测试，我们发 7 字节 OK 满
@@ -355,20 +358,20 @@ func (s *fakeMySQLServer) writeErr(c net.Conn, msg string) {
 // checkNativePassword verifies a client's native_password
 // response. The algorithm (per MySQL 5.7 protocol):
 //
-//   stored      = SHA1(password)
-//   stage1      = SHA1(stored)
-//   scramble    = SHA1(salt || stage1)   // salt concatenated with stage1
-//   expected    = scramble XOR stored
-//   check:      client_response == expected
+//	stored      = SHA1(password)
+//	stage1      = SHA1(stored)
+//	scramble    = SHA1(salt || stage1)   // salt concatenated with stage1
+//	expected    = scramble XOR stored
+//	check:      client_response == expected
 //
 // checkNativePassword 验证客户端的 native_password 响应。算法
 // （按 MySQL 5.7 协议）：
 //
-//   stored      = SHA1(password)
-//   stage1      = SHA1(stored)
-//   scramble    = SHA1(salt || stage1)   // salt 拼接 stage1
-//   expected    = scramble XOR stored
-//   check:      client_response == expected
+//	stored      = SHA1(password)
+//	stage1      = SHA1(stored)
+//	scramble    = SHA1(salt || stage1)   // salt 拼接 stage1
+//	expected    = scramble XOR stored
+//	check:      client_response == expected
 func checkNativePassword(pw, clientResp, salt []byte) bool {
 	stored := sha1.Sum(pw)
 	stage1 := sha1.Sum(stored[:])
@@ -447,10 +450,11 @@ func TestMySQLAuthenticator_PositiveHit(t *testing.T) {
 //
 // Vector: password "hunter2", salt bytes 0x00..0x13 (20 bytes),
 // expected client response computed independently via:
-//   stored = SHA1("hunter2")
-//   stage1 = SHA1(stored)
-//   scramble = SHA1(salt || stage1)
-//   expected = scramble XOR stored
+//
+//	stored = SHA1("hunter2")
+//	stage1 = SHA1(stored)
+//	scramble = SHA1(salt || stage1)
+//	expected = scramble XOR stored
 //
 // TestCheckNativePasswordAlgorithm — 纯函数测试 checkNativePassword
 // 用已知向量。审计 F-03 要"认证端到端能工作"；真假服务器来回

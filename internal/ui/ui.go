@@ -36,11 +36,11 @@ type UI interface {
 // nopUI 是单元测试和零值使用的空实现 UI。
 type nopUI struct{}
 
-func (nopUI) Banner(*types.Config) {}
-func (nopUI) Stats(*types.State)   {}
-func (nopUI) Event(*types.Result)  {}
+func (nopUI) Banner(*types.Config)    {}
+func (nopUI) Stats(*types.State)      {}
+func (nopUI) Event(*types.Result)     {}
 func (nopUI) CredFound(*types.Result) {}
-func (nopUI) Done(string)          {}
+func (nopUI) Done(string)             {}
 
 // NopUI returns a no-op UI.
 // NopUI 返回一个空实现 UI。

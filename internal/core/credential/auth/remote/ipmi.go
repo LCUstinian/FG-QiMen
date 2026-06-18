@@ -2,13 +2,13 @@
 //
 // Strategy: IPMI v2.0 RAKP (Random Authentication Key Protocol)
 // over RMCP+ (UDP 623). Flow:
-//   1. Send RMCP+ session open (cmd 0x10, tag 0x81).
-//   2. Receive RAKP Message 1 (cmd 0x12, tag 0x91) with random +
-//    session ID + privilege level.
-//   3. Send RAKP Message 2 (cmd 0x12, tag 0x91) with HMAC-SHA1 of
-//    (random || user || password) per the BMC's chosen algorithm.
-//   4. Receive RAKP Message 3 (cmd 0x12, tag 0x91) with completion
-//    code 0 = success, non-zero = auth failure.
+//  1. Send RMCP+ session open (cmd 0x10, tag 0x81).
+//  2. Receive RAKP Message 1 (cmd 0x12, tag 0x91) with random +
+//     session ID + privilege level.
+//  3. Send RAKP Message 2 (cmd 0x12, tag 0x91) with HMAC-SHA1 of
+//     (random || user || password) per the BMC's chosen algorithm.
+//  4. Receive RAKP Message 3 (cmd 0x12, tag 0x91) with completion
+//     code 0 = success, non-zero = auth failure.
 //
 // HARD RULE: on a hit we return. We do NOT issue any IPMI command
 // (no Get Channel Auth, no Get SEL, no Set User Password, no
@@ -60,13 +60,13 @@ func (a *IPMIAuthenticator) DefaultPorts() []int {
 
 // IPMI v2.0 RAKP constants. / IPMI v2.0 RAKP 常量。
 const (
-	ipmiRMCPPlusVersion = 0x04 // RMCP+ v2.0
-	ipmiCmdSessionOpen  = 0x10
-	ipmiCmdRAKP         = 0x12
-	ipmiPrivilegeAdmin  = 0x04 // ADMIN
-	ipmiAuthAlgSHA1     = 0x04 // HMAC-SHA1
+	ipmiRMCPPlusVersion  = 0x04 // RMCP+ v2.0
+	ipmiCmdSessionOpen   = 0x10
+	ipmiCmdRAKP          = 0x12
+	ipmiPrivilegeAdmin   = 0x04 // ADMIN
+	ipmiAuthAlgSHA1      = 0x04 // HMAC-SHA1
 	ipmiIntegrityAlgNone = 0x00
-	ipmiConfidAlgNone   = 0x00
+	ipmiConfidAlgNone    = 0x00
 )
 
 // Authenticate implements credential.Authenticator. Tries each cred in
@@ -259,13 +259,13 @@ func buildRAKPMessage2(sessionID uint32, random []byte, user, pass string) []byt
 	var seqBuf [4]byte
 	binary.LittleEndian.PutUint32(seqBuf[:], 1)
 	pkt = append(pkt, seqBuf[:]...)
-	pkt = append(pkt, ipmiPrivilegeAdmin)    // privilege
+	pkt = append(pkt, ipmiPrivilegeAdmin)   // privilege
 	pkt = append(pkt, 0x00)                 // reserved
 	pkt = append(pkt, byte(len(user)))      // userLen
-	pkt = append(pkt, []byte(user)...)       // user
+	pkt = append(pkt, []byte(user)...)      // user
 	pkt = append(pkt, ipmiAuthAlgSHA1)      // authAlg
 	pkt = append(pkt, byte(len(hmacValue))) // authLen
-	pkt = append(pkt, hmacValue...)          // hmac
+	pkt = append(pkt, hmacValue...)         // hmac
 	return pkt
 }
 

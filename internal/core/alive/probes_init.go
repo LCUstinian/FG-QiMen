@@ -11,9 +11,9 @@
 // 应各自成文件并在 init() 中调用 RegisterAlwaysOnProbe。
 //
 // The registration order below is preserved in DefaultOptions:
-//   1. ICMP        — raw socket echo, fastest
-//   2. TCP-ping    — port-list connect, works when ICMP is blocked
-//   3. system-ping — falls back to OS `ping` binary, broadest compat
+//  1. ICMP        — raw socket echo, fastest
+//  2. TCP-ping    — port-list connect, works when ICMP is blocked
+//  3. system-ping — falls back to OS `ping` binary, broadest compat
 //
 // 注册顺序保留到 DefaultOptions 中：ICMP → TCP-ping → system-ping。
 package alive

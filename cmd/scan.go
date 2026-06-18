@@ -33,6 +33,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/core"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -218,7 +219,20 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	// 从 project 装配 bbolt store（即扫即走模式下为 nil）。放在 UI
 	// 选择之前，让 TUI 路径也获得持久化——旧版只在 text-UI 分支赋值
 	// Store，导致 -resume 在 TUI 模式下静默失效。
-	sess.Store = proj.AsStore()
+	//
+	// Encryption: if cfg.ProjectKey is non-empty, derive a 32-byte
+	// AES-256 key and pass it to AsStoreWithKey so PutResult/PutCred
+	// encrypt the JSON payload at rest. Empty key → plaintext (v0.2.x
+	// on-disk format, backward compatible).
+	//
+	// 加密：若 cfg.ProjectKey 非空，派生 32 字节 AES-256 密钥并传入
+	// AsStoreWithKey，使 PutResult/PutCred 加密 JSON 负载。
+	// 空 key → 明文（v0.2.x 磁盘格式，向后兼容）。
+	if cfg.ProjectKey != "" && proj.DB != nil {
+		sess.Store = proj.AsStoreWithKey(store.DeriveKey(cfg.ProjectKey))
+	} else {
+		sess.Store = proj.AsStore()
+	}
 
 	// UI selection: consult ui.ShouldUseTUI (which centralises the
 	// tty / CI / dumb-term / width logic) and act on the result.
@@ -350,9 +364,23 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
+	// CSV is opt-in: only resolve when --output-csv is set. An empty
+	// path in OpenOutput disables the sink, so the simplest pattern
+	// is to pass the empty string when the flag was not provided.
+	//
+	// CSV 是 opt-in：只有 --output-csv 设置时才解析。OpenOutput 中
+	// 空路径即禁用 sink，所以最简模式是 flag 未提供时传空串。
+	var resultCSV string
+	if cfg.OutputCSV != "" {
+		resultCSV, err = resolveOutputPath(cfg, flagOutputCSV, "result.csv")
+		if err != nil {
+			return fmt.Errorf("output path: %w", err)
+		}
+	}
 	out, err := output.OpenOutput(output.OutputConfig{
 		ResultTXTPath:  resultTXT,
 		ResultJSONPath: resultJSON,
+		ResultCSVPath:  resultCSV,
 		CredsPath:      credsPath,
 		RDPJSONPath:    rdpJSON,
 		RDPTXTPath:     rdpTXT,
@@ -369,6 +397,20 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 	return nil
 }
 
+// resolveProjectKey returns the encryption passphrase for the project
+// DB. Priority: --project-key flag > FG_QIMEN_PROJECT_KEY env > "".
+// Empty return means "no encryption" (v0.2.x plaintext on-disk format).
+//
+// resolveProjectKey 返回项目 DB 的加密 passphrase。优先级：
+// --project-key flag > FG_QIMEN_PROJECT_KEY env > ""。
+// 返回空表示"不加密"（v0.2.x 明文磁盘格式）。
+func resolveProjectKey() string {
+	if flagProjectKey != "" {
+		return flagProjectKey
+	}
+	return os.Getenv("FG_QIMEN_PROJECT_KEY")
+}
+
 // buildConfig collects the global flag values into a Config struct.
 // buildConfig 把全局 flag 值汇总成 Config 结构。
 func buildConfig() (*types.Config, error) {
@@ -376,6 +418,7 @@ func buildConfig() (*types.Config, error) {
 		Host:             flagHost,
 		HostsFile:        flagHostsFile,
 		Project:          flagProject,
+		ProjectKey:       resolveProjectKey(),
 		Mode:             types.RunMode(flagMode),
 		Resume:           flagResume,
 		NoState:          flagNoState,
@@ -396,6 +439,7 @@ func buildConfig() (*types.Config, error) {
 		PassFile:         flagPassFile,
 		OutputTXT:        flagOutputTXT,
 		OutputJSON:       flagOutputJSON,
+		OutputCSV:        flagOutputCSV,
 		Silent:           flagSilent,
 		NoTUI:            flagNoTUI,
 		NoICMP:           flagNoICMP,

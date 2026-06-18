@@ -34,14 +34,14 @@ import (
 // fakePlugin 是用于测试注册表的最小 Plugin 实现。故意保持最小——
 // 我们测的是注册表，不是 Plugin 接口契约（那是 adapted/ 插件的活）。
 type fakePlugin struct {
-	name    string
-	ports   []int
-	modes   Mode
+	name  string
+	ports []int
+	modes Mode
 }
 
-func (f *fakePlugin) Name() string                                { return f.name }
-func (f *fakePlugin) Ports() []int                                { return f.ports }
-func (f *fakePlugin) Modes() Mode                                 { return f.modes }
+func (f *fakePlugin) Name() string { return f.name }
+func (f *fakePlugin) Ports() []int { return f.ports }
+func (f *fakePlugin) Modes() Mode  { return f.modes }
 func (f *fakePlugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	return &types.Result{Host: host, Port: port, Banner: f.name, Service: f.name}
 }

@@ -47,10 +47,11 @@ type Config struct {
 	HostsFile string // optional file of targets
 
 	// Workspace / 工作区
-	Project string // empty = ephemeral; non-empty = persistent project
-	Mode    RunMode
-	Resume  bool
-	NoState bool // disable bbolt; in-memory dedup only
+	Project    string // empty = ephemeral; non-empty = persistent project
+	ProjectKey string // passphrase for AES-256-GCM at-rest encryption; empty = plaintext (v0.2.x compat)
+	Mode       RunMode
+	Resume     bool
+	NoState    bool // disable bbolt; in-memory dedup only
 
 	// Port selection / 端口选择
 	Ports        string
@@ -80,6 +81,7 @@ type Config struct {
 	// Output / 输出
 	OutputTXT  string
 	OutputJSON string
+	OutputCSV  string // v0.3.0: path to result.csv; empty = not written
 
 	// UI / 界面
 	Silent  bool

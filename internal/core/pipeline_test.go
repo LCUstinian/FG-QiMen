@@ -39,9 +39,9 @@ import (
 // selectPlugins 测试用。
 type fakePlugin struct{ name string }
 
-func (f *fakePlugin) Name() string                                { return f.name }
-func (f *fakePlugin) Ports() []int                               { return nil }
-func (f *fakePlugin) Modes() plugins.Mode                        { return plugins.ModeIdentify }
+func (f *fakePlugin) Name() string        { return f.name }
+func (f *fakePlugin) Ports() []int        { return nil }
+func (f *fakePlugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 func (f *fakePlugin) Identify(_ context.Context, _ string, _ int) *types.Result {
 	return nil
 }
@@ -207,13 +207,13 @@ func TestFormatPortfinger(t *testing.T) {
 		{
 			name: "long banner truncated at 80",
 			svc:  "http", ver: "",
-			ban:   strings.Repeat("x", 200),
+			ban:         strings.Repeat("x", 200),
 			mustContain: []string{"...", "xxx"}, // ellipsis present, body present
 		},
 		{
 			name: "short banner not truncated",
 			svc:  "ssh", ver: "",
-			ban:   "OpenSSH",
+			ban:            "OpenSSH",
 			mustNotContain: []string{"..."},
 		},
 	}

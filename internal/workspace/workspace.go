@@ -16,6 +16,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/LCUstinian/FG-QiMen/internal/store"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // validProjectName matches safe project names: alphanumeric, dot,
@@ -75,13 +76,19 @@ func ValidateProjectName(name string) error {
 		return fmt.Errorf("project name is empty")
 	}
 	if !validProjectName.MatchString(name) {
-		return fmt.Errorf("project name %q contains invalid characters; allowed: letters, digits, '.', '_', '-'", name)
+		return types.CodeProjectNameInvalid.Newf(
+			"use letters, digits, '.', '_' or '-' only",
+			"project name %q contains invalid characters", name,
+		)
 	}
 	// Reject `..` segments even though the regex already blocks them as a
 	// standalone name — defensive double-check. / 即便正则已阻止 `..`
 	// 作为独立名称，仍做防御性二次检查。
 	if strings.Contains(name, "..") {
-		return fmt.Errorf("project name %q must not contain '..'", name)
+		return types.CodeProjectPathEscape.Newf(
+			"remove '..' from the project name",
+			"project name %q must not contain '..'", name,
+		)
 	}
 	return nil
 }
@@ -115,7 +122,16 @@ func openPersistent(name string) (*Project, error) {
 	dbPath := filepath.Join(dir, "fg.db")
 	db, err := bolt.Open(dbPath, 0o600, nil)
 	if err != nil {
-		return nil, fmt.Errorf("open bbolt %s: %w", dbPath, err)
+		// Map to a stable error code. The underlying bbolt error
+		// details are preserved via %w for debugging, but the leading
+		// [E102] tag makes scripted log scraping reliable.
+		//
+		// 映射到稳定错误码。底层 bbolt 错误细节用 %w 保留供调试，
+		// 但前缀 [E102] 让脚本日志抓取可靠。
+		return nil, types.CodeBboltOpenFailed.Newf(
+			"check filesystem permissions and disk space",
+			"open bbolt %s: %v", dbPath, err,
+		)
 	}
 	// Ensure required buckets exist. / 确保必需的 bucket 存在。
 	if err := db.Update(func(tx *bolt.Tx) error {
@@ -183,10 +199,35 @@ func (p *Project) Stats() (string, error) {
 // AsStore wraps p.DB into a store.Store (for incremental state).
 // AsStore 把 p.DB 包装为 store.Store（用于增量状态）。
 func (p *Project) AsStore() *store.Store {
+	return p.AsStoreWithKey(nil)
+}
+
+// AsStoreWithKey wraps p.DB into a store.Store with an optional encryption
+// layer. Pass nil key (or empty passphrase) to disable encryption.
+//
+// AsStoreWithKey 用可选加密层把 p.DB 包装为 store.Store。
+// 传 nil key（或空 passphrase）禁用加密。
+//
+// The key should already be a 32-byte derived key (use store.DeriveKey to
+// turn a passphrase into one). If a passphrase is supplied instead, it's
+// run through SHA-256 inside store.NewEncryptedValue.
+//
+// key 应已是 32 字节派生密钥（用 store.DeriveKey 把 passphrase 转过来）。
+// 若直接传 passphrase，store.NewEncryptedValue 内部会 SHA-256。
+func (p *Project) AsStoreWithKey(key []byte) *store.Store {
 	if p == nil || p.DB == nil {
 		return nil
 	}
-	return store.NewStore(p.DB)
+	if len(key) == 0 {
+		return store.NewStore(p.DB)
+	}
+	enc, err := store.NewEncryptedValue(key)
+	if err != nil {
+		// Bad key length: fall back to plaintext rather than crashing.
+		// 密钥长度不对：退化为明文而非崩溃。
+		return store.NewStore(p.DB)
+	}
+	return store.NewStoreWithEnc(p.DB, enc)
 }
 
 // ProjectsRoot returns the directory under which persistent projects

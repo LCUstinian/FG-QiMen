@@ -154,4 +154,3 @@ func formatHeaders(h http.Header) string {
 	}
 	return b.String()
 }
-

@@ -37,6 +37,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # golangci-lint static analysis. Runs first to fail fast on style /
+  # security / complexity issues that go vet doesn't catch.
+  #
+  # golangci-lint 静态分析。优先跑以快速失败 go vet 不抓的风格 / 安全 /
+  # 复杂度问题。
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # Pin a v1.61+ version; we configure .golangci.yml to
+          # be tolerant of newer keys but the linter version
+          # itself moves faster than our config.
+          #
+          # 锁 v1.61+ 版本；我们配的 .golangci.yml 对新 key 兼容,
+          # 但 linter 本身演进比我们的配置快。
+          version: v1.61
+          # Only fail on issues introduced by this PR (not pre-existing).
+          # Only fail on new issues. / 仅 PR 引入的问题。
+          only-new-issues: true
+
   # Static analysis + unit tests. Fast, runs first.
   # 静态分析 + 单测。快速，优先跑。
   test:
@@ -95,7 +126,7 @@ jobs:
   cross-build:
     name: cross-build (${{ matrix.target }})
     runs-on: ubuntu-latest
-    needs: test
+    needs: [lint, test]
     strategy:
       fail-fast: false
       matrix:

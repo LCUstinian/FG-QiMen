@@ -47,12 +47,12 @@
 // 两种策略按 OS 选：Linux 解析 /proc/net/arp（无 subprocess），macOS /
 // Windows / 其他跑 `arp -an` 然后 grep。
 // 如果目标 IP 在 OS ARP 表中且条目状态为 "complete" 或 "permanent"
-//（Linux）/ 非 incomplete（macOS/Windows），主机即视为存活。这是
+// （Linux）/ 非 incomplete（macOS/Windows），主机即视为存活。这是
 // 最可靠的 LAN 探测——ARP 不过防火墙，所以响应 ARP 的主机几乎
 // 一定在链路上。
 //
 // 注：这是被动表查询，不是免费 ARP 发送。如果主机尚未在表中
-//（如刚开机，或从未与它通信），就探测不到。要做"唤醒"探测，
+// （如刚开机，或从未与它通信），就探测不到。要做"唤醒"探测，
 // 前面叠 ICMP / TCP-ping。
 package discovery
 

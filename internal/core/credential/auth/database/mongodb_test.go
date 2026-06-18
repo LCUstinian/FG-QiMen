@@ -214,14 +214,14 @@ func buildMongoSaslReply(okVal, convID int32, done bool, payload string) []byte 
 // / buildMongoOpMsgReply 把 BSON doc 包成 OP_MSG 帧。
 func buildMongoOpMsgReply(replyDoc []byte, responseTo uint32) []byte {
 	msg := make([]byte, 0, 16+4+1+len(replyDoc))
-	msg = append(msg, 0, 0, 0, 0)             // length placeholder
-	msg = append(msg, 0, 0, 0, 0)             // requestID
+	msg = append(msg, 0, 0, 0, 0) // length placeholder
+	msg = append(msg, 0, 0, 0, 0) // requestID
 	rt := make([]byte, 4)
 	binary.LittleEndian.PutUint32(rt, responseTo)
-	msg = append(msg, rt...) // responseTo
-	msg = append(msg, 2013&0xff, 0, 0, 0)     // opCode
-	msg = append(msg, 0, 0, 0, 0)             // flagBits
-	msg = append(msg, 0x00)                   // section kind
+	msg = append(msg, rt...)              // responseTo
+	msg = append(msg, 2013&0xff, 0, 0, 0) // opCode
+	msg = append(msg, 0, 0, 0, 0)         // flagBits
+	msg = append(msg, 0x00)               // section kind
 	msg = append(msg, replyDoc...)
 	total := len(msg)
 	msg[0] = byte(total)

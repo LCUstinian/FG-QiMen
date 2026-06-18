@@ -47,16 +47,16 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // Wire format (simplified):
 //   - msgHeader: 16 bytes (messageLength, requestID, responseTo, opCode)
 //   - OP_MSG (opCode = 2013):
-//     - flagBits: 4 bytes
-//     - section: 1 byte (0 = body)
-//     - body: BSON document
+//   - flagBits: 4 bytes
+//   - section: 1 byte (0 = body)
+//   - body: BSON document
 //
 // 线格式（简化）：
 //   - msgHeader: 16 字节（messageLength, requestID, responseTo, opCode）
 //   - OP_MSG（opCode = 2013）：
-//     - flagBits: 4 字节
-//     - section: 1 字节（0 = body）
-//     - body: BSON 文档
+//   - flagBits: 4 字节
+//   - section: 1 字节（0 = body）
+//   - body: BSON 文档
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: 3 * time.Second}

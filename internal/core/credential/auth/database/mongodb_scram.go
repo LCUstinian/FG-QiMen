@@ -11,11 +11,11 @@
 // See mongodb.go for the full SCRAM-SHA-256 algorithm spec; the
 // outline is:
 //
-//	1. client-first  ("n,,n=user,r=clientNonce")
-//	2. server-first  ("r=serverNonce,s=base64Salt,i=iterations")
-//	3. client-proof (SaltedPassword, ClientKey, StoredKey, ClientSig, XOR)
-//	4. client-final ("c=biws,r=serverNonce,p=base64(ClientProof)")
-//	5. server-final ("v=base64ServerSig" on success)
+//  1. client-first  ("n,,n=user,r=clientNonce")
+//  2. server-first  ("r=serverNonce,s=base64Salt,i=iterations")
+//  3. client-proof (SaltedPassword, ClientKey, StoredKey, ClientSig, XOR)
+//  4. client-final ("c=biws,r=serverNonce,p=base64(ClientProof)")
+//  5. server-final ("v=base64ServerSig" on success)
 //
 // We treat any "v=" reply as a hit; we don't recompute the server
 // signature locally (v0.1 trusts the server).
