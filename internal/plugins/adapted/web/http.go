@@ -38,6 +38,38 @@ func NewHTTPPlugin() *HTTPPlugin { return &HTTPPlugin{} }
 
 func init() { plugins.Register(NewHTTPPlugin()) }
 
+// webHTTPClient is a process-wide HTTP client. Hoisting avoids
+// allocating a fresh http.Transport (TCP+TLS pool) per Identify
+// call; 200 workers × 100 web ports = 20k allocation sites removed
+// per scan. The transport has DisableKeepAlives=true to keep
+// behaviour identical to the legacy per-call design (no idle
+// connection reuse — each probe is to a different target). Per-call
+// deadline is supplied via http.NewRequestWithContext, not via
+// http.Client.Timeout, so the package-level client can be reused
+// across Identify calls with different ctx deadlines.
+// webHTTPClient 是进程级 HTTP client。提升为包级避免每次 Identify
+// 调用都分配新 http.Transport（TCP+TLS pool）；200 worker × 100 web
+// 端口 = 单次扫描省 20k 次分配。transport 设 DisableKeepAlives=true
+// 保持与旧 per-call 行为一致（不重用空闲连接——每次探测目标不同）。
+// per-call deadline 通过 http.NewRequestWithContext 传入，而非
+// http.Client.Timeout，所以包级 client 可跨 Identify 调用复用，
+// 各自带不同 ctx deadline。
+var webHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   3 * time.Second,
+			KeepAlive: 0,
+		}).DialContext,
+		TLSHandshakeTimeout:   3 * time.Second,
+		ResponseHeaderTimeout: 3 * time.Second,
+		ExpectContinueTimeout: 500 * time.Millisecond,
+		DisableKeepAlives:     true,
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // Name implements plugins.Plugin. / Name 实现 plugins.Plugin。
 func (p *HTTPPlugin) Name() string { return "http" }
 
@@ -59,40 +91,12 @@ var titleRegex = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 //
 // Identify 执行 HTTP GET，成功时返回带 title、server、状态码的 *Result。
 func (p *HTTPPlugin) Identify(ctx context.Context, host string, port int) *types.Result {
-	timeout := 3 * time.Second
-	if d, ok := ctx.Deadline(); ok {
-		if left := time.Until(d); left > 0 && left < timeout {
-			timeout = left
-		}
-	}
-
 	// Try plain HTTP first; if HTTPS port, try HTTPS. We do a quick
 	// port-based guess for v0.1; v0.2 will auto-detect via TLS probe.
 	// v0.1 先按端口猜协议；v0.2 通过 TLS 探测自动判断。
 	scheme := "http"
 	if port == 443 || port == 8443 {
 		scheme = "https"
-	}
-
-	// Custom transport with a per-request dial timeout. We DO NOT
-	// follow redirects in Identify — caller can rescan if needed.
-	// 自定义 transport，每次拨号有超时。Identify 阶段不跟随重定向。
-	tr := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   timeout,
-			KeepAlive: 0,
-		}).DialContext,
-		TLSHandshakeTimeout:   timeout,
-		ResponseHeaderTimeout: timeout,
-		ExpectContinueTimeout: 500 * time.Millisecond,
-		DisableKeepAlives:     true,
-	}
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
 	}
 
 	url := fmt.Sprintf("%s://%s/", scheme, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
@@ -103,7 +107,7 @@ func (p *HTTPPlugin) Identify(ctx context.Context, host string, port int) *types
 	req.Header.Set("User-Agent", "fg-qimen/0.1")
 	req.Header.Set("Accept", "*/*")
 
-	resp, err := client.Do(req)
+	resp, err := webHTTPClient.Do(req)
 	if err != nil {
 		return nil
 	}
