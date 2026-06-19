@@ -1,5 +1,5 @@
-// output.go — multi-format result sink (TXT, NDJSON, creds, RDP).
-// output.go — 多格式结果汇（text / NDJSON / 凭据 / RDP）。
+// output.go — multi-format result sink (TXT, NDJSON, creds, RDP, CSV).
+// output.go — 多格式结果汇（text / NDJSON / 凭据 / RDP / CSV）。
 package output
 
 import (
@@ -41,14 +41,20 @@ func (fc *flushCloser) Close() error {
 // Output writes results to TXT, NDJSON, creds, RDP, and CSV files.
 // Output 把结果写入 TXT、NDJSON、凭据、RDP、CSV 文件。
 //
-// All writes are serialized through an internal mutex so that multiple
-// producer/consumer goroutines can call Write() / WriteCred() / WriteRDP()
-// concurrently without interleaving bytes.
-//
-// 所有写入都通过内部 mutex 串行化，因此多个 producer/consumer 协程可并发
-// 调用 Write() / WriteCred() / WriteRDP() 而不会出现字节交错。
+// Each sink has its own mutex so writes to one file never block writes
+// to another. At 200 worker goroutines pushing results concurrently,
+// the previous single-mutex design serialised all five sinks — a slow
+// creds.txt write (e.g. on Windows Defender scan) would block txt and
+// json writes for the duration. The per-sink split keeps each sink
+// independently hot. / 每个 sink 有独立 mutex，写一个文件不阻塞其他。
+// 200 worker 并发推结果时，旧单 mutex 设计把 5 个 sink 串行化——
+// 一个慢的 creds.txt 写（如 Windows Defender 扫描时）会阻塞 txt
+// 和 json 写。per-sink 拆分让每个 sink 独立。
 type Output struct {
-	mu sync.Mutex
+	// Per-sink mutexes. Locked by the matching Write* / Close / Flush
+	// method. / 每个 sink 独立 mutex。由对应 Write* / Close / Flush
+	// 方法上锁。
+	txtMu, jsnMu, credsMu, rdpjsonMu, rdptxtMu, csvMu sync.Mutex
 
 	// txt  : one human-readable line per result
 	// json : one JSON object per line (NDJSON)
@@ -56,6 +62,14 @@ type Output struct {
 	// rdpjson / rdptxt: RDP deep fingerprint
 	// csv  : RFC 4180 one row per result (header on first write)
 	txt, jsn, creds, rdpjson, rdptxt, csv *flushCloser
+
+	// csvWriter is hoisted to a field so we allocate it once at
+	// OpenOutput time, not per WriteResult. The previous code
+	// allocated csv.NewWriter(o.csv.bw) inside the lock on every
+	// result row — a measurable hot-path allocation at 200+ workers.
+	// / csvWriter 提升为字段，仅 OpenOutput 时分配一次。旧代码在
+	// 锁内 per-row 调 csv.NewWriter——200+ worker 下是热路径分配。
+	csvWriter *csv.Writer
 
 	// csvHeaderWritten tracks whether the CSV header has been emitted
 	// yet. We use a plain bool (not a separate "exists in the file"
@@ -115,7 +129,12 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 		{cfg.CredsPath, 0o600, func(w *flushCloser) { o.creds = w }},
 		{cfg.RDPJSONPath, 0o644, func(w *flushCloser) { o.rdpjson = w }},
 		{cfg.RDPTXTPath, 0o644, func(w *flushCloser) { o.rdptxt = w }},
-		{cfg.ResultCSVPath, 0o644, func(w *flushCloser) { o.csv = w }},
+		{cfg.ResultCSVPath, 0o644, func(w *flushCloser) {
+			o.csv = w
+			// Allocate csv.Writer once; reused per WriteResult.
+			// / 一次性分配 csv.Writer；WriteResult 复用。
+			o.csvWriter = csv.NewWriter(w.bw)
+		}},
 	}
 	for _, op := range openers {
 		if op.path == "" {
@@ -136,28 +155,39 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 }
 
 // Close flushes and closes all opened files. Safe to call on a partially-
-// initialized Output (e.g. when OpenOutput failed midway).
+// initialized Output (e.g. when OpenOutput failed midway). Each sink is
+// closed under its own mutex so this method's wall-clock scales with
+// the slowest sink, not with the sum.
 //
 // Close 刷新并关闭所有已打开的文件。允许在 OpenOutput 中途失败的部分初始化
-// 状态上调用。
+// 状态上调用。每个 sink 在自己的 mutex 下关闭，本方法的墙钟取决于最慢
+// 的 sink 而非总和。
 func (o *Output) Close() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	type closable struct {
+		w     *flushCloser
+		mu    *sync.Mutex
+		label string
+	}
+	closers := []closable{
+		{o.txt, &o.txtMu, "txt"},
+		{o.jsn, &o.jsnMu, "json"},
+		{o.creds, &o.credsMu, "creds"},
+		{o.rdpjson, &o.rdpjsonMu, "rdp.json"},
+		{o.rdptxt, &o.rdptxtMu, "rdp.txt"},
+		{o.csv, &o.csvMu, "csv"},
+	}
 	var firstErr error
-	closeAll := func(w *flushCloser, label string) {
-		if w == nil {
-			return
+	for _, c := range closers {
+		if c.w == nil {
+			continue
 		}
-		if err := w.Close(); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("close %s: %w", label, err)
+		c.mu.Lock()
+		err := c.w.Close()
+		c.mu.Unlock()
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("close %s: %w", c.label, err)
 		}
 	}
-	closeAll(o.txt, "txt")
-	closeAll(o.jsn, "json")
-	closeAll(o.creds, "creds")
-	closeAll(o.rdpjson, "rdp.json")
-	closeAll(o.rdptxt, "rdp.txt")
-	closeAll(o.csv, "csv")
 	return firstErr
 }
 
@@ -166,34 +196,42 @@ func (o *Output) Close() error {
 //
 // Flush 强制把所有 buffer 写盘。周期性调用（以及关闭前）以保证数据落盘。
 func (o *Output) Flush() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	type flushable struct {
+		w     *flushCloser
+		mu    *sync.Mutex
+	}
+	flushers := []flushable{
+		{o.txt, &o.txtMu},
+		{o.jsn, &o.jsnMu},
+		{o.creds, &o.credsMu},
+		{o.rdpjson, &o.rdpjsonMu},
+		{o.rdptxt, &o.rdptxtMu},
+		{o.csv, &o.csvMu},
+	}
 	var firstErr error
-	flush := func(w *flushCloser) {
-		if w == nil {
-			return
+	for _, f := range flushers {
+		if f.w == nil || f.w.bw == nil {
+			continue
 		}
-		if w.bw != nil {
-			if err := w.bw.Flush(); err != nil && firstErr == nil {
-				firstErr = err
-			}
+		f.mu.Lock()
+		err := f.w.bw.Flush()
+		f.mu.Unlock()
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	flush(o.txt)
-	flush(o.jsn)
-	flush(o.creds)
-	flush(o.rdpjson)
-	flush(o.rdptxt)
-	flush(o.csv)
 	return firstErr
 }
 
-// WriteResult writes a single result to TXT and NDJSON files.
-// WriteResult 把单个 result 写入 TXT 和 NDJSON 文件。
+// WriteResult writes a single result to TXT, NDJSON, and CSV files.
+// Each sink's lock is acquired independently so a slow sink can't
+// head-of-line-block the others. / WriteResult 把单个 result 写入
+// TXT、NDJSON、CSV 文件。每个 sink 的锁独立获取，一个慢 sink
+// 不会 head-of-line 阻塞其他。
 func (o *Output) WriteResult(r *types.Result) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	// TXT — own mutex. / TXT —— 独立 mutex。
 	if o.txt != nil {
+		o.txtMu.Lock()
 		ts := r.Time.Format("2006-01-02 15:04:05")
 		var credSuffix string
 		if r.Cred != nil {
@@ -209,8 +247,11 @@ func (o *Output) WriteResult(r *types.Result) error {
 		}
 		fmt.Fprintf(o.txt, "%s [+] %s:%d  [%s]  %s%s\n",
 			ts, r.Host, r.Port, r.Service, r.Banner, credSuffix)
+		o.txtMu.Unlock()
 	}
+	// JSON — own mutex. / JSON —— 独立 mutex。
 	if o.jsn != nil {
+		o.jsnMu.Lock()
 		// MINOR audit fix: apply the same redaction policy to result.json
 		// as result.txt. Without this, json.Encode(r) writes cleartext
 		// passwords to result.json even when ShowCleartext is false.
@@ -232,24 +273,20 @@ func (o *Output) WriteResult(r *types.Result) error {
 		}
 		enc := json.NewEncoder(o.jsn)
 		_ = enc.Encode(out)
+		o.jsnMu.Unlock()
 	}
-	// CSV sink. Same redaction policy as JSON/TXT (handled inside
-	// writeCSVvia). Errors are swallowed (best-effort) so a CSV write
-	// failure doesn't kill the scan. Header is emitted exactly once,
-	// on the first call after OpenOutput (the bool flips to true and
-	// stays true for the lifetime of this Output).
-	//
-	// CSV sink。脱敏策略与 JSON/TXT 相同（在 writeCSVvia 内处理）。
-	// 错误被吞掉（尽力而为）—— CSV 写失败不应中断扫描。表头在
-	// OpenOutput 后第一次调用时写入一次（bool 翻为 true 并保持）。
+	// CSV — own mutex; csv.Writer hoisted to field, header written
+	// exactly once. / CSV —— 独立 mutex；csv.Writer 提升为字段，
+	// 表头仅写一次。
 	if o.csv != nil {
-		cw := csv.NewWriter(o.csv.bw)
+		o.csvMu.Lock()
 		if !o.csvHeaderWritten {
-			_ = cw.Write(csvHeader)
+			_ = o.csvWriter.Write(csvHeader)
 			o.csvHeaderWritten = true
 		}
-		_ = o.writeCSVvia(cw, r)
-		cw.Flush()
+		_ = o.writeCSVvia(o.csvWriter, r)
+		o.csvWriter.Flush()
+		o.csvMu.Unlock()
 	}
 	return nil
 }
@@ -283,18 +320,16 @@ func (o *Output) writeCSVvia(cw *csv.Writer, r *types.Result) error {
 }
 
 // WriteCred appends a credential hit to creds.txt (separate from
-// result.txt to make it easy to grep / diff).
-//
-// WriteCred 追加凭据命中到 creds.txt（与 result.txt 分离便于 grep / diff）。
+// result.txt to make it easy to grep / diff). Uses its own mutex so
+// a slow creds.txt write can't block other sinks. / WriteCred 追加
+// 凭据命中到 creds.txt（与 result.txt 分离便于 grep / diff）。独立
+// mutex，慢 creds.txt 写不阻塞其他 sink。
 func (o *Output) WriteCred(r *types.Result) error {
-	if r.Cred == nil {
+	if r.Cred == nil || o.creds == nil {
 		return nil
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.creds == nil {
-		return nil
-	}
+	o.credsMu.Lock()
+	defer o.credsMu.Unlock()
 	ts := r.Time.Format("2006-01-02 15:04:05")
 	fmt.Fprintf(o.creds, "%s:%d  %s  %s / %s  %s\n",
 		r.Host, r.Port, r.Service, r.Cred.User, r.Cred.Pass, ts)
@@ -328,17 +363,18 @@ type RDPFingerprint struct {
 }
 
 // WriteRDP writes a structured RDP fingerprint to rdp.json (NDJSON) and
-// rdp.txt (human-readable).
-//
-// WriteRDP 把结构化的 RDP 指纹写入 rdp.json（NDJSON）和 rdp.txt（人类可读）。
+// rdp.txt (human-readable). Each file has its own mutex. / WriteRDP
+// 把结构化的 RDP 指纹写入 rdp.json（NDJSON）和 rdp.txt（人类可读）。
+// 每个文件独立 mutex。
 func (o *Output) WriteRDP(fp RDPFingerprint) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.rdpjson != nil {
+		o.rdpjsonMu.Lock()
 		enc := json.NewEncoder(o.rdpjson)
 		_ = enc.Encode(fp)
+		o.rdpjsonMu.Unlock()
 	}
 	if o.rdptxt != nil {
+		o.rdptxtMu.Lock()
 		ts := fp.ScanTime.Format("2006-01-02 15:04:05")
 		fmt.Fprintf(o.rdptxt,
 			"[%s] %s:%d  name=%q domain=%q os=%s build=%s nla=%v flags=%v cert=%q issuer=%q\n",
@@ -346,6 +382,7 @@ func (o *Output) WriteRDP(fp RDPFingerprint) error {
 			fp.ServerName, fp.Domain, fp.OSVersion, fp.OSBuild,
 			fp.NLASupported, fp.ServerFlags,
 			fp.CertSubject, fp.CertIssuer)
+		o.rdptxtMu.Unlock()
 	}
 	return nil
 }

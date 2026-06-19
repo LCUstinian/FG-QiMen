@@ -38,6 +38,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -86,8 +87,15 @@ func drainResults(sess *session.Session, in <-chan *types.Result) {
 	}
 }
 
-// persistResult writes a single result to Output + Store.
-// persistResult 把单个结果写入 Output + Store。
+// persistResult writes a single result to Output + Store. When the
+// session has a BatchWriter wired (default in project mode unless
+// --no-batch), bbolt writes are enqueued and flushed in batches —
+// amortising the per-write fsync overhead. The per-write path is
+// preserved for ephemeral mode (Store==nil) and the --no-batch
+// fallback. / persistResult 把单个结果写入 Output + Store。当 session
+// 接入了 BatchWriter（项目模式默认，--no-batch 关闭）时，bbolt 写
+// 入队并批量刷盘，摊销每次写的 fsync 开销。per-write 路径保留
+// 给 ephemeral 模式（Store==nil）和 --no-batch 回退。
 func persistResult(sess *session.Session, r *types.Result) {
 	if r == nil {
 		return
@@ -106,13 +114,26 @@ func persistResult(sess *session.Session, r *types.Result) {
 			_ = sess.Out.WriteRDP(*rdpFP)
 		}
 	}
-	if sess.Store != nil {
-		hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
-		_ = sess.Store.PutResult(hash, r)
+	if sess.Store == nil {
+		return
+	}
+	hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
+	// Batched path: enqueue and let the BatchWriter goroutine flush.
+	// / 批量路径：入队让 BatchWriter goroutine 刷盘。
+	if sess.BatchWriter != nil {
+		sess.BatchWriter.Enqueue(store.PutOp{Kind: store.PutOpResult, Hash: hash, Value: r})
 		if r.Cred != nil {
 			chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
-			_ = sess.Store.PutCred(chash, r)
+			sess.BatchWriter.Enqueue(store.PutOp{Kind: store.PutOpCred, Hash: chash, Value: r})
 		}
+		return
+	}
+	// Per-write path (--no-batch fallback or pre-batch callers).
+	// / Per-write 路径（--no-batch 回退或 pre-batch 调用方）。
+	_ = sess.Store.PutResult(hash, r)
+	if r.Cred != nil {
+		chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
+		_ = sess.Store.PutCred(chash, r)
 	}
 }
 

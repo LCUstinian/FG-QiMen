@@ -171,6 +171,147 @@ func (s *Store) PutResult(hash string, v any) error {
 	})
 }
 
+// PutOpKind identifies which bucket a PutOp targets. / PutOpKind 标识
+// PutOp 写入的 bucket。
+type PutOpKind int
+
+const (
+	// PutOpResult writes to the results bucket. / 写入 results bucket。
+	PutOpResult PutOpKind = iota + 1
+	// PutOpCred writes to the creds bucket. / 写入 creds bucket。
+	PutOpCred
+	// PutOpSeen writes to the targets (seen-hash) bucket. / 写入
+	// targets（已见 hash）bucket。
+	PutOpSeen
+)
+
+// PutOp is one element of a batched write. The Value is JSON-marshaled
+// (and encrypted when the store has an encryption layer) at batch-flush
+// time, not at construction time. / PutOp 是批量写入的一个元素。
+// Value 在批量刷盘时（而非构造时）被 JSON 序列化（并按需加密）。
+type PutOp struct {
+	Kind  PutOpKind
+	Hash  string
+	Value any
+}
+
+// PutMany persists a batch of operations in a single bbolt transaction.
+// This is significantly cheaper than calling PutResult / PutCred /
+// MarkSeenPersisted in a loop because bbolt commits one fsync per
+// Update(); at scan rates of ~50 results/sec the per-write pattern
+// produces 50 fsyncs/sec on the DB file. PutMany amortises that to
+// a single fsync per batch. / PutMany 在单次 bbolt 事务中批量写入。
+// 这比循环调用 PutResult / PutCred / MarkSeenPersisted 便宜得多——
+// bbolt 每次 Update() 触发一次 fsync；50 结果/秒的扫描速率下，
+// per-write 模式每秒对 DB 文件 fsync 50 次。PutMany 把单次批量
+// 摊销为 1 次 fsync。
+//
+// The on-disk format and encryption are unchanged — PutMany is a
+// performance wrapper, not a format change. / 磁盘格式和加密不变
+// —— PutMany 是性能包装，不是格式变更。
+func (s *Store) PutMany(ops []PutOp) error {
+	if s == nil || s.db == nil || len(ops) == 0 {
+		return nil
+	}
+	// Pre-marshal + seal outside the transaction so JSON encoding
+	// and AES-GCM work don't hold the bbolt write lock.
+	// 在事务外预序列化+加密，避免 JSON 编码和 AES-GCM 工作持
+	// bbolt 写锁。
+	prepared := make([]PutOp, len(ops))
+	for i, op := range ops {
+		if op.Kind == PutOpSeen {
+			// Seen writes are timestamp bytes, not JSON.
+			// / Seen 写入是时间戳字节，不是 JSON。
+			prepared[i] = PutOp{
+				Kind:  op.Kind,
+				Hash:  op.Hash,
+				Value: []byte(time.Now().UTC().Format(time.RFC3339Nano)),
+			}
+			continue
+		}
+		data, err := json.Marshal(op.Value)
+		if err != nil {
+			return fmt.Errorf("store: marshal PutOp[%d]: %w", i, err)
+		}
+		stored, err := s.sealIfNeeded(data)
+		if err != nil {
+			return fmt.Errorf("store: seal PutOp[%d]: %w", i, err)
+		}
+		prepared[i] = PutOp{Kind: op.Kind, Hash: op.Hash, Value: stored}
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		// Resolve (or create) each bucket once, not per-op.
+		// / 每种 bucket 只解析（或创建）一次。
+		var resultsBk, credsBk, seenBk *bolt.Bucket
+		getResults := func() (*bolt.Bucket, error) {
+			if resultsBk != nil {
+				return resultsBk, nil
+			}
+			bk, err := tx.CreateBucketIfNotExists(bucketResults)
+			if err != nil {
+				return nil, err
+			}
+			resultsBk = bk
+			return bk, nil
+		}
+		getCreds := func() (*bolt.Bucket, error) {
+			if credsBk != nil {
+				return credsBk, nil
+			}
+			bk, err := tx.CreateBucketIfNotExists(bucketCreds)
+			if err != nil {
+				return nil, err
+			}
+			credsBk = bk
+			return bk, nil
+		}
+		getSeen := func() (*bolt.Bucket, error) {
+			if seenBk != nil {
+				return seenBk, nil
+			}
+			bk, err := tx.CreateBucketIfNotExists(bucketTargets)
+			if err != nil {
+				return nil, err
+			}
+			seenBk = bk
+			return bk, nil
+		}
+		for _, op := range prepared {
+			var bk *bolt.Bucket
+			switch op.Kind {
+			case PutOpResult:
+				var err error
+				bk, err = getResults()
+				if err != nil {
+					return err
+				}
+			case PutOpCred:
+				var err error
+				bk, err = getCreds()
+				if err != nil {
+					return err
+				}
+			case PutOpSeen:
+				var err error
+				bk, err = getSeen()
+				if err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("store: unknown PutOpKind %d", op.Kind)
+			}
+			val, ok := op.Value.([]byte)
+			if !ok {
+				return fmt.Errorf("store: PutOp[%s] value not []byte", op.Hash)
+			}
+			if err := bk.Put([]byte(op.Hash), val); err != nil {
+				return fmt.Errorf("store: put %s: %w", op.Hash, err)
+			}
+		}
+		return nil
+	})
+}
+
 // PutCred persists a credential hit to the creds bucket.
 // PutCred 把凭据命中持久化到 creds bucket。
 //

@@ -443,6 +443,7 @@ func buildConfig() (*types.Config, error) {
 		Silent:           flagSilent,
 		NoTUI:            flagNoTUI,
 		NoICMP:           flagNoICMP,
+		NoBatch:          flagNoBatch,
 		Verbose:          flagVerbose,
 		ShowCleartext:    flagShowCleartext,
 		InsecureTLS:      flagInsecureTLS,

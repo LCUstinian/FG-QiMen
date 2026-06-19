@@ -84,6 +84,7 @@ var (
 	flagSilent        bool
 	flagNoTUI         bool
 	flagNoICMP        bool
+	flagNoBatch       bool
 	flagVerbose       bool
 	flagShowCleartext bool
 	flagInsecureTLS   bool
@@ -197,6 +198,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"suppress info log to console; file output still works")
 	pf.BoolVar(&flagNoTUI, "no-tui", false,
 		"force plain-text mode even when stdout is a TTY")
+	pf.BoolVar(&flagNoBatch, "no-batch", false,
+		"disable bbolt batched writes; fall back to per-write fsync")
 	pf.BoolVar(&flagNoICMP, "no-icmp", false,
 		"skip ICMP probe, use TCP-ping fallback only")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false,
@@ -228,6 +231,6 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv"}, groupOutput)
-	annotate(pf, []string{"silent", "no-tui", "no-icmp", "verbose", "plugins"}, groupBehavior)
+	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

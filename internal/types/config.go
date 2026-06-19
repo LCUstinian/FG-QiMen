@@ -138,6 +138,18 @@ type Config struct {
 
 	// Lifecycle / 生命周期
 	ShutdownTimeout time.Duration
+
+	// NoBatch disables bbolt batched writes. When false (default),
+	// the pipeline accumulates results/creds/seen-hashes and flushes
+	// them in batches of 32 ops or every 200ms, amortising the
+	// per-write fsync overhead. Set to true to fall back to the
+	// per-write pattern (useful for crash-window-sensitive runs).
+	//
+	// NoBatch 禁用 bbolt 批量写。false（默认）时，管线累加结果/
+	// 凭据/已见 hash，按 32 ops 或 200ms 批量刷盘，摊销每次
+	// 写的 fsync 开销。设为 true 回退到 per-write 模式（崩溃窗
+	// 口敏感的运行有用）。
+	NoBatch bool
 }
 
 // Validate checks the Config for required fields and mutually-exclusive

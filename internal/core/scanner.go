@@ -24,6 +24,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -64,6 +65,21 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	if len(aliveRes.Hits) > 0 && len(aliveRes.Hits) < len(targets) {
 		sess.Log.Info("[*] alive: %d/%d hosts responded", len(aliveRes.Hits), len(targets))
 	}
+
+	// Wire the bbolt batched writer when persistence is enabled and
+	// the operator hasn't explicitly disabled it. The BatchWriter
+	// goroutine flushes every DefaultBatchInterval (200ms) or
+	// DefaultBatchSize (32) ops, whichever comes first — amortising
+	// the per-write fsync. / 当启用持久化且操作员未显式禁用时，
+	// 接入 bbolt 批量写。BatchWriter goroutine 按 DefaultBatchInterval
+	// （200ms）或 DefaultBatchSize（32）刷盘，摊销每次写的 fsync。
+	if sess.Store != nil && !cfg.NoBatch {
+		bw := store.NewBatchWriter(sess.Store, store.DefaultBatchSize, store.DefaultBatchInterval)
+		sess.BatchWriter = bw
+		defer bw.Stop()
+		go bw.Run(ctx)
+	}
+
 	if cfg.AliveOnly {
 		sess.UI.Done(summaryString(sess))
 		return 0, nil

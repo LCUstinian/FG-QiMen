@@ -16,15 +16,23 @@
 // (core.RunScan) is the only writer. Add a concurrency test when
 // the v0.3+ scheduler actually fans out multiple writers.
 //
+// UPDATE (Phase 1.3): the v0.3.1+ scheduler DOES fan out multiple
+// writers (200 workers in pipeline_workers.go). Output now uses
+// per-sink mutexes, so concurrent writes to different files must
+// not interleave. TestOutput_ConcurrentWritesDifferentSinks covers
+// this.
+//
 // output_test.go — internal/output 多格式结果汇的单测。
 package output
 
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -331,4 +339,132 @@ func TestCloseIdempotent(t *testing.T) {
 		}
 	}()
 	_ = o.Close()
+}
+
+// TestOutput_ConcurrentWritesDifferentSinks verifies the per-sink
+// mutex split: writes to TXT, JSON, creds, RDP-json, RDP-txt must
+// never interleave with writes to the SAME sink (lines stay atomic)
+// even when 200+ workers write concurrently. The Phase 1.3 refactor
+// split one Output.mu into six per-sink mutexes; this test pins the
+// correctness contract. / TestOutput_ConcurrentWritesDifferentSinks
+// 验证 per-sink mutex 拆分：对 TXT/JSON/creds/RDP-json/RDP-txt 的写
+// 不能互相交错（行保持原子），即使 200+ worker 并发写。Phase 1.3
+// 重构把一个 Output.mu 拆为六个 per-sink mutex；本测试锁住正确
+// 性契约。
+func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
+	dir := t.TempDir()
+	cfg := OutputConfig{
+		ResultTXTPath:  filepath.Join(dir, "r.txt"),
+		ResultJSONPath: filepath.Join(dir, "r.json"),
+		CredsPath:      filepath.Join(dir, "creds.txt"),
+		RDPJSONPath:    filepath.Join(dir, "rdp.json"),
+		RDPTXTPath:     filepath.Join(dir, "rdp.txt"),
+	}
+	o, err := OpenOutput(cfg)
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+	defer o.Close()
+
+	const workers = 50
+	const perWorker = 20
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < perWorker; i++ {
+				r := &types.Result{
+					Host:    "10.0.0.1",
+					Port:    22,
+					Service: "ssh",
+					Time:    time.Now(),
+					Cred: &types.Cred{
+						User:     fmt.Sprintf("u%d-%d", id, i),
+						Pass:     fmt.Sprintf("p%d-%d", id, i),
+						AuthType: "password",
+					},
+				}
+				if err := o.WriteResult(r); err != nil {
+					t.Errorf("WriteResult: %v", err)
+					return
+				}
+				if err := o.WriteCred(r); err != nil {
+					t.Errorf("WriteCred: %v", err)
+					return
+				}
+				fp := RDPFingerprint{
+					Host:     r.Host,
+					Port:     r.Port,
+					ScanTime: r.Time,
+				}
+				if err := o.WriteRDP(fp); err != nil {
+					t.Errorf("WriteRDP: %v", err)
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	// Flush so the bufio.Writer contents hit disk before we read.
+	// / 刷新让 bufio.Writer 内容在读取前落盘。
+	if err := o.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	// Read back and verify every line is intact (no interleaving).
+	// / 读回验证每行完整（无交错）。
+	want := workers * perWorker
+	assertLineCount := func(path string) {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("open %s: %v", path, err)
+		}
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		n := 0
+		for sc.Scan() {
+			line := sc.Text()
+			if line == "" {
+				continue
+			}
+			n++
+			// Every line should be non-empty and well-formed.
+			// / 每行应非空且格式正确。
+			if len(line) < 3 {
+				t.Errorf("%s: line %d too short: %q", path, n, line)
+			}
+		}
+		if err := sc.Err(); err != nil {
+			t.Errorf("%s scanner: %v", path, err)
+		}
+		if n != want {
+			t.Errorf("%s: got %d lines, want %d", path, n, want)
+		}
+	}
+	assertLineCount(filepath.Join(dir, "r.txt"))
+	assertLineCount(filepath.Join(dir, "creds.txt"))
+	assertLineCount(filepath.Join(dir, "rdp.txt"))
+	// JSON / NDJSON files: each line is one JSON object, no
+	// interleaving means no line is invalid JSON. / JSON 文件每行一
+	// 个 JSON 对象，无交错意味着没有非法 JSON 行。
+	for _, p := range []string{filepath.Join(dir, "r.json"), filepath.Join(dir, "rdp.json")} {
+		f, err := os.Open(p)
+		if err != nil {
+			t.Fatalf("open %s: %v", p, err)
+		}
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		n := 0
+		for sc.Scan() {
+			n++
+			var v any
+			if err := json.Unmarshal(sc.Bytes(), &v); err != nil {
+				t.Errorf("%s line %d not valid JSON: %q (%v)", p, n, sc.Text(), err)
+			}
+		}
+		if n != want {
+			t.Errorf("%s: got %d JSON lines, want %d", p, n, want)
+		}
+	}
 }

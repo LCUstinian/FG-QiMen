@@ -24,6 +24,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
+	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
@@ -127,7 +128,11 @@ func runPluginWorker(
 						r.Service = p.Name()
 						sess.State.MarkSeen(hash)
 						if sess.Store != nil {
-							_ = sess.Store.MarkSeenPersisted(hash, time.Now())
+							if sess.BatchWriter != nil {
+								sess.BatchWriter.Enqueue(store.PutOp{Kind: store.PutOpSeen, Hash: hash})
+							} else {
+								_ = sess.Store.MarkSeenPersisted(hash, time.Now())
+							}
 						}
 						sess.State.Counters.Results.Add(1)
 						sess.UI.Event(r)
@@ -160,8 +165,11 @@ func runPluginWorker(
 
 // persistResultInline writes a result directly to Output + Store when the
 // normal sink path is unavailable (ctx canceled, out channel blocked).
-// Used by M2 drain paths. / persistResultInline 在正常 sink 路径不可用
-// （ctx 取消、out channel 阻塞）时直接把结果写入 Output + Store。M2 drain 路径使用。
+// Used by M2 drain paths. Honours BatchWriter when present (same
+// behaviour as persistResult in pipeline_sink.go). / persistResultInline
+// 在正常 sink 路径不可用（ctx 取消、out channel 阻塞）时直接把结
+// 果写入 Output + Store。M2 drain 路径使用。有 BatchWriter 时与之
+// 同 persistResult 行为一致。
 func persistResultInline(sess *session.Session, r *types.Result) {
 	if r == nil {
 		return
@@ -172,13 +180,22 @@ func persistResultInline(sess *session.Session, r *types.Result) {
 			_ = sess.Out.WriteCred(r)
 		}
 	}
-	if sess.Store != nil {
-		hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
-		_ = sess.Store.PutResult(hash, r)
+	if sess.Store == nil {
+		return
+	}
+	hash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin)
+	if sess.BatchWriter != nil {
+		sess.BatchWriter.Enqueue(store.PutOp{Kind: store.PutOpResult, Hash: hash, Value: r})
 		if r.Cred != nil {
 			chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
-			_ = sess.Store.PutCred(chash, r)
+			sess.BatchWriter.Enqueue(store.PutOp{Kind: store.PutOpCred, Hash: chash, Value: r})
 		}
+		return
+	}
+	_ = sess.Store.PutResult(hash, r)
+	if r.Cred != nil {
+		chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
+		_ = sess.Store.PutCred(chash, r)
 	}
 }
 

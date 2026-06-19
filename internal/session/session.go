@@ -46,6 +46,14 @@ type Session struct {
 	// Store 是可选的 bbolt 持久化（即扫即走模式下为 nil）。
 	Store *store.Store
 
+	// BatchWriter accumulates bbolt writes for high-throughput scans
+	// and flushes them in batches. Nil when Store is nil or when
+	// Config.NoBatch is true (per-write fallback). Set by core.RunScan.
+	// / BatchWriter 累加 bbolt 写并批量刷盘（高吞吐扫描用）。Store
+	// 为 nil 或 Config.NoBatch 为 true（per-write 回退）时为 nil。由
+	// core.RunScan 设置。
+	BatchWriter *store.BatchWriter
+
 	// Out is the multi-format result sink.
 	// Out 是多格式结果汇。
 	Out *output.Output
