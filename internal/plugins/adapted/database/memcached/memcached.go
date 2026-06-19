@@ -11,7 +11,6 @@ package memcached
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -45,29 +44,23 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 // Identify sends "version\r\n" and parses the VERSION response. /
 // Identify 发 "version\r\n" 并解析 VERSION 响应。
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: 3 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
-	if _, err := conn.Write([]byte("version\r\n")); err != nil {
-		return nil
-	}
-	br := bufio.NewReader(conn)
-	line, err := br.ReadString('\n')
-	if err != nil {
-		return nil
-	}
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "VERSION ") {
-		return nil
-	}
-	return &types.Result{
-		Host: host, Port: port, Service: "memcached",
-		Banner: "memcached " + strings.TrimPrefix(line, "VERSION "),
-		Time:   time.Now(),
-	}
+	return plugins.RawTCPIdentify(ctx, host, port, func(conn net.Conn) *types.Result {
+		if _, err := conn.Write([]byte("version\r\n")); err != nil {
+			return nil
+		}
+		br := bufio.NewReader(conn)
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil
+		}
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "VERSION ") {
+			return nil
+		}
+		return &types.Result{
+			Host: host, Port: port, Service: "memcached",
+			Banner: "memcached " + strings.TrimPrefix(line, "VERSION "),
+			Time:   time.Now(),
+		}
+	})
 }

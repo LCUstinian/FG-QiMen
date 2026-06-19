@@ -11,7 +11,6 @@ package mongodb
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"time"
 
@@ -58,52 +57,45 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //   - section: 1 字节（0 = body）
 //   - body: BSON 文档
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: 3 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	return plugins.RawTCPIdentify(ctx, host, port, func(conn net.Conn) *types.Result {
+		// Build OP_MSG with hello doc. {hello: 1}.
+		// 构造 OP_MSG + hello 文档。
+		body := bsonDoc(map[string]any{"hello": int32(1), "$db": "admin"})
+		msg := make([]byte, 16+4+1+len(body))
+		binary.LittleEndian.PutUint32(msg[12:16], 2013) // opCode
+		msg[16] = 0                                     // flagBits
+		msg[20] = 0                                     // section type
+		copy(msg[21:], body)
+		binary.LittleEndian.PutUint32(msg[0:4], uint32(len(msg)))
 
-	// Build OP_MSG with hello doc. {hello: 1}.
-	// 构造 OP_MSG + hello 文档。
-	body := bsonDoc(map[string]any{"hello": int32(1), "$db": "admin"})
-	msg := make([]byte, 16+4+1+len(body))
-	binary.LittleEndian.PutUint32(msg[12:16], 2013) // opCode
-	msg[16] = 0                                     // flagBits
-	msg[20] = 0                                     // section type
-	copy(msg[21:], body)
-	binary.LittleEndian.PutUint32(msg[0:4], uint32(len(msg)))
-
-	if _, err := conn.Write(msg); err != nil {
-		return nil
-	}
-	resp := make([]byte, 4096)
-	n, err := conn.Read(resp)
-	if err != nil || n < 20 {
-		return nil
-	}
-	// Parse response header. / 解析响应头。
-	respOpcode := binary.LittleEndian.Uint32(resp[12:16])
-	if respOpcode != 2013 && respOpcode != 2014 {
-		return nil
-	}
-	// Find "version" string in body. / 在 body 中找 "version" 字符串。
-	// Simplified: scan the body for the byte sequence "version\0".
-	// / 简化：在 body 中扫 "version\0" 字节序列。
-	bs := resp[20:n]
-	if v := extractBSONString(bs, "version"); v != "" {
+		if _, err := conn.Write(msg); err != nil {
+			return nil
+		}
+		resp := make([]byte, 4096)
+		n, err := conn.Read(resp)
+		if err != nil || n < 20 {
+			return nil
+		}
+		// Parse response header. / 解析响应头。
+		respOpcode := binary.LittleEndian.Uint32(resp[12:16])
+		if respOpcode != 2013 && respOpcode != 2014 {
+			return nil
+		}
+		// Find "version" string in body. / 在 body 中找 "version" 字符串。
+		// Simplified: scan the body for the byte sequence "version\0".
+		// / 简化：在 body 中扫 "version\0" 字节序列。
+		bs := resp[20:n]
+		if v := extractBSONString(bs, "version"); v != "" {
+			return &types.Result{
+				Host: host, Port: port, Service: "mongodb",
+				Banner: "MongoDB " + v, Time: time.Now(),
+			}
+		}
 		return &types.Result{
 			Host: host, Port: port, Service: "mongodb",
-			Banner: "MongoDB " + v, Time: time.Now(),
+			Banner: "MongoDB", Time: time.Now(),
 		}
-	}
-	return &types.Result{
-		Host: host, Port: port, Service: "mongodb",
-		Banner: "MongoDB", Time: time.Now(),
-	}
+	})
 }
 
 // bsonDoc encodes a simple BSON document. Keys must be strings. / bsonDoc 编码简单 BSON 文档。

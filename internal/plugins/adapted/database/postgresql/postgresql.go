@@ -12,7 +12,6 @@ package postgresql
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"net"
 	"time"
 
@@ -61,51 +60,44 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //   - 前端 → 后端 StartupMessage：int32 长度 + int32 协议(3,0) + kv 对
 //   - 后端 → 前端：'R' 认证成功，'E' 错误响应
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: 3 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
-
-	// Build StartupMessage: length, protocol=3.0, user, database, \0.
-	// / 构造 StartupMessage：长度、协议=3.0、user、database、\0。
-	body := []byte{}
-	body = append(body, 0, 0, 0, 0)             // placeholder length
-	body = append(body, 0x00, 0x03, 0x00, 0x00) // protocol 3.0
-	body = append(body, "user\x00postgres\x00"...)
-	body = append(body, "database\x00postgres\x00"...)
-	body = append(body, 0x00) // terminator
-	binary.BigEndian.PutUint32(body[0:4], uint32(len(body)))
-	if _, err := conn.Write(body); err != nil {
-		return nil
-	}
-	resp := make([]byte, 1024)
-	n, err := conn.Read(resp)
-	if err != nil || n < 5 {
-		return nil
-	}
-	switch resp[0] {
-	case 'R':
-		// AuthenticationOk (no body) or AuthenticationCleartextPassword
-		// (body int32=3 then 0x00). We don't care about the body,
-		// just the type byte proves it's PostgreSQL.
-		// / AuthenticationOk（无 body）或 AuthenticationCleartextPassword
-		// （body int32=3 然后 0x00）。我们不关心 body，仅类型字节证明是 PG。
-		return &types.Result{
-			Host: host, Port: port, Service: "postgresql",
-			Banner: "PostgreSQL", Time: time.Now(),
+	return plugins.RawTCPIdentify(ctx, host, port, func(conn net.Conn) *types.Result {
+		// Build StartupMessage: length, protocol=3.0, user, database, \0.
+		// / 构造 StartupMessage：长度、协议=3.0、user、database、\0。
+		body := []byte{}
+		body = append(body, 0, 0, 0, 0)             // placeholder length
+		body = append(body, 0x00, 0x03, 0x00, 0x00) // protocol 3.0
+		body = append(body, "user\x00postgres\x00"...)
+		body = append(body, "database\x00postgres\x00"...)
+		body = append(body, 0x00) // terminator
+		binary.BigEndian.PutUint32(body[0:4], uint32(len(body)))
+		if _, err := conn.Write(body); err != nil {
+			return nil
 		}
-	case 'E':
-		// ErrorResponse — could be a server that rejected the user/db.
-		// Still proves it's PostgreSQL. / ErrorResponse——可能是服务
-		// 拒了 user/db。仍证明是 PostgreSQL。
-		return &types.Result{
-			Host: host, Port: port, Service: "postgresql",
-			Banner: "PostgreSQL (auth error)", Time: time.Now(),
+		resp := make([]byte, 1024)
+		n, err := conn.Read(resp)
+		if err != nil || n < 5 {
+			return nil
 		}
-	}
-	return nil
+		switch resp[0] {
+		case 'R':
+			// AuthenticationOk (no body) or AuthenticationCleartextPassword
+			// (body int32=3 then 0x00). We don't care about the body,
+			// just the type byte proves it's PostgreSQL.
+			// / AuthenticationOk（无 body）或 AuthenticationCleartextPassword
+			// （body int32=3 然后 0x00）。我们不关心 body，仅类型字节证明是 PG。
+			return &types.Result{
+				Host: host, Port: port, Service: "postgresql",
+				Banner: "PostgreSQL", Time: time.Now(),
+			}
+		case 'E':
+			// ErrorResponse — could be a server that rejected the user/db.
+			// Still proves it's PostgreSQL. / ErrorResponse——可能是服务
+			// 拒了 user/db。仍证明是 PostgreSQL。
+			return &types.Result{
+				Host: host, Port: port, Service: "postgresql",
+				Banner: "PostgreSQL (auth error)", Time: time.Now(),
+			}
+		}
+		return nil
+	})
 }
