@@ -183,3 +183,93 @@ func TestOpen_EncryptedValueButNoKey(t *testing.T) {
 		t.Fatalf("Open(encrypted, nil enc) returned nil error; want error")
 	}
 }
+
+func TestOpen_TamperedMagicByte(t *testing.T) {
+	// SECURITY: The magic byte (0x02) is bound to the ciphertext via
+	// AAD. A tamperer who flips 0x02 → 0x01 on disk must NOT be able
+	// to recover the plaintext via the legacy code path (AAD=nil
+	// would fail the GCM auth tag check).
+	//
+	// 安全：magic 字节（0x02）通过 AAD 绑定到密文。攻击者把 0x02
+	// 翻成 0x01（遗留格式），不应能通过遗留代码路径还原明文
+	// （AAD=nil 会导致 GCM auth tag 校验失败）。
+	//
+	// Note: flipping 0x02 → 0x00 (plaintext marker) returns the raw
+	// nonce+ct+tag bytes as "plaintext" via the magicPlain branch.
+	// This is NOT a confidentiality breach — the attacker who has
+	// disk access can already read the ciphertext, and the bytes
+	// returned are not the original plaintext (they're the on-disk
+	// encoding). We only assert that the plaintext is NOT recoverable.
+	//
+	// 注：翻成 0x00（明文标记）会让 magicPlain 分支返回原始
+	// nonce+ct+tag 字节作为"明文"。这不构成机密性泄露——能
+	// 动磁盘的攻击者本来就能读密文，而返回的字节也不是原始
+	// 明文（是磁盘编码）。我们只断言明文不可还原。
+	key := DeriveKey("magic-tamper")
+	enc, _ := NewEncryptedValue(key)
+	plaintext := []byte(`{"user":"admin","pass":"hunter2"}`)
+	sealed, err := enc.Seal(plaintext)
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	// Flip 0x02 → 0x01 (legacy encrypted, AAD=nil). The legacy
+	// code path tries to decrypt with AAD=nil, but the GCM auth
+	// tag was computed with AAD=[]byte{0x02}, so it must fail.
+	// 翻成 0x01（遗留加密格式，AAD=nil）。遗留代码路径尝试用
+	// AAD=nil 解密，但 GCM auth tag 是用 AAD=[]byte{0x02} 算
+	// 的，所以必须失败。
+	sealed[0] = magicEncryptedLegacy
+	opened, err := enc.Open(sealed)
+	if !errors.Is(err, ErrDecryptFailed) {
+		t.Fatalf("Open with flipped magic 0x%01x returned err=%v, want ErrDecryptFailed", magicEncryptedLegacy, err)
+	}
+	// And the returned bytes (if any) must not equal the plaintext.
+	// 且返回的字节（如果有）不能等于明文。
+	if bytes.Equal(opened, plaintext) {
+		t.Fatalf("flipped magic 0x%01x returned the original plaintext — auth bypass!", magicEncryptedLegacy)
+	}
+
+	// Flip 0x02 → 0x00 (plaintext marker). The returned bytes must
+	// not equal the original plaintext. / 翻成 0x00（明文标记）。
+	// 返回的字节不能等于原始明文。
+	sealed[0] = magicPlain
+	opened, err = enc.Open(sealed)
+	if err != nil {
+		// An error is fine — what matters is no plaintext leak.
+		// 出错也可——重要的是没有明文泄露。
+		return
+	}
+	if bytes.Equal(opened, plaintext) {
+		t.Fatalf("flipped magic 0x%01x returned the original plaintext — auth bypass!", magicPlain)
+	}
+}
+
+func TestOpen_LegacyEncryptedFormat(t *testing.T) {
+	// Forward compat: a v0.3.0 DB written with magic=0x01 and AAD=nil
+	// must still be readable. This is regression protection for
+	// freshly-created v0.3.0 DBs that haven't been re-written.
+	//
+	// 向后兼容：v0.3.0 时代 magic=0x01 + AAD=nil 写入的 DB 仍能
+	// 读出。这是对刚创建的 v0.3.0 DB（尚未重写）的回归保护。
+	key := DeriveKey("legacy")
+	enc, _ := NewEncryptedValue(key)
+	plaintext := []byte(`{"legacy":true}`)
+
+	// Hand-craft a v0.3.0-format value: magic=0x01, AAD=nil.
+	// 手工构造 v0.3.0 格式：magic=0x01, AAD=nil。
+	nonce := make([]byte, nonceSize)
+	for i := range nonce {
+		nonce[i] = byte(i + 1)
+	}
+	ct := enc.gcm.Seal(nil, nonce, plaintext, nil)
+	sealed := append([]byte{magicEncryptedLegacy}, append(nonce, ct...)...)
+
+	opened, err := enc.Open(sealed)
+	if err != nil {
+		t.Fatalf("Open(legacy 0x01): %v", err)
+	}
+	if !bytes.Equal(opened, plaintext) {
+		t.Fatalf("legacy roundtrip mismatch: got %q want %q", opened, plaintext)
+	}
+}

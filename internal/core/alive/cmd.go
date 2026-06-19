@@ -97,6 +97,19 @@ func (p *cmdProbe) Probe(ctx context.Context, host string, timeout time.Duration
 		}
 		args = []string{"-c", "1", "-W", fmt.Sprintf("%d", secs), host}
 	}
+	// SECURITY: refuse hosts that look like command-line flags. Otherwise
+	// an operator typo (`-r foo`) or a malicious target (e.g. a
+	// filename that starts with `-`) would be passed to the system
+	// `ping` binary as a flag. POSIX `ping` doesn't support `--` to
+	// end-of-options on every platform, so we reject up-front.
+	//
+	// 安全：拒绝看起来像命令行 flag 的 host。否则操作员笔误
+	// （`-r foo`）或恶意 target（如以 `-` 开头的文件名）会被传
+	// 给系统 `ping` 当 flag。POSIX `ping` 并非所有平台都支持
+	// `--` 终止选项，所以提前拒绝。
+	if strings.HasPrefix(host, "-") {
+		return Hit{}, fmt.Errorf("%w: host starts with '-' which would be parsed as a ping flag: %q", ErrUnreachable, host)
+	}
 
 	cctx, cancel := context.WithTimeout(ctx, p.timeout+1*time.Second)
 	defer cancel()

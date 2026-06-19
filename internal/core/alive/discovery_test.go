@@ -175,6 +175,35 @@ func TestSystemPing_Localhost(t *testing.T) {
 	}
 }
 
+// TestSystemPing_RejectsFlagLikeHost verifies the SECURITY guard against
+// passing a host argument that looks like a command-line flag. A user
+// typo (`-r foo`) or a malicious target starting with `-` must NOT be
+// forwarded to the system `ping` binary as a flag. / TestSystemPing_RejectsFlagLikeHost
+// 验证安全防护：拒绝看起来像命令行 flag 的 host 参数。笔误
+// （`-r foo`）或以 `-` 开头的恶意 target 不应被传给系统 `ping`。
+func TestSystemPing_RejectsFlagLikeHost(t *testing.T) {
+	probe := NewSystemPingProbe()
+	if err := probe.Available(); err != nil {
+		t.Skipf("ping not on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Try several flag-like values. None should reach the system
+	// `ping` binary — all must be rejected up-front. / 尝试几个
+	// 像 flag 的值。都不到达系统 `ping`——必须全部提前拒绝。
+	for _, bad := range []string{"-r", "-c", "-n", "--help", "-f"} {
+		_, err := probe.Probe(ctx, bad, 1*time.Second)
+		if err == nil {
+			t.Errorf("Probe(%q) accepted flag-like host; want error", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "flag") {
+			t.Errorf("Probe(%q) error = %v, want flag-rejection message", bad, err)
+		}
+	}
+}
+
 // TestDiscovery_AvailableProbes verifies that probes failing Available()
 // are filtered out. / TestDiscovery_AvailableProbes 验证 Available() 失败的
 // probe 被过滤。

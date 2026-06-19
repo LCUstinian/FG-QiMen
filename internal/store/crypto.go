@@ -50,9 +50,19 @@ const (
 	// magicPlain 标记明文值（v0.2.x 磁盘格式）。
 	magicPlain byte = 0x00
 
-	// magicEncrypted marks an AES-256-GCM encrypted value.
-	// magicEncrypted 标记 AES-256-GCM 加密值。
-	magicEncrypted byte = 0x01
+	// magicEncryptedLegacy marks a v0.3.0 AES-256-GCM encrypted value
+	// without AAD protection on the magic byte. Kept readable for
+	// forward compatibility with freshly-created v0.3.0 DBs.
+	// magicEncryptedLegacy 标记 v0.3.0 时代 AES-256-GCM 加密值，
+	// magic 字节未受 AAD 保护。保留可读以兼容刚创建的 v0.3.0 DB。
+	magicEncryptedLegacy byte = 0x01
+
+	// magicEncrypted marks an AES-256-GCM encrypted value with the
+	// magic byte bound to the ciphertext via Additional Authenticated
+	// Data. Bit-flips on the magic byte are detected as ErrDecryptFailed.
+	// magicEncrypted 标记 AES-256-GCM 加密值，magic 字节通过
+	// AAD 绑定到密文。magic 字节位翻转会被检测为 ErrDecryptFailed。
+	magicEncrypted byte = 0x02
 
 	// nonceSize is the GCM standard nonce size (12 bytes).
 	// nonceSize 是 GCM 标准 nonce 长度（12 字节）。
@@ -112,9 +122,18 @@ func NewEncryptedValue(key []byte) (*EncryptedValue, error) {
 
 // Seal encrypts plaintext and returns the on-disk value layout:
 //
-//	0x01 | 12-byte nonce | ciphertext + 16-byte tag
+//	0x02 | 12-byte nonce | ciphertext + 16-byte tag
 //
-// Seal 加密明文，返回磁盘值布局：0x01 | 12 字节 nonce | 密文 + 16 字节 tag。
+// Seal 加密明文，返回磁盘值布局：0x02 | 12 字节 nonce | 密文 + 16 字节 tag。
+//
+// The magic byte (0x02) is bound to the ciphertext as Additional
+// Authenticated Data so a tamperer who flips 0x02 → 0x00/0x01 cannot trick
+// Open() into returning ciphertext as plaintext. AAD participates in
+// the GCM auth tag, so any magic-byte flip is detected as ErrDecryptFailed.
+//
+// magic 字节（0x02）作为 Additional Authenticated Data 绑定到密文，攻击
+// 者若把 0x02 翻成 0x00/0x01 无法骗过 Open() 把密文当明文返回。AAD 参与
+// GCM auth tag 计算，任何 magic 字节翻转都会触发 ErrDecryptFailed。
 func (e *EncryptedValue) Seal(plaintext []byte) ([]byte, error) {
 	if e == nil || e.gcm == nil {
 		return nil, errors.New("store: EncryptedValue is nil")
@@ -123,23 +142,44 @@ func (e *EncryptedValue) Seal(plaintext []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("store: read nonce: %w", err)
 	}
-	// Seal appends ciphertext+tag to nonce and returns the combined slice.
-	// Seal 把密文+tag 追加到 nonce 后并返回合并后的 slice。
-	sealed := e.gcm.Seal(nonce, nonce, plaintext, nil)
+	// Bind the magic byte to the ciphertext via AAD. The first byte of
+	// the on-disk layout is the magic; the auth tag covers it.
+	// Use the nonce as the destination buffer (matching the on-disk
+	// layout 0x02 | nonce | ct | tag) so we avoid one allocation.
+	// 通过 AAD 把 magic 字节绑定到密文。磁盘布局首字节是 magic；auth tag 覆盖它。
+	// 用 nonce 当 dst buffer（保持磁盘布局 0x02 | nonce | ct | tag），
+	// 省一次内存分配。
+	sealed := e.gcm.Seal(nonce, nonce, plaintext, []byte{magicEncrypted})
 
-	out := make([]byte, 0, 1+len(sealed))
+	out := make([]byte, 0, len(sealed))
 	out = append(out, magicEncrypted)
 	out = append(out, sealed...)
 	return out, nil
 }
 
 // Open inspects a stored value and either returns the plaintext (when the
-// stored value is unencrypted or e is nil) or decrypts it (when magic byte
-// is 0x01). Returns ErrDecryptFailed for a 0x01 value when decryption
-// fails (wrong key, tampered data, or truncated).
+// stored value is unencrypted or e is nil) or decrypts it. Returns
+// ErrDecryptFailed for an encrypted value when decryption fails (wrong
+// key, tampered data, or truncated).
 //
-// Open 检查存储值，未加密或 e 为 nil 时返回明文；magic 字节为 0x01 时
-// 解密。0x01 值解密失败返回 ErrDecryptFailed（密钥错、值被篡改或截断）。
+// Supported on-disk formats:
+//   - 0x00 + payload           — v0.2.x plaintext (legacy)
+//   - 0x01 + nonce + ct + tag  — v0.3.0 encrypted, AAD=nil (legacy)
+//   - 0x02 + nonce + ct + tag  — v0.3.1+ encrypted, AAD=magic (AAD-protected)
+//
+// Bit-flips on the magic byte of an AAD-protected value are detected as
+// ErrDecryptFailed (the GCM auth tag covers the magic byte).
+//
+// Open 检查存储值，未加密或 e 为 nil 时返回明文；加密值解密失败
+// 返回 ErrDecryptFailed（密钥错、值被篡改或截断）。
+//
+// 支持的磁盘格式：
+//   - 0x00 + payload          — v0.2.x 明文（遗留）
+//   - 0x01 + nonce + ct + tag — v0.3.0 加密，AAD=nil（遗留）
+//   - 0x02 + nonce + ct + tag — v0.3.1+ 加密，AAD=magic（AAD 保护）
+//
+// AAD 保护值的 magic 字节位翻转会被检测为 ErrDecryptFailed（GCM auth
+// tag 覆盖 magic 字节）。
 func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 	if len(stored) == 0 {
 		return stored, nil
@@ -150,7 +190,7 @@ func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 		// present. / 遗留明文值：原样返回；如有前导 0x00 则去掉。
 		return stored[1:], nil
 	}
-	if magic != magicEncrypted {
+	if magic != magicEncrypted && magic != magicEncryptedLegacy {
 		// Unknown magic — treat as opaque plaintext to preserve forward
 		// compatibility with future format additions.
 		// 未知 magic——按不透明明文处理，保持对将来格式扩展的向前兼容。
@@ -164,7 +204,17 @@ func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 	}
 	nonce := stored[1 : 1+nonceSize]
 	ciphertext := stored[1+nonceSize:]
-	plain, err := e.gcm.Open(nil, nonce, ciphertext, nil)
+	// AAD is the magic byte. For the legacy 0x01 format AAD=nil (the
+	// v0.3.0 implementation); for the new 0x02 format AAD=magic so
+	// any flip on the magic byte is detected by the GCM auth tag.
+	// AAD 是 magic 字节。遗留 0x01 格式 AAD=nil（v0.3.0 实现）；
+	// 新 0x02 格式 AAD=magic，magic 字节任何翻转都会被 GCM auth
+	// tag 检测。
+	var aad []byte
+	if magic == magicEncrypted {
+		aad = []byte{magic}
+	}
+	plain, err := e.gcm.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecryptFailed
 	}

@@ -118,26 +118,9 @@ func TestValidateThreads(t *testing.T) {
 	}
 }
 
-func TestSanitizeFilePath(t *testing.T) {
-	tests := []struct {
-		name    string
-		path    string
-		wantErr bool
-	}{
-		{"valid relative", "result.txt", false},
-		{"valid subdirectory", "output/result.txt", false},
-		{"invalid empty", "", true},
-		{"invalid traversal", "../../../etc/passwd", true},
-		{"invalid absolute", "/etc/passwd", true},
-		{"invalid root", "/root/.ssh/id_rsa", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := SanitizeFilePath(tt.path)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SanitizeFilePath(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
-			}
-		})
-	}
-}
+// (TestSanitizeFilePath removed in v0.3.1 — see Phase 1.10 of the
+// optimization roadmap. SanitizeFilePath was dead code with no callers;
+// path-traversal coverage now lives in the workspace package tests.
+// / TestSanitizeFilePath 在 v0.3.1 移除——见优化路线图 Phase 1.10。
+// SanitizeFilePath 是无调用方的 dead code；路径遍历覆盖现在在
+// workspace 包测试里。)

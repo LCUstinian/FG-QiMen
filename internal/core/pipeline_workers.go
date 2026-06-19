@@ -204,7 +204,19 @@ func dispatchCred(
 	for i, c := range commonCreds {
 		creds[i] = credential.Cred{User: c.User, Pass: c.Pass, Method: credential.AuthMethod(c.AuthType)}
 	}
-	hit, err := auth.Authenticate(ctx, host, port, creds, 3*time.Second)
+	// Honor the operator's per-protocol timeout configuration instead of
+	// a hardcoded 3s — CLI flags --timeout / --web-timeout should reach
+	// the credential auth path. WebTimeout takes precedence when set
+	// (matches the contract documented in internal/types/config.go:65).
+	//
+	// 尊重操作员配置的每协议超时，避免硬编码 3 秒——CLI 的
+	// --timeout / --web-timeout 应当贯穿凭据认证路径。WebTimeout 在
+	// 显式设置时优先（与 internal/types/config.go:65 的契约一致）。
+	authTimeout := sess.Config.Timeout
+	if sess.Config.WebTimeout > 0 {
+		authTimeout = sess.Config.WebTimeout
+	}
+	hit, err := auth.Authenticate(ctx, host, port, creds, authTimeout)
 	if err != nil {
 		// (P3 / F11 in the v0.2 audit) Authenticate returned an error
 		// distinct from "miss" — network failure, ctx cancel, protocol

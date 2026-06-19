@@ -147,23 +147,9 @@ func ValidateThreads(threads int) error {
 	}
 	return nil
 }
-
-// SanitizeFilePath sanitizes a file path to prevent directory traversal.
-// SanitizeFilePath 清理文件路径以防止目录遍历。
-func SanitizeFilePath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("path is empty")
-	}
-
-	// Check for directory traversal attempts / 检查目录遍历尝试
-	if strings.Contains(path, "..") {
-		return "", fmt.Errorf("path contains directory traversal: %q", path)
-	}
-
-	// Disallow absolute paths outside working directory (Unix) / 禁止工作目录外的绝对路径
-	if strings.HasPrefix(path, "/etc") || strings.HasPrefix(path, "/root") {
-		return "", fmt.Errorf("path outside working directory: %q", path)
-	}
-
-	return path, nil
-}
+// (SanitizeFilePath was removed in v0.3.1 — dead code with no callers.
+// Path-traversal protection lives in cmd/scan.go:safeOutputPath and
+// workspace.ValidateProjectName. See Phase 1.10 of the optimization
+// roadmap. / SanitizeFilePath 在 v0.3.1 移除——无调用方的 dead code。
+// 路径遍历防护在 cmd/scan.go:safeOutputPath 和 workspace.ValidateProjectName。
+// 见优化路线图 Phase 1.10。)
