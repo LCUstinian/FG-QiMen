@@ -5,6 +5,8 @@
 > **依据**：[audit-report-vs-fscan.md](audit-report-vs-fscan.md) 全面审计 + 当前代码基线（commit 49a187d）
 > **范围声明**：本方案**不包含**漏洞利用方向（MS17-010、Redis SSH 公钥写入、SMB 漏洞利用、本地后渗透模块、Web POC 引擎、TLS/SSH 攻击载荷等）。**仅聚焦**工程质量、性能、安全防御、用户体验、可扩展性、可观察性。
 
+> ⚠️ **基线声明**：本方案基于 v0.2.0 审计基线（commit `49a187d`），所列 24/26 adapted 插件、覆盖率数字反映该基线。当前 main 分支 adapted 插件数已增至 44，配套审计请参考 [audit-report-vs-fscan.md](audit-report-vs-fscan.md) 顶部基线声明。
+
 ---
 
 ## 0. 执行摘要

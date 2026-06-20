@@ -111,7 +111,7 @@ fg-qimen projects list
 | `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | – (added v0.3.1) |
 | `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS) |
 
-42 plugins / authenticators covering enterprise-internal + cloud-native
+44 plugins / authenticators covering enterprise-internal + cloud-native
 + industrial control + building automation + UDP services (NTP / TFTP /
 DNS) + cloud-metadata (AWS IMDS / Azure IMDS) + web frameworks
 (Jenkins / Kafka / ActiveMQ / RocketMQ / Kibana / WebLogic / RDPv8) in
@@ -128,7 +128,7 @@ server. RDP NLA posture (HYBRID / SSL / legacy) is detected by the
 `rdp-nla` plugin; full CredSSP authentication remains a v0.4+ task
 per the README deferral.
 
-42 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控 + UDP 服务
+44 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控 + UDP 服务
 （NTP / TFTP / DNS）+ 云元数据（AWS IMDS / Azure IMDS）+ Web 框架
 （Jenkins / Kafka / ActiveMQ / RocketMQ / Kibana / WebLogic / RDPv8）
 于 v0.3.1+。IPv6 目标为一等公民。Web 指纹支持

@@ -38,7 +38,7 @@ Go module 缓存。README 中"## License attribution"小节追
 
 ---
 
-## 2. shadow1ng/fscan (MIT) — internal/plugins/adapted/* (fscan-derived)
+## 2. shadow1ng/fscan (MIT) — 26 of 44 adapted plugins (fscan-derived subset)
 
 Some of the per-protocol authenticator files under
 `internal/plugins/adapted/database/{mysql,mssql,oracle,postgresql,redis,mongodb,memcached,elasticsearch}.go`,
