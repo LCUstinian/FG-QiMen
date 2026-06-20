@@ -12,6 +12,13 @@
 //
 // We do NOT run any SQL. Just authenticate.
 // 我们不执行任何 SQL——只认证。
+//
+// Phase 1.9 (audit roadmap): *sql.DB is cached per
+// (driver, host, port, user, pass) so repeated attempts on the
+// same DB hit a warm pool. The cache is process-global via
+// sqlcache.Global. / Phase 1.9（审计路线图）：*sql.DB 按
+// (driver, host, port, user, pass) 缓存，同 DB 重复尝试走暖池。
+// 缓存是进程全局（sqlcache.Global）。
 package database
 
 import (
@@ -23,6 +30,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database/sqlcache"
 	_ "github.com/go-sql-driver/mysql" // register driver
 )
 
@@ -71,20 +79,33 @@ func (a *MySQLAuthenticator) Authenticate(ctx context.Context, host string, port
 		// 查询——sql.Open 在首次使用时的 Ping 足以验证凭据。
 		dsn := fmt.Sprintf("%s:%s@tcp(%s)/information_schema?charset=utf8&timeout=%ds",
 			c.User, c.Pass, addr, timeoutSec)
-		db, err := sql.Open("mysql", dsn)
+		cacheKey := "mysql|" + addr + "|" + c.User + "|" + c.Pass
+		db, created, err := sqlcache.Global.GetOrCreate(cacheKey, func() (*sql.DB, error) {
+			return sql.Open("mysql", dsn)
+		})
 		if err != nil {
 			// Invalid DSN format etc. — try next.
 			// DSN 格式无效等——试下一个。
 			continue
 		}
-		db.SetConnMaxLifetime(timeout)
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(0)
+		if created {
+			// First time we see this (driver, host, port, user, pass).
+			// Tune the pool for a credential-spray workload.
+			// / 首次见此 (driver, host, port, user, pass)。为凭
+			// 据喷洒调池。
+			db.SetConnMaxLifetime(timeout)
+			db.SetMaxOpenConns(1)
+			db.SetMaxIdleConns(0)
+		}
 		// Ping (driver performs the handshake + auth) / Ping（驱动执行握手+认证）
 		pingCtx, cancel := context.WithTimeout(ctx, timeout)
 		err = db.PingContext(pingCtx)
 		cancel()
-		_ = db.Close()
+		if err != nil {
+			// Stale conn — invalidate and try next cred. / 陈
+			// 连接——失效并试下一个凭据。
+			sqlcache.Global.Invalidate(cacheKey)
+		}
 		if err == nil {
 			return &credential.Hit{
 				Cred:     c,
