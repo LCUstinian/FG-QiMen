@@ -342,6 +342,16 @@ fmt:
 vet:
     go vet ./...
 
+# HARD-rule lint — enforce no post-auth / no exploit in credential
+# code paths. A.2 of the audit roadmap. / HARD 规则静态检查——
+# 强制 credential 代码路径中无 post-auth / 无利用。审计路线
+# 图 A.2。
+lint-hard-rule:
+    bash scripts/lint-hard-rule.sh
+
+# Run all quality checks (fmt + vet + test + HARD lint) / 运行所有质量检查
+check: fmt vet test lint-hard-rule
+
 # Run go test / 运行测试
 test:
     CGO_ENABLED=0 go test ./...

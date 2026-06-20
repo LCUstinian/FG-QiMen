@@ -68,6 +68,19 @@ jobs:
           # Only fail on new issues. / 仅 PR 引入的问题。
           only-new-issues: true
 
+  # HARD-rule enforcement: forbid ssh.NewSession / os/exec inside
+  # credential code paths. A.2 of the audit roadmap. Cheap
+  # (~1s); runs before the test matrix so a violation fails
+  # the whole PR in <30s. / HARD 规则强制：禁 ssh.NewSession
+  # / os/exec 在 credential 代码路径。审计路线图 A.2。
+  hard-rule:
+    name: HARD rule lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run HARD rule lint
+        run: bash scripts/lint-hard-rule.sh
+
   # Static analysis + unit tests. Fast, runs first.
   # 静态分析 + 单测。快速，优先跑。
   test:
