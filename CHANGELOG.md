@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (v0.3.1 — audit roadmap)
+- **Performance — bbolt batched writes**: new `store.BatchWriter` + `PutMany`
+  amortise one fsync per result into one per batch of 32 ops or 200ms.
+  Wired through the pipeline via `sess.BatchWriter`. New `--no-batch`
+  flag falls back to per-write semantics.
+- **Performance — Output per-sink mutex split**: `Output` now uses 6
+  per-sink mutexes (txt / json / creds / rdp.json / rdp.txt / csv) so a
+  slow sink can't head-of-line block the others. `csv.Writer` is
+  hoisted to a field to avoid per-row allocation.
+- **Performance — `RawTCPIdentify` helper**: shared TCP-dial
+  boilerplate in `internal/plugins/rawtcp.go`. 5 plugins (redis,
+  memcached, postgresql, mongodb, socks5) refactored to use it.
+- **Performance — HTTP Transport reuse**: elasticsearch and web
+  plugins now use process-level `http.Client` instead of allocating
+  a fresh `http.Transport` per Identify call.
+- **Security — magic-byte AAD binding**: `store/crypto.go` binds the
+  magic byte (0x02) to the ciphertext via GCM AAD. Bit-flips on the
+  magic byte are detected as `ErrDecryptFailed` rather than silently
+  converting an encrypted row to "plaintext".
+- **Security — host flag injection guard**: alive `cmd` probe rejects
+  host values starting with `-` (would be parsed as a `ping` flag).
+- **Security — graceful resume degradation**: corrupt bbolt on
+  `--resume` logs a warning and continues with an empty seen-set
+  rather than aborting the scan.
+- **Security — input validation**: `--ports 99999` / `--ports abc`
+  now propagates the parse error to the user instead of silently
+  running 0 ports.
+- **CI — govulncheck + coverage**: new `govulncheck` job and coverage
+  upload (Linux only) in `.github/workflows/ci.yml`. `go mod tidy`
+  enforced as a CI gate.
+- **CI — release workflow**: new `.github/workflows/release.yml`
+  tag-triggered build with `cosign` keyless signing and CycloneDX
+  SBOM generation.
+- **Tests — FTP authenticator**: 4 new tests (NoCreds / Hit / MissAll /
+  NotFTP) using an in-process fake FTP server.
+- **Tests — store**: 5 new tests for `BatchWriter` (count-threshold,
+  time-ticker, Stop-blocks-until-flush, PutOpSeen timestamp format,
+  encrypted PutMany roundtrip) and a new test for magic-byte AAD
+  tamper detection.
+- **Tests — alive**: new test for the host flag-injection guard.
+- **Tests — output**: new concurrent-writes test pinning the per-sink
+  mutex contract.
+- **Tests — plugins**: 4 new tests for the `RawTCPIdentify` helper.
+- **TUI — NO_COLOR honoured**: text banner now respects `NO_COLOR=1`
+  (previously only the in-TUI rendering respected it).
+- **TUI — dead code removed**: unused `boxTL` / `boxBR` constants
+  deleted.
+- **Docs**: new `docs/SECURITY.md`, `docs/PLUGIN_GUIDE.md`,
+  `docs/ARCHITECTURE.md`, `docs/CONFIGURATION.md`.
+
+### Changed (v0.3.1 — audit roadmap)
+- **`--show-creds` documentation clarified**: the flag applies to
+  result.txt / result.json / result.csv; creds.txt is always
+  cleartext by design (the operator's working file).
+- **Pool dedup**: removed unused `Pool.Clear()` method (no
+  production callers; Go strings cannot be reliably zeroed).
+- **CodedError in `Validate()`**: 5/8 validation sites converted to
+  `CodedError` with stable codes (E006 / E005 / E007) for
+  grep-friendly log output. Remaining sites kept as-is for the
+  next release.
+- **SSH auth flow**: `conn.Close()` only on error path; success
+  path delegates to `sshConn.Close()`. (No functional change —
+  documents the existing intent.)
+
 ### Added (v0.3.0-rc1)
 - **P0 — At-rest encryption for project DBs**: `internal/store/crypto.go` adds
   value-level AES-256-GCM encryption to `PutResult` / `PutCred`. New

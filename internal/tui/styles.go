@@ -41,13 +41,16 @@ const (
 )
 
 // Box drawing
+// Box-drawing characters used by the dashboard layout. The
+// top-left / bottom-right corners (boxTL / boxBR) were unused since
+// v0.2's box-banner removal; deleted in v0.3.1 (P6.2 of the audit
+// roadmap). / 仪表板布局用的方框字符。左上 / 右下角（boxTL / boxBR）
+// 自 v0.2 移除方框 banner 后就没用；v0.3.1 删除（审计路线图 P6.2）。
 const (
 	boxH  = "─"
 	boxV  = "│"
-	boxTL = ""
 	boxTR = "┐"
 	boxBL = "└"
-	boxBR = ""
 )
 
 // Layout

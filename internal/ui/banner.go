@@ -15,7 +15,16 @@ const bannerWidth = 58
 // When colored is true, ANSI color codes are applied.
 // RenderBanner 返回启动横幅。
 // colored 为 true 时应用 ANSI 颜色码。
+//
+// P6.1 (audit roadmap): NO_COLOR is honoured — when set, RenderBanner
+// is forced to non-coloured output regardless of the `colored` arg.
+// Operators with NO_COLOR=1 see no ANSI escapes from the text banner.
+// / P6.1（审计路线图）：尊重 NO_COLOR——设了时 RenderBanner 强制无
+// 色，与 `colored` 参数无关。
 func RenderBanner(colored bool) string {
+	if IsNoColor() {
+		colored = false
+	}
 	var sb strings.Builder
 
 	top := "╔" + strings.Repeat("═", bannerWidth) + "╗"
