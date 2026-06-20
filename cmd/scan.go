@@ -34,7 +34,6 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
-	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -234,16 +233,19 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	// 选择之前，让 TUI 路径也获得持久化——旧版只在 text-UI 分支赋值
 	// Store，导致 -resume 在 TUI 模式下静默失效。
 	//
-	// Encryption: if cfg.ProjectKey is non-empty, derive a 32-byte
-	// AES-256 key and pass it to AsStoreWithKey so PutResult/PutCred
-	// encrypt the JSON payload at rest. Empty key → plaintext (v0.2.x
-	// on-disk format, backward compatible).
+	// Encryption: if cfg.ProjectKey is non-empty, hand it to
+	// AsStoreWithPassphrase which runs it through Argon2id (v0.4+) and
+	// uses the resulting key to encrypt the JSON payload at rest. New
+	// writes use magic 0x03 (Argon2id-derived); old 0x01/0x02 values
+	// (SHA-256 KDF) remain readable on the same store. Empty key →
+	// plaintext (v0.2.x on-disk format, backward compatible).
 	//
-	// 加密：若 cfg.ProjectKey 非空，派生 32 字节 AES-256 密钥并传入
-	// AsStoreWithKey，使 PutResult/PutCred 加密 JSON 负载。
-	// 空 key → 明文（v0.2.x 磁盘格式，向后兼容）。
+	// 加密：若 cfg.ProjectKey 非空，交给 AsStoreWithPassphrase，内部用
+	// Argon2id（v0.4+）派生 key 加密 JSON 负载。新写入用 magic 0x03
+	// （Argon2id 派生）；旧的 0x01/0x02 值（SHA-256 KDF）同一 store
+	// 仍可读。空 key → 明文（v0.2.x 磁盘格式，向后兼容）。
 	if cfg.ProjectKey != "" && proj.DB != nil {
-		sess.Store = proj.AsStoreWithKey(store.DeriveKey(cfg.ProjectKey))
+		sess.Store = proj.AsStoreWithPassphrase(cfg.ProjectKey)
 	} else {
 		sess.Store = proj.AsStore()
 	}

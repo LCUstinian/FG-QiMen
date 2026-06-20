@@ -199,32 +199,38 @@ func (p *Project) Stats() (string, error) {
 // AsStore wraps p.DB into a store.Store (for incremental state).
 // AsStore 把 p.DB 包装为 store.Store（用于增量状态）。
 func (p *Project) AsStore() *store.Store {
-	return p.AsStoreWithKey(nil)
+	return p.AsStoreWithPassphrase("")
 }
 
-// AsStoreWithKey wraps p.DB into a store.Store with an optional encryption
-// layer. Pass nil key (or empty passphrase) to disable encryption.
+// AsStoreWithPassphrase wraps p.DB into a store.Store with an optional
+// encryption layer. Empty passphrase disables encryption (v0.2.x plaintext
+// on-disk format). Non-empty passphrase is run through Argon2id (v0.4+)
+// to derive a 32-byte AES-256 key; new Seals use magic 0x03. Old
+// 0x01/0x02 values on the same DB remain readable via the SHA-256 path
+// baked into EncryptedValue.
 //
-// AsStoreWithKey 用可选加密层把 p.DB 包装为 store.Store。
-// 传 nil key（或空 passphrase）禁用加密。
+// AsStoreWithPassphrase 用可选加密层把 p.DB 包装为 store.Store。空 passphrase
+// 禁用加密（v0.2.x 明文磁盘格式）。非空 passphrase 走 Argon2id（v0.4+）
+// 派生 32 字节 AES-256 key；新 Seal 用 magic 0x03。同一 DB 上的旧 0x01/0x02
+// 值仍可经 EncryptedValue 内置的 SHA-256 路径读出。
 //
-// The key should already be a 32-byte derived key (use store.DeriveKey to
-// turn a passphrase into one). If a passphrase is supplied instead, it's
-// run through SHA-256 inside store.NewEncryptedValue.
+// If NewEncryptedValue returns an error (it shouldn't for non-empty
+// passphrases, since the only failure mode is crypto/rand I/O), we
+// fall back to plaintext rather than crashing the scan.
 //
-// key 应已是 32 字节派生密钥（用 store.DeriveKey 把 passphrase 转过来）。
-// 若直接传 passphrase，store.NewEncryptedValue 内部会 SHA-256。
-func (p *Project) AsStoreWithKey(key []byte) *store.Store {
+// 若 NewEncryptedValue 返回错误（非空 passphrase 在正常路径下不应失败，
+// 唯一失败模式是 crypto/rand I/O），退化为明文而非让扫描崩溃。
+func (p *Project) AsStoreWithPassphrase(passphrase string) *store.Store {
 	if p == nil || p.DB == nil {
 		return nil
 	}
-	if len(key) == 0 {
+	if passphrase == "" {
 		return store.NewStore(p.DB)
 	}
-	enc, err := store.NewEncryptedValue(key)
+	enc, err := store.NewEncryptedValue(passphrase)
 	if err != nil {
-		// Bad key length: fall back to plaintext rather than crashing.
-		// 密钥长度不对：退化为明文而非崩溃。
+		// KDF failure: fall back to plaintext rather than crashing.
+		// KDF 失败：退化为明文而非崩溃。
 		return store.NewStore(p.DB)
 	}
 	return store.NewStoreWithEnc(p.DB, enc)

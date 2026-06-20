@@ -69,8 +69,7 @@ func TestStore_PlaintextDefault(t *testing.T) {
 
 func TestStore_EncryptedPutIsNotPlaintextOnDisk(t *testing.T) {
 	db := openTestDB(t)
-	key := DeriveKey("strong-pass")
-	enc, _ := NewEncryptedValue(key)
+	enc, _ := NewEncryptedValue("strong-pass")
 	s := NewStoreWithEnc(db, enc)
 	if !s.Encrypted() {
 		t.Fatalf("NewStoreWithEnc returned non-Encrypted store")
@@ -82,21 +81,22 @@ func TestStore_EncryptedPutIsNotPlaintextOnDisk(t *testing.T) {
 		t.Fatalf("PutCred: %v", err)
 	}
 
-	// Verify on-disk first byte is 0x01 and the original plaintext bytes
-	// do NOT appear (raw byte search). The AES-256-GCM output is
-	// indistinguishable from random; the magic + nonce prefix is the
-	// only deterministic prefix.
+	// Verify on-disk first byte is 0x03 (v0.4 Argon2id magic) and the
+	// original plaintext bytes do NOT appear (raw byte search). The
+	// AES-256-GCM output is indistinguishable from random; the magic
+	// + nonce prefix is the only deterministic prefix.
 	//
-	// 验证磁盘首字节是 0x01 且不含原始明文（原始字节搜索）。AES-256-GCM
-	// 输出与随机不可区分；只有 magic + nonce 前缀是确定性的。
+	// 验证磁盘首字节是 0x03（v0.4 Argon2id magic）且不含原始明文
+	// （原始字节搜索）。AES-256-GCM 输出与随机不可区分；只有 magic
+	// + nonce 前缀是确定性的。
 	var got []byte
 	_ = db.View(func(tx *bolt.Tx) error {
 		bk := tx.Bucket(bucketCreds)
 		got = bk.Get([]byte("hash1"))
 		return nil
 	})
-	if got[0] != magicEncrypted {
-		t.Fatalf("on-disk first byte = 0x%02x, want 0x%02x (encrypted)", got[0], magicEncrypted)
+	if got[0] != magicEncryptedV2 {
+		t.Fatalf("on-disk first byte = 0x%02x, want 0x%02x (encrypted)", got[0], magicEncryptedV2)
 	}
 	if containsBytes(got, []byte("hunter2")) {
 		t.Fatalf("on-disk value contains plaintext 'hunter2' — encryption not applied")
@@ -111,8 +111,7 @@ func TestStore_EncryptedRoundTripAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "persist.db")
 
-	key := DeriveKey("persist-key")
-	enc, _ := NewEncryptedValue(key)
+	enc, _ := NewEncryptedValue("persist-key")
 
 	// Write phase. / 写阶段。
 	db1, err := bolt.Open(dbPath, 0o600, nil)
@@ -153,8 +152,7 @@ func TestStore_OpenEncryptedValueWithNoKeyErrors(t *testing.T) {
 	//
 	// 已加密值；读取方无 key → Open() 返回错误（非崩溃，非静默垃圾）。
 	db := openTestDB(t)
-	key := DeriveKey("write-key")
-	enc, _ := NewEncryptedValue(key)
+	enc, _ := NewEncryptedValue("write-key")
 	sEnc := NewStoreWithEnc(db, enc)
 	type rec struct{ X int }
 	if err := sEnc.PutResult("k", rec{X: 7}); err != nil {
@@ -170,7 +168,7 @@ func TestStore_OpenEncryptedValueWithNoKeyErrors(t *testing.T) {
 		got = bk.Get([]byte("k"))
 		return nil
 	})
-	if got[0] != magicEncrypted {
+	if got[0] != magicEncryptedV2 {
 		t.Fatalf("expected encrypted magic on disk, got 0x%02x", got[0])
 	}
 	_ = sPlain // unused directly, but this is the API path callers would use

@@ -138,7 +138,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.StringVarP(&flagProject, "project", "p", "",
 		"project name (empty = ephemeral oneshot mode)")
 	pf.StringVar(&flagProjectKey, "project-key", "",
-		"passphrase to encrypt the project DB at rest (AES-256-GCM). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
+		"passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
 	pf.StringVar(&flagMode, "mode", "scan",
 		"run mode: scan | crack | linked")
 	pf.BoolVarP(&flagResume, "resume", "", false,

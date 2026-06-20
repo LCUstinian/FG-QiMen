@@ -211,7 +211,7 @@ func TestPutMany_PreservesEncryption(t *testing.T) {
 		t.Fatalf("bolt.Open: %v", err)
 	}
 	defer db.Close()
-	enc, err := NewEncryptedValue(DeriveKey("batch-enc-test"))
+	enc, err := NewEncryptedValue("batch-enc-test")
 	if err != nil {
 		t.Fatalf("NewEncryptedValue: %v", err)
 	}
@@ -225,16 +225,18 @@ func TestPutMany_PreservesEncryption(t *testing.T) {
 		t.Fatalf("PutMany: %v", err)
 	}
 
-	// The result row on disk should start with magicEncrypted (0x02).
-	// / 磁盘上的 result 行应以 magicEncrypted (0x02) 开头。
+	// The result row on disk should start with magicEncryptedV2 (0x03)
+	// — the v0.4 Argon2id magic emitted by Seal().
+	// / 磁盘上的 result 行应以 magicEncryptedV2 (0x03) 开头
+	// — Seal() 输出的 v0.4 Argon2id magic。
 	_ = db.View(func(tx *bolt.Tx) error {
 		bk := tx.Bucket(bucketResults)
 		if bk == nil {
 			t.Fatal("results bucket missing")
 		}
 		raw := bk.Get([]byte("r1"))
-		if len(raw) == 0 || raw[0] != magicEncrypted {
-			t.Errorf("results row magic = 0x%02x, want 0x%02x", raw[0], magicEncrypted)
+		if len(raw) == 0 || raw[0] != magicEncryptedV2 {
+			t.Errorf("results row magic = 0x%02x, want 0x%02x", raw[0], magicEncryptedV2)
 		}
 		// Roundtrip via Open. / 经 Open 往返。
 		opened, err := enc.Open(raw)

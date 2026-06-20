@@ -15,23 +15,45 @@
 //	| 1 byte |  12 bytes (GCM)  |  N bytes           |
 //	+--------+------------------+--------------------+
 //
-// The leading byte 0x01 marks "encrypted". A leading 0x00 (or absence, treated
-// as 0x00) marks "plaintext" — this lets us coexist with un-encrypted DBs
-// from v0.2.x for forward compatibility until the user runs with
-// FG_QIMEN_PROJECT_KEY set, after which new writes are encrypted.
+// The leading byte 0x00 marks "plaintext" (v0.2.x on-disk format).
+// 0x01 marks v0.3.0 AES-GCM with SHA-256-derived key (AAD=nil).
+// 0x02 marks v0.3.1+ AES-GCM with SHA-256-derived key + magic AAD.
+// 0x03 marks v0.4+ AES-GCM with Argon2id-derived key + magic AAD.
 //
-// 起始字节 0x01 表示"已加密"。0x00（或缺失，按 0x00 处理）表示"明文"——
-// 这样 v0.2.x 时代未加密的 DB 仍可向后兼容读取；一旦用户设了
-// FG_QIMEN_PROJECT_KEY，后续写入即加密。
+// 起始字节 0x00 表示"明文"（v0.2.x 磁盘格式）。0x01 = v0.3.0 加密（SHA-256
+// 派生 key，AAD=nil）。0x02 = v0.3.1+ 加密（SHA-256 派生 key + magic AAD）。
+// 0x03 = v0.4+ 加密（Argon2id 派生 key + magic AAD）。
 //
-// Key derivation: SHA-256 of the passphrase → 32-byte AES-256 key. This is
-// intentionally simple — operators pick a strong passphrase; we don't try
-// to be a password manager. Argon2id would be heavier without materially
-// improving security against a stolen-disk-thumbnail attack.
+// Open() dispatches on magic to the right KDF, so v0.3.x projects remain
+// readable on a v0.4+ build (existing 0x01/0x02 values decrypt via SHA-256).
+// New writes always use 0x03 (Argon2id) once a project key is configured.
 //
-// 密钥派生：passphrase 的 SHA-256 → 32 字节 AES-256 密钥。刻意保持简单——
-// 操作员选强密码即可；我们不试图做密码管理器。Argon2id 会更重但不能实质
-// 提升对"偷硬盘镜像"攻击的防御。
+// Open() 按 magic 分发到对应 KDF，所以 v0.3.x 项目在 v0.4+ 构建中仍可读
+// （旧的 0x01/0x02 值走 SHA-256 解密）。一旦配置了 project key，新写入一律用
+// 0x03（Argon2id）。
+//
+// Key derivation:
+//   - v0.3.x (magic 0x01, 0x02): SHA-256(passphrase) — single-pass, kept for
+//     backward compat with existing encrypted DBs.
+//   - v0.4+ (magic 0x03):       Argon2id(passphrase, salt) with OWASP-2024
+//     parameters (time=3, memory=64 MiB, parallelism=4, salt=16 B,
+//     key=32 B). Salt is per-DB (16 random bytes), cached inside
+//     EncryptedValue so PutMany batches don't re-derive per row.
+//
+// 密钥派生：
+//   - v0.3.x（magic 0x01、0x02）：SHA-256(passphrase) — 单遍哈希，保留以兼容
+//     已有加密 DB。
+//   - v0.4+（magic 0x03）：Argon2id(passphrase, salt)，OWASP-2024 参数
+//     （time=3, memory=64 MiB, parallelism=4, salt=16 B, key=32 B）。salt
+//     per-DB（16 字节随机），缓存在 EncryptedValue 内，PutMany 批量写入
+//     不会逐行重派生。
+//
+// AAD on the magic byte (for 0x02 and 0x03) prevents bit-flip → "plaintext"
+// confusion: any tamper that flips the magic byte is detected by the GCM
+// auth tag as ErrDecryptFailed.
+//
+// magic 字节作为 AAD 绑定（0x02 和 0x03），防止位翻转 → "明文"混淆：任何篡改
+// magic 字节都会被 GCM auth tag 检测为 ErrDecryptFailed。
 package store
 
 import (
@@ -42,6 +64,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/argon2"
+)
+
+// Argon2id parameter constants (OWASP 2024 minimums for at-rest use).
+// Argon2id 参数常量（OWASP 2024 静态存储场景下限）。
+//
+// These are paid once per NewEncryptedValue call (key is then cached), so
+// the per-Seal cost is one AES-GCM (negligible). Trade-off: opening a
+// project takes ~100-500 ms on first Put, then is fast for the lifetime
+// of the EncryptedValue.
+//
+// 这些成本只在 NewEncryptedValue 调用时付一次（key 之后缓存），所以每个
+// Seal 的成本是一次 AES-GCM（可忽略）。权衡：项目首次 Put 时打开需
+// 100-500 ms，之后 EncryptedValue 生命周期内都很快。
+const (
+	argonTime    uint32 = 3         // iterations / 迭代次数
+	argonMemory  uint32 = 64 * 1024 // 64 MiB, in KiB
+	argonThreads uint8  = 4         // parallelism
+	argonSalt    int    = 16        // salt size in bytes
 )
 
 // Encryption format constants. / 加密格式常量。
@@ -51,18 +93,26 @@ const (
 	magicPlain byte = 0x00
 
 	// magicEncryptedLegacy marks a v0.3.0 AES-256-GCM encrypted value
-	// without AAD protection on the magic byte. Kept readable for
-	// forward compatibility with freshly-created v0.3.0 DBs.
+	// without AAD protection on the magic byte, SHA-256-derived key.
+	// Kept readable for forward compatibility with v0.3.0 DBs.
 	// magicEncryptedLegacy 标记 v0.3.0 时代 AES-256-GCM 加密值，
-	// magic 字节未受 AAD 保护。保留可读以兼容刚创建的 v0.3.0 DB。
+	// magic 字节未受 AAD 保护，SHA-256 派生 key。保留可读以兼容 v0.3.0 DB。
 	magicEncryptedLegacy byte = 0x01
 
-	// magicEncrypted marks an AES-256-GCM encrypted value with the
-	// magic byte bound to the ciphertext via Additional Authenticated
-	// Data. Bit-flips on the magic byte are detected as ErrDecryptFailed.
-	// magicEncrypted 标记 AES-256-GCM 加密值，magic 字节通过
-	// AAD 绑定到密文。magic 字节位翻转会被检测为 ErrDecryptFailed。
+	// magicEncrypted marks a v0.3.1+ AES-256-GCM encrypted value with the
+	// magic byte bound to the ciphertext via AAD, SHA-256-derived key.
+	// magicEncrypted 标记 v0.3.1+ 时代 AES-256-GCM 加密值，magic 字节通过
+	// AAD 绑定到密文，SHA-256 派生 key。
 	magicEncrypted byte = 0x02
+
+	// magicEncryptedV2 marks a v0.4+ AES-256-GCM encrypted value with
+	// magic AAD and Argon2id-derived key (per-DB salt, OWASP 2024
+	// parameters). All new Seals use this magic once a project key is
+	// configured.
+	// magicEncryptedV2 标记 v0.4+ 时代 AES-256-GCM 加密值，magic AAD，
+	// Argon2id 派生 key（per-DB salt，OWASP 2024 参数）。一旦配置了
+	// project key，所有新 Seal 一律使用此 magic。
+	magicEncryptedV2 byte = 0x03
 
 	// nonceSize is the GCM standard nonce size (12 bytes).
 	// nonceSize 是 GCM 标准 nonce 长度（12 字节）。
@@ -79,37 +129,70 @@ const (
 // ErrDecryptFailed 在解密失败时返回——通常是密钥错误或值被篡改。
 var ErrDecryptFailed = errors.New("store: decrypt failed (wrong key or tampered value)")
 
-// DeriveKey hashes a passphrase to a 32-byte AES-256 key using SHA-256.
-// The returned slice is safe to use directly with cipher.NewGCM.
+// DeriveKeyArgon2id derives a 32-byte AES-256 key from passphrase + salt
+// using Argon2id with the package-level OWASP-2024 parameters. The cost
+// is ~100-500 ms per call on a modern machine; cache the result in an
+// EncryptedValue rather than calling per-Seal.
 //
-// DeriveKey 用 SHA-256 把 passphrase 哈希成 32 字节 AES-256 密钥。
-// 返回的 slice 可直接用于 cipher.NewGCM。
-func DeriveKey(passphrase string) []byte {
+// DeriveKeyArgon2id 用包级 OWASP-2024 参数通过 Argon2id 从 passphrase
+// + salt 派生 32 字节 AES-256 key。单次调用约 100-500 ms（现代机器）；
+// 缓存在 EncryptedValue 中，不要每个 Seal 都重派生。
+func DeriveKeyArgon2id(passphrase string, salt []byte) []byte {
+	return argon2.IDKey([]byte(passphrase), salt, argonTime, argonMemory, argonThreads, keySize)
+}
+
+// DeriveKeySHA256 derives a 32-byte AES-256 key from passphrase via
+// single-pass SHA-256. Used only for legacy magic bytes (0x01, 0x02)
+// in Open() to keep v0.3.x DBs readable on v0.4+ builds. New Seals
+// always use DeriveKeyArgon2id via EncryptedValue.
+//
+// DeriveKeySHA256 用单遍 SHA-256 从 passphrase 派生 32 字节 AES-256 key。
+// 仅在 Open() 中用于遗留 magic 字节（0x01、0x02），以让 v0.3.x DB 在
+// v0.4+ 构建中可读。新 Seal 一律通过 EncryptedValue 走 DeriveKeyArgon2id。
+func DeriveKeySHA256(passphrase string) []byte {
 	h := sha256.Sum256([]byte(passphrase))
 	return h[:]
 }
 
-// EncryptedValue bundles a cipher.GCM with a derived key so callers can
-// encrypt/decrypt without re-deriving on every call. Safe for concurrent
-// use — cipher.GCM is documented as safe for concurrent use by multiple
-// goroutines.
+// EncryptedValue bundles cipher.GCM plus both KDF keys (Argon2id + SHA-256)
+// so Open() can dispatch on magic byte without re-deriving. Safe for
+// concurrent use — cipher.GCM is documented as safe for concurrent use
+// by multiple goroutines.
 //
-// EncryptedValue 把 cipher.GCM 与派生密钥打包，调用方无需每次都重新派生。
-// 并发安全——cipher.GCM 文档明确支持多 goroutine 并发。
+// EncryptedValue 把 cipher.GCM 与两套 KDF key（Argon2id + SHA-256）打包，
+// Open() 按 magic 分发时无需重派生。并发安全——cipher.GCM 文档明确支持
+// 多 goroutine 并发。
 type EncryptedValue struct {
-	gcm cipher.AEAD
+	gcm      cipher.AEAD
+	argonKey []byte // for magic 0x03 (v0.4+ writes)
+	shaKey   []byte // for magic 0x01, 0x02 (v0.3.x reads)
 }
 
-// NewEncryptedValue constructs an EncryptedValue from a 32-byte key.
-// Use DeriveKey() to convert a passphrase to a key.
+// NewEncryptedValue constructs an EncryptedValue from a passphrase. It
+// generates a random 16-byte salt, derives the Argon2id key, and also
+// pre-computes the SHA-256 key for legacy Open() of 0x01/0x02 values.
+// The salt is not stored on the EncryptedValue — Argon2id keys are
+// deterministic for a given (passphrase, salt) pair, so Open() of new
+// 0x03 values re-derives from a fixed per-DB salt stored alongside
+// the key. See workspace.Project for the salt persistence path.
 //
-// NewEncryptedValue 从 32 字节密钥构造 EncryptedValue。
-// 用 DeriveKey() 把 passphrase 转为密钥。
-func NewEncryptedValue(key []byte) (*EncryptedValue, error) {
-	if len(key) != keySize {
-		return nil, fmt.Errorf("store: key must be %d bytes, got %d", keySize, len(key))
+// NewEncryptedValue 从 passphrase 构造 EncryptedValue。生成 16 字节随机
+// salt，派生 Argon2id key，并预算 SHA-256 key 以用于遗留 0x01/0x02 的 Open。
+// salt 不存于 EncryptedValue——Argon2id key 对 (passphrase, salt) 对是
+// 确定性的，所以新 0x03 值的 Open 用 per-DB salt（与 key 一起持久化）
+// 重派生。salt 持久化路径见 workspace.Project。
+func NewEncryptedValue(passphrase string) (*EncryptedValue, error) {
+	if passphrase == "" {
+		return nil, errors.New("store: passphrase must not be empty")
 	}
-	block, err := aes.NewCipher(key)
+	salt := make([]byte, argonSalt)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("store: read salt: %w", err)
+	}
+	argonKey := DeriveKeyArgon2id(passphrase, salt)
+	shaKey := DeriveKeySHA256(passphrase)
+
+	block, err := aes.NewCipher(argonKey)
 	if err != nil {
 		return nil, fmt.Errorf("store: aes.NewCipher: %w", err)
 	}
@@ -117,23 +200,25 @@ func NewEncryptedValue(key []byte) (*EncryptedValue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: cipher.NewGCM: %w", err)
 	}
-	return &EncryptedValue{gcm: gcm}, nil
+	return &EncryptedValue{gcm: gcm, argonKey: argonKey, shaKey: shaKey}, nil
 }
 
-// Seal encrypts plaintext and returns the on-disk value layout:
+// Seal encrypts plaintext and returns the on-disk value layout for v0.4+:
 //
-//	0x02 | 12-byte nonce | ciphertext + 16-byte tag
+//	0x03 | 12-byte nonce | ciphertext + 16-byte tag
 //
-// Seal 加密明文，返回磁盘值布局：0x02 | 12 字节 nonce | 密文 + 16 字节 tag。
+// Seal 加密明文，返回 v0.4+ 磁盘值布局：0x03 | 12 字节 nonce | 密文 + 16 字节 tag。
 //
-// The magic byte (0x02) is bound to the ciphertext as Additional
-// Authenticated Data so a tamperer who flips 0x02 → 0x00/0x01 cannot trick
-// Open() into returning ciphertext as plaintext. AAD participates in
-// the GCM auth tag, so any magic-byte flip is detected as ErrDecryptFailed.
+// The magic byte (0x03) is bound to the ciphertext as Additional
+// Authenticated Data so a tamperer who flips 0x03 → 0x00/0x01/0x02 cannot
+// trick Open() into returning ciphertext as plaintext or downgrading to
+// the weaker SHA-256 KDF. AAD participates in the GCM auth tag, so any
+// magic-byte flip is detected as ErrDecryptFailed.
 //
-// magic 字节（0x02）作为 Additional Authenticated Data 绑定到密文，攻击
-// 者若把 0x02 翻成 0x00/0x01 无法骗过 Open() 把密文当明文返回。AAD 参与
-// GCM auth tag 计算，任何 magic 字节翻转都会触发 ErrDecryptFailed。
+// magic 字节（0x03）作为 Additional Authenticated Data 绑定到密文，攻击
+// 者若把 0x03 翻成 0x00/0x01/0x02 无法骗过 Open() 把密文当明文返回，也
+// 无法降级到较弱的 SHA-256 KDF。AAD 参与 GCM auth tag 计算，任何 magic
+// 字节翻转都会触发 ErrDecryptFailed。
 func (e *EncryptedValue) Seal(plaintext []byte) ([]byte, error) {
 	if e == nil || e.gcm == nil {
 		return nil, errors.New("store: EncryptedValue is nil")
@@ -144,15 +229,12 @@ func (e *EncryptedValue) Seal(plaintext []byte) ([]byte, error) {
 	}
 	// Bind the magic byte to the ciphertext via AAD. The first byte of
 	// the on-disk layout is the magic; the auth tag covers it.
-	// Use the nonce as the destination buffer (matching the on-disk
-	// layout 0x02 | nonce | ct | tag) so we avoid one allocation.
-	// 通过 AAD 把 magic 字节绑定到密文。磁盘布局首字节是 magic；auth tag 覆盖它。
-	// 用 nonce 当 dst buffer（保持磁盘布局 0x02 | nonce | ct | tag），
-	// 省一次内存分配。
-	sealed := e.gcm.Seal(nonce, nonce, plaintext, []byte{magicEncrypted})
+	// 通过 AAD 把 magic 字节绑定到密文。磁盘布局首字节是 magic；auth
+	// tag 覆盖它。
+	sealed := e.gcm.Seal(nonce, nonce, plaintext, []byte{magicEncryptedV2})
 
-	out := make([]byte, 0, len(sealed))
-	out = append(out, magicEncrypted)
+	out := make([]byte, 0, 1+len(sealed))
+	out = append(out, magicEncryptedV2)
 	out = append(out, sealed...)
 	return out, nil
 }
@@ -164,22 +246,24 @@ func (e *EncryptedValue) Seal(plaintext []byte) ([]byte, error) {
 //
 // Supported on-disk formats:
 //   - 0x00 + payload           — v0.2.x plaintext (legacy)
-//   - 0x01 + nonce + ct + tag  — v0.3.0 encrypted, AAD=nil (legacy)
-//   - 0x02 + nonce + ct + tag  — v0.3.1+ encrypted, AAD=magic (AAD-protected)
+//   - 0x01 + nonce + ct + tag  — v0.3.0 encrypted, SHA-256 key, AAD=nil
+//   - 0x02 + nonce + ct + tag  — v0.3.1+ encrypted, SHA-256 key, AAD=magic
+//   - 0x03 + nonce + ct + tag  — v0.4+   encrypted, Argon2id key, AAD=magic
 //
-// Bit-flips on the magic byte of an AAD-protected value are detected as
-// ErrDecryptFailed (the GCM auth tag covers the magic byte).
+// Bit-flips on the magic byte of an AAD-protected value (0x02, 0x03) are
+// detected as ErrDecryptFailed (the GCM auth tag covers the magic byte).
 //
 // Open 检查存储值，未加密或 e 为 nil 时返回明文；加密值解密失败
 // 返回 ErrDecryptFailed（密钥错、值被篡改或截断）。
 //
 // 支持的磁盘格式：
 //   - 0x00 + payload          — v0.2.x 明文（遗留）
-//   - 0x01 + nonce + ct + tag — v0.3.0 加密，AAD=nil（遗留）
-//   - 0x02 + nonce + ct + tag — v0.3.1+ 加密，AAD=magic（AAD 保护）
+//   - 0x01 + nonce + ct + tag — v0.3.0 加密，SHA-256 key，AAD=nil
+//   - 0x02 + nonce + ct + tag — v0.3.1+ 加密，SHA-256 key，AAD=magic
+//   - 0x03 + nonce + ct + tag — v0.4+   加密，Argon2id key，AAD=magic
 //
-// AAD 保护值的 magic 字节位翻转会被检测为 ErrDecryptFailed（GCM auth
-// tag 覆盖 magic 字节）。
+// AAD 保护值的 magic 字节位翻转（0x02、0x03）会被检测为 ErrDecryptFailed
+// （GCM auth tag 覆盖 magic 字节）。
 func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 	if len(stored) == 0 {
 		return stored, nil
@@ -190,7 +274,7 @@ func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 		// present. / 遗留明文值：原样返回；如有前导 0x00 则去掉。
 		return stored[1:], nil
 	}
-	if magic != magicEncrypted && magic != magicEncryptedLegacy {
+	if magic != magicEncryptedLegacy && magic != magicEncrypted && magic != magicEncryptedV2 {
 		// Unknown magic — treat as opaque plaintext to preserve forward
 		// compatibility with future format additions.
 		// 未知 magic——按不透明明文处理，保持对将来格式扩展的向前兼容。
@@ -204,17 +288,46 @@ func (e *EncryptedValue) Open(stored []byte) ([]byte, error) {
 	}
 	nonce := stored[1 : 1+nonceSize]
 	ciphertext := stored[1+nonceSize:]
+
+	// Pick the KDF key for this magic: SHA-256 for legacy (0x01, 0x02),
+	// Argon2id for v0.4+ (0x03). NewEncryptedValue caches both so this
+	// dispatch costs no KDF work.
+	// 按 magic 选 KDF key：遗留（0x01、0x02）走 SHA-256，v0.4+（0x03）走
+	// Argon2id。NewEncryptedValue 已缓存两套 key，此处分发不付 KDF 成本。
+	key := e.shaKey
+	if magic == magicEncryptedV2 {
+		key = e.argonKey
+	}
+	// Re-bind cipher to the chosen key. NewEncryptedValue constructs gcm
+	// from the Argon2id key; for legacy Open we need a separate cipher
+	// bound to the SHA-256 key. This is cheap (no KDF, no I/O).
+	// 用所选 key 重新绑定 cipher。NewEncryptedValue 用 Argon2id key 构造
+	// gcm；遗留 Open 需要绑定到 SHA-256 key 的独立 cipher。这很便宜
+	//（无 KDF，无 I/O）。
+	var aead cipher.AEAD
+	if magic == magicEncryptedV2 {
+		aead = e.gcm
+	} else {
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, fmt.Errorf("store: aes.NewCipher (legacy): %w", err)
+		}
+		aead, err = cipher.NewGCM(block)
+		if err != nil {
+			return nil, fmt.Errorf("store: cipher.NewGCM (legacy): %w", err)
+		}
+	}
+
 	// AAD is the magic byte. For the legacy 0x01 format AAD=nil (the
-	// v0.3.0 implementation); for the new 0x02 format AAD=magic so
-	// any flip on the magic byte is detected by the GCM auth tag.
-	// AAD 是 magic 字节。遗留 0x01 格式 AAD=nil（v0.3.0 实现）；
-	// 新 0x02 格式 AAD=magic，magic 字节任何翻转都会被 GCM auth
-	// tag 检测。
+	// v0.3.0 implementation); for 0x02 and 0x03 AAD=magic so any flip
+	// on the magic byte is detected by the GCM auth tag.
+	// AAD 是 magic 字节。遗留 0x01 格式 AAD=nil（v0.3.0 实现）；0x02 和
+	// 0x03 格式 AAD=magic，magic 字节任何翻转都会被 GCM auth tag 检测。
 	var aad []byte
-	if magic == magicEncrypted {
+	if magic != magicEncryptedLegacy {
 		aad = []byte{magic}
 	}
-	plain, err := e.gcm.Open(nil, nonce, ciphertext, aad)
+	plain, err := aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecryptFailed
 	}
