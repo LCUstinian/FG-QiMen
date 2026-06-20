@@ -70,6 +70,35 @@ func RawTCPIdentify(
 	fn func(net.Conn) *types.Result,
 	opts ...RawTCPOption,
 ) *types.Result {
+	return identifyWithNet(ctx, host, port, "tcp", fn, opts)
+}
+
+// RawUDPIdentify is the UDP sibling of RawTCPIdentify. The deadline
+// is set on the conn like the TCP version; UDP-specific quirks
+// (no FIN, no RST) are the caller's problem. / RawUDPIdentify 是
+// RawTCPIdentify 的 UDP 同伴。deadline 设置同 TCP 版本；UDP 特
+// 有怪癖（无 FIN、无 RST）由调用方处理。
+func RawUDPIdentify(
+	ctx context.Context,
+	host string,
+	port int,
+	fn func(net.Conn) *types.Result,
+	opts ...RawTCPOption,
+) *types.Result {
+	return identifyWithNet(ctx, host, port, "udp", fn, opts)
+}
+
+// identifyWithNet is the shared implementation for RawTCPIdentify
+// and RawUDPIdentify. / identifyWithNet 是 RawTCPIdentify 和
+// RawUDPIdentify 的共享实现。
+func identifyWithNet(
+	ctx context.Context,
+	host string,
+	port int,
+	network string,
+	fn func(net.Conn) *types.Result,
+	opts []RawTCPOption,
+) *types.Result {
 	if fn == nil {
 		return nil
 	}
@@ -78,7 +107,7 @@ func RawTCPIdentify(
 		opt(&cfg)
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := (&net.Dialer{Timeout: cfg.timeout}).DialContext(ctx, "tcp", addr)
+	conn, err := (&net.Dialer{Timeout: cfg.timeout}).DialContext(ctx, network, addr)
 	if err != nil {
 		return nil
 	}
