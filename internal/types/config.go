@@ -8,8 +8,6 @@
 package types
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -170,13 +168,15 @@ func (c *Config) Validate() error {
 		return CodeInvalidTimeout.New("threads must be > 0", "use -t 200 (default) or any positive integer")
 	}
 	if c.Threads > 10000 {
-		return fmt.Errorf("threads too large: %d (max 10000)", c.Threads)
+		return CodeInvalidTimeout.Newf("lower to 10000 or less",
+			"threads too large: %d (max 10000)", c.Threads)
 	}
 	if c.Timeout <= 0 {
 		return CodeInvalidTimeout.New("timeout must be > 0", "use --timeout 3s (default) or any positive duration")
 	}
 	if c.Timeout > 3600*time.Second {
-		return fmt.Errorf("timeout too large: %s (max 3600s)", c.Timeout)
+		return CodeInvalidTimeout.Newf("lower to 3600s or less",
+			"timeout too large: %s (max 3600s)", c.Timeout)
 	}
 	if c.ShutdownTimeout <= 0 {
 		return CodeInvalidTimeout.New("shutdown-timeout must be > 0", "use --shutdown-timeout 5s (default)")
@@ -188,20 +188,21 @@ func (c *Config) Validate() error {
 		// default to scan
 		c.Mode = ModeScan
 	default:
-		return fmt.Errorf("invalid mode %q (expected scan|crack|linked)", c.Mode)
+		return CodeUnknownMode.Newf("use --mode scan|crack|linked",
+			"invalid mode %q (expected scan|crack|linked)", c.Mode)
 	}
 	if c.Project == "" && c.Resume {
 		return CodeConflictingFlag.New("-resume requires -p <project>", "add -p <name> or drop --resume")
 	}
 	// M6 audit fix: conflict detection. / M6 审计修法：冲突检测。
 	if c.NoState && c.Resume {
-		return errors.New("--no-state conflicts with --resume (resume requires bbolt persistence)")
+		return CodeConflictingFlag.New("--no-state conflicts with --resume (resume requires bbolt persistence)", "drop one of --no-state or --resume")
 	}
 	if c.AliveOnly && c.Mode == ModeCrack {
-		return errors.New("--alive-only conflicts with --mode crack (crack needs known ports)")
+		return CodeConflictingFlag.New("--alive-only conflicts with --mode crack (crack needs known ports)", "drop --alive-only or change --mode")
 	}
 	if c.Proxy != "" && c.Socks5 != "" {
-		return errors.New("--proxy and --socks5 are mutually exclusive (specify only one)")
+		return CodeConflictingFlag.New("--proxy and --socks5 are mutually exclusive (specify only one)", "use either --proxy or --socks5, not both")
 	}
 	if c.Host == "" && c.HostsFile == "" {
 		// Empty is allowed for subcommands like `projects list`.
