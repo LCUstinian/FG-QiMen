@@ -350,6 +350,18 @@ test:
 testv:
     CGO_ENABLED=0 go test -v ./...
 
+# Run go test with coverage / 覆盖率测试
+# Output: coverage.out + per-package %.  Phase 1.10 of the audit
+# roadmap: CI coverage gate (fail below 60% on internal/).
+# / 输出：coverage.out + 每包覆盖率。审计路线图 Phase 1.10：
+# CI 覆盖率门禁（internal/ 低于 60% 失败）。
+coverage:
+    CGO_ENABLED=0 go test -coverprofile=coverage.out -covermode=atomic ./...
+    @go tool cover -func=coverage.out | tail -30
+    @echo "---"
+    @echo "Total:"
+    @go tool cover -func=coverage.out | grep total | awk '{print $$3}'
+
 # Run all quality checks (fmt + vet + test) / 运行所有质量检查
 check: fmt vet test
 

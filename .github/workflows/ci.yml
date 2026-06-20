@@ -137,6 +137,15 @@ jobs:
         run: |
           go test -race -timeout 120s -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | tail -20
+          # Phase 1.10 of the audit roadmap: enforce a coverage
+          # floor on the internal/ packages. 50% is the seed
+          # threshold; bump as we add tests (target: 70%+ by
+          # v0.4). / 审计路线图 Phase 1.10：对 internal/ 包强
+          # 制覆盖率门槛。50% 是初始门槛；加测试时再上调
+          # （v0.4 目标 70%+）。
+          PCT=$(go tool cover -func=coverage.out | awk '/^total/ {gsub("%","",$3); print $3}')
+          echo "Total coverage: ${PCT}%"
+          awk -v p="$PCT" 'BEGIN { if (p+0 < 50) { print "FAIL: coverage " p "% < 50% threshold"; exit 1 } }'
 
       - name: upload coverage artifact
         if: matrix.os == 'ubuntu-latest'

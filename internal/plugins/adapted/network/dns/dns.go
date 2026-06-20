@@ -52,9 +52,22 @@ func (p *Plugin) Credential(context.Context, string, int, []types.Cred) *types.R
 }
 
 // Identify sends a CHAOS-class version.bind TXT query, then a
-// regular A query for ".". Whichever answers first wins. / Identify
-// 发 CHAOS 类 version.bind TXT 查询，然后发常规 "." 的 A 查询。
-// 先回的即胜。
+// regular A query for ".". If the regular A query answers with
+// AA=1 (Authoritative Answer), we also try an AXFR zone-transfer
+// probe against the authoritative server — a misconfigured DNS
+// server that allows AXFR leaks the entire zone. / Identify 发
+// CHAOS 类 version.bind TXT 查询，然后发常规 "." 的 A 查询。如
+// 果常规 A 查询带 AA=1（权威应答），我们对权威 server 试 AXFR
+// zone-transfer 探测——配置错误的 DNS server 允许 AXFR 会泄露
+// 整个 zone。
+//
+// Phase 1.4 (audit roadmap): added AXFR probe for misconfiguration
+// detection. We do NOT exfiltrate zone contents — we only count
+// records returned, and we cap the response read at 4 KiB to
+// bound the memory cost of a misbehaving server. / Phase 1.4
+// （审计路线图）：加 AXFR 探测做配置错误检测。我们不外泄 zone
+// 内容——只统计返回的记录数，并限制响应读取为 4 KiB 以限制故障
+// server 的内存成本。
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
 	return plugins.RawUDPIdentify(ctx, host, port, func(conn net.Conn) *types.Result {
 		// Try the CHAOS query first. / 先试 CHAOS 查询。
@@ -64,8 +77,67 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		// Reset deadline then try the regular query. / 重置
 		// deadline 然后试常规查询。
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-		return queryAndCheckAt(conn, buildRootAQuery(), host, port)
+		if r := queryAndCheckAt(conn, buildRootAQuery(), host, port); r != nil {
+			// If AA (Authoritative Answer) bit is set, try AXFR.
+			// / 如果 AA（权威应答）位被置，试 AXFR。
+			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			if axfrResult := tryAXFR(conn, host, port); axfrResult != nil {
+				return axfrResult
+			}
+			return r
+		}
+		return nil
 	})
+}
+
+// tryAXFR sends an AXFR query for "." (root) and reports the
+// number of records in the response. A well-configured server
+// refuses (RCODE=4 NOTIMP or REFUSED); a misconfigured one returns
+// the entire zone. We count records and surface as a banner — we
+// do NOT print the zone contents. / tryAXFR 发 "."（根）的 AXFR
+// 查询并报告响应中的记录数。配置正确的 server 拒绝（RCODE=4
+// NOTIMP 或 REFUSED）；配置错误的返回整个 zone。我们只统计记
+// 录数并在 banner 展示——不打印 zone 内容。
+func tryAXFR(conn net.Conn, host string, port int) *types.Result {
+	// AXFR QTYPE = 252. / AXFR QTYPE = 252。
+	axfr := []byte{
+		0xCA, 0xFE, // ID
+		0x00, 0x00, // RD=0 (AXFR over TCP, but we're over UDP)
+		0x00, 0x01, // QDCOUNT=1
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		// QNAME: "" (root = single 0x00)
+		0x00,
+		0x00, 0xFC, // QTYPE = AXFR = 252
+		0x00, 0x01, // QCLASS = IN
+	}
+	if _, err := conn.Write(axfr); err != nil {
+		return nil
+	}
+	resp := make([]byte, 4096) // 4 KiB cap.
+	n, err := conn.Read(resp)
+	if err != nil || n < 12 {
+		return nil
+	}
+	if resp[2]&0x80 == 0 {
+		return nil // not a response
+	}
+	rcode := resp[3] & 0x0F
+	an := binary.BigEndian.Uint16(resp[6:8])
+	// RCODE 0 = NOERROR, ANCOUNT > 0 → zone transfer succeeded
+	// (misconfiguration). RCODE 4 = NOTIMP, RCODE 5 = REFUSED →
+	// AXFR blocked (good). / RCODE 0 = NOERROR 且 ANCOUNT > 0 →
+	// zone transfer 成功（配置错）。RCODE 4 = NOTIMP, RCODE 5 =
+	// REFUSED → AXFR 被拒（正确）。
+	if rcode == 0 && an > 0 {
+		return &types.Result{
+			Host:    host,
+			Port:    port,
+			Service: "dns",
+			Banner:  "DNS (⚠ AXFR allowed, an=" + itoa(int(an)) + ")",
+			Time:    time.Now(),
+		}
+	}
+	return nil
 }
 
 // queryAndCheck sends q, reads the response, and returns a *Result
