@@ -1,0 +1,62 @@
+# Fuzz testing — daily cron + manual dispatch. Runs `go test -fuzz`
+# against selected fuzz targets for a bounded time. / 模糊测试——
+# 每日 cron + 手动触发。在限定时间内对选定的模糊目标跑 `go test
+# -fuzz`。
+#
+# Fuzz targets in the project:
+#   - internal/types: FuzzExpandTargets, FuzzParsePorts
+#   - internal/core/credential: FuzzPoolDedup
+#
+# CI time budget: 5 minutes per target. PR trigger uses 30 seconds
+# for fast feedback. / CI 时间预算：每目标 5 分钟。PR 触发 30 秒
+# 给快速反馈。
+
+name: fuzz
+
+on:
+  schedule:
+    # Run weekly on Sunday at 04:00 UTC. / 每周日 04:00 UTC 跑。
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Fuzz duration per target (e.g. 30s, 5m)"
+        required: false
+        default: "5m"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target.func }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target:
+              package: ./internal/types
+              func: FuzzExpandTargets
+            duration: ${{ github.event.inputs.duration || '30s' }}
+          - target:
+              package: ./internal/types
+              func: FuzzParsePorts
+            duration: ${{ github.event.inputs.duration || '30s' }}
+          - target:
+              package: ./internal/core/credential
+              func: FuzzPoolDedup
+            duration: ${{ github.event.inputs.duration || '30s' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run ${{ matrix.target.func }} for ${{ matrix.duration }}
+        run: |
+          cd "${{ matrix.target.package }}"
+          go test -run='^$' -fuzz="${{ matrix.target.func }}" -fuzztime="${{ matrix.duration }}"

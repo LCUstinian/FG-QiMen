@@ -1,0 +1,47 @@
+# Dependabot config — weekly scan for stale Go modules and GitHub
+# Actions versions. PRs are auto-opened with a low impact label
+# so they're easy to triage in bulk. / Dependabot 配置——每周扫描
+# 过时的 Go 模块和 GitHub Actions 版本。PR 自动开箱并加 low-impact
+# 标签，方便批量分流。
+
+version: 2
+updates:
+  # Go module updates. / Go 模块更新。
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    # Group patch + minor updates so dependabot opens one PR per
+    # weekly batch instead of one per dep. / 把 patch + minor 更新
+    # 分组，让 dependabot 一周开一个 PR 而不是每个 dep 一个。
+    groups:
+      patch-and-minor:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
+    labels:
+      - "dependencies"
+      - "go-modules"
+    # Limit open PRs to keep the queue manageable. / 限制开放 PR
+    # 数保持队列可控。
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions versions. / GitHub Actions 版本。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
