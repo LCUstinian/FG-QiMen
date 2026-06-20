@@ -32,6 +32,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
+	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
@@ -150,6 +151,19 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	if err := openOutputSinks(sess, cfg); err != nil {
 		return err
+	}
+
+	// Phase D (audit roadmap): load optional user-supplied
+	// web-fingerprint ruleset. Loaded AFTER session init so the
+	// logger is wired. / Phase D（审计路线图）：加载可选的
+	// 用户 web 指纹规则集。在 session 初始化后加载，让 logger
+	// 已挂上。
+	if flagWebFingerprint != "" {
+		if added, err := fingerprint.LoadCustomRuleset(flagWebFingerprint); err != nil {
+			sess.Log.Warn("web-fingerprint ruleset %q: %v (continuing with built-in rules only)", flagWebFingerprint, err)
+		} else {
+			sess.Log.Info("[*] web-fingerprint: loaded %d custom rule(s) from %s", added, flagWebFingerprint)
+		}
 	}
 
 	if _, err := core.RunScan(ctx, sess); err != nil {

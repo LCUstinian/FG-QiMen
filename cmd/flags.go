@@ -59,9 +59,10 @@ var (
 	// 4. Network / 网络
 	flagProxy       string
 	flagSocks5      string
-	flagIface       string
-	flagPortTimeout time.Duration
-	flagWebTimeout  time.Duration
+	flagIface          string
+	flagPortTimeout    time.Duration
+	flagWebTimeout     time.Duration
+	flagWebFingerprint string
 
 	// 5. Concurrency & timing / 并发与超时
 	flagThreads          int
@@ -164,6 +165,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"port scan timeout (default: same as --timeout)")
 	pf.DurationVar(&flagWebTimeout, "web-timeout", 0,
 		"web probe timeout (default: same as --timeout)")
+	pf.StringVar(&flagWebFingerprint, "web-fingerprint", "",
+		"load additional web-fingerprint ruleset (FG-QiMen native JSON or EHole format); merged with the built-in FingerprintHub rules (Phase D). Pass an empty string for the default built-ins only.")
 
 	// 5. Concurrency & timing / 并发与超时
 	pf.IntVarP(&flagThreads, "threads", "t", 200,
@@ -227,7 +230,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"host", "hosts-file"}, groupTarget)
 	annotate(pf, []string{"project", "project-key", "mode", "resume", "no-state"}, groupWorkspace)
 	annotate(pf, []string{"ports", "exclude-ports", "alive-only"}, groupPorts)
-	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout"}, groupNetwork)
+	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv"}, groupOutput)

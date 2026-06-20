@@ -373,6 +373,61 @@ func TestExpandTargetsRange(t *testing.T) {
 	}
 }
 
+// TestExpandTargetsIPv6Single: a bare IPv6 literal expands to one
+// Target. Phase B (audit roadmap): IPv6 first-class support.
+// TestExpandTargetsIPv6Single：裸 IPv6 字面量展开为一个 Target。
+// Phase B（审计路线图）：IPv6 一等公民。
+func TestExpandTargetsIPv6Single(t *testing.T) {
+	got, err := ExpandTargets("::1", "")
+	if err != nil {
+		t.Fatalf("ExpandTargets(::1): %v", err)
+	}
+	if len(got) != 1 || got[0].Addr != "::1" {
+		t.Errorf("got %v, want [{::1}]", got)
+	}
+}
+
+// TestExpandTargetsIPv6CIDR: a /124 IPv6 CIDR expands to 16 addrs.
+// TestExpandTargetsIPv6CIDR：IPv6 /124 CIDR 展开为 16 地址。
+func TestExpandTargetsIPv6CIDR(t *testing.T) {
+	got, err := ExpandTargets("2001:db8::/124", "")
+	if err != nil {
+		t.Fatalf("ExpandTargets(2001:db8::/124): %v", err)
+	}
+	if len(got) != 16 {
+		t.Errorf("got %d targets, want 16 (/124 = 16 addrs)", len(got))
+	}
+	if got[0].Addr != "2001:db8::" {
+		t.Errorf("got[0] = %q, want 2001:db8::", got[0].Addr)
+	}
+	if got[15].Addr != "2001:db8::f" {
+		t.Errorf("got[15] = %q, want 2001:db8::f", got[15].Addr)
+	}
+}
+
+// TestExpandTargetsIPv6CommaList: comma-separated IPv6 list expands
+// to N targets. Phase B (audit roadmap). / Phase B：逗号分隔 IPv6
+// 列表展开为 N 个目标。
+func TestExpandTargetsIPv6CommaList(t *testing.T) {
+	got, err := ExpandTargets("::1,fe80::1,2001:db8::1", "")
+	if err != nil {
+		t.Fatalf("ExpandTargets: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d targets, want 3", len(got))
+	}
+	// Verify all three addrs are present (order may vary due to
+	// map-based dedup). / 验证三个地址都在（顺序可能因 map 去
+	// 重而变）。
+	want := map[string]bool{"::1": true, "fe80::1": true, "2001:db8::1": true}
+	for _, t := range got {
+		delete(want, t.Addr)
+	}
+	if len(want) > 0 {
+		t.Errorf("missing addrs: %v", want)
+	}
+}
+
 // TestExpandTargetsDedupe: repeated spec (or a spec that produces
 // duplicates) is de-duplicated in the output.
 func TestExpandTargetsDedupe(t *testing.T) {

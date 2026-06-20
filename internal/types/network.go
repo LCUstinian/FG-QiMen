@@ -31,10 +31,13 @@ const MaxTargets = 65536
 // M5 审计修法：强制 MaxTargets 上限，防止巨大 CIDR 展开导致 OOM。
 //
 // Supported forms / 支持的格式:
-//   - "192.168.1.1"
-//   - "192.168.1.0/24"
-//   - "192.168.1.1-192.168.1.254"
-//   - "192.168.1.1,10.0.0.0/24"
+//   - "192.168.1.1" / "::1" (IPv6 first-class — Phase B of the
+//     audit roadmap)
+//   - "192.168.1.0/24" / "2001:db8::/64"
+//   - "192.168.1.1-192.168.1.254" (IPv4 range; IPv6 ranges use
+//     full-form "::1-::ffff" since the bare-octet shorthand
+//     doesn't apply to v6)
+//   - "192.168.1.1,10.0.0.0/24,::1,fe80::1" (comma list)
 //   - "@/path/to/hosts.txt" (use -hf equivalent by passing via hostsFile)
 func ExpandTargets(spec, hostsFile string) ([]Target, error) {
 	var out []Target

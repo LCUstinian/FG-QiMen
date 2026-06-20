@@ -47,6 +47,7 @@ var expectedFlagGroups = map[string]string{
 	"iface":        "Network",
 	"port-timeout": "Network",
 	"web-timeout":  "Network",
+	"web-fingerprint": "Network",
 	// Concurrency
 	"threads":          "Concurrency",
 	"timeout":          "Concurrency",
