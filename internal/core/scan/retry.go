@@ -22,6 +22,14 @@ type RetryConfig struct {
 	// MaxRetries 是最大重试次数。
 	MaxRetries int
 
+	// TrackStats enables per-probe retry statistics (TotalAttempts /
+	// SuccessfulRetries / ResourceErrors / FailedRetries). Off by
+	// default; the counters cost ~1 atomic add per call when on.
+	// / TrackStats 启用 per-probe 重试统计（TotalAttempts /
+	// SuccessfulRetries / ResourceErrors / FailedRetries）。默认关
+	// 闭；开启时每条调用 ~1 次 atomic add 开销。
+	TrackStats bool
+
 	// InitialBackoff is the initial backoff duration.
 	// InitialBackoff 是初始退避时长。
 	InitialBackoff time.Duration
@@ -46,6 +54,14 @@ func DefaultRetryConfig() RetryConfig {
 type RetryableProbe struct {
 	inner  Probe
 	config RetryConfig
+	// stats is updated by every Probe call. Pass config.TrackStats
+	// to enable; otherwise the counters stay at zero. The
+	// ProbeWithRetryStats wrapper from v0.2.x is gone — the same
+	// struct now does both jobs. P4.1 (audit roadmap).
+	// / stats 每次 Probe 调用更新。传 config.TrackStats 启用；否则计
+	// 数器保持零。v0.2.x 的 ProbeWithRetryStats 包装已移除——同
+	// 一结构现在做两件事。P4.1（审计路线图）。
+	stats RetryStats
 }
 
 // NewRetryableProbe creates a new RetryableProbe.
@@ -75,6 +91,9 @@ func (r *RetryableProbe) Available() error {
 // Probe implements Probe with retry logic.
 // Probe 实现带重试逻辑的 Probe。
 func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeout time.Duration) (Result, error) {
+	if r.config.TrackStats {
+		r.stats.TotalAttempts++
+	}
 	var lastResult Result
 	var lastErr error
 	backoff := r.config.InitialBackoff
@@ -85,11 +104,21 @@ func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeo
 
 		// Success or non-retryable error / 成功或不可重试错误
 		if lastErr == nil || !isResourceExhaustedError(lastErr) {
+			if r.config.TrackStats && lastErr == nil && attempt > 0 {
+				r.stats.SuccessfulRetries++
+			}
 			return lastResult, lastErr
+		}
+
+		if r.config.TrackStats && isResourceExhaustedError(lastErr) {
+			r.stats.ResourceErrors++
 		}
 
 		// Last attempt failed, return / 最后一次尝试失败，返回
 		if attempt == r.config.MaxRetries {
+			if r.config.TrackStats {
+				r.stats.FailedRetries++
+			}
 			return lastResult, lastErr
 		}
 
@@ -106,6 +135,14 @@ func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeo
 	}
 
 	return lastResult, lastErr
+}
+
+// Stats returns the current retry statistics. Only meaningful when
+// config.TrackStats is true; otherwise counters stay at zero.
+// Stats 返回当前重试统计信息。仅在 config.TrackStats 为 true 时有
+// 意义；否则计数器保持零。
+func (r *RetryableProbe) Stats() RetryStats {
+	return r.stats
 }
 
 // isResourceExhaustedError checks if the error is a resource exhaustion error.
@@ -153,67 +190,9 @@ type RetryStats struct {
 	ResourceErrors    int
 }
 
-// ProbeWithRetryStats is like RetryableProbe but also tracks statistics.
-// ProbeWithRetryStats 类似 RetryableProbe 但同时追踪统计信息。
-type ProbeWithRetryStats struct {
-	*RetryableProbe
-	stats RetryStats
-}
-
-// NewProbeWithRetryStats creates a new ProbeWithRetryStats.
-// NewProbeWithRetryStats 创建新的 ProbeWithRetryStats。
-func NewProbeWithRetryStats(inner Probe, config RetryConfig) *ProbeWithRetryStats {
-	return &ProbeWithRetryStats{
-		RetryableProbe: NewRetryableProbe(inner, config),
-	}
-}
-
-// Probe implements Probe with statistics tracking.
-// Probe 实现带统计追踪的 Probe。
-func (p *ProbeWithRetryStats) Probe(ctx context.Context, host string, port int, timeout time.Duration) (Result, error) {
-	p.stats.TotalAttempts++
-
-	var lastResult Result
-	var lastErr error
-	backoff := p.config.InitialBackoff
-
-	for attempt := 0; attempt <= p.config.MaxRetries; attempt++ {
-		lastResult, lastErr = p.inner.Probe(ctx, host, port, timeout)
-
-		if lastErr == nil {
-			if attempt > 0 {
-				p.stats.SuccessfulRetries++
-			}
-			return lastResult, lastErr
-		}
-
-		if isResourceExhaustedError(lastErr) {
-			p.stats.ResourceErrors++
-		}
-
-		if !isResourceExhaustedError(lastErr) {
-			return lastResult, lastErr
-		}
-
-		if attempt == p.config.MaxRetries {
-			p.stats.FailedRetries++
-			return lastResult, lastErr
-		}
-
-		select {
-		case <-ctx.Done():
-			return lastResult, ctx.Err()
-		case <-time.After(backoff):
-		}
-
-		backoff = time.Duration(float64(backoff) * p.config.BackoffMultiplier)
-	}
-
-	return lastResult, lastErr
-}
-
-// Stats returns the current retry statistics.
-// Stats 返回当前重试统计信息。
-func (p *ProbeWithRetryStats) Stats() RetryStats {
-	return p.stats
-}
+// ProbeWithRetryStats removed in v0.3.1 (P4.1 of the audit roadmap):
+// the 90% duplicate of RetryableProbe is now expressed as
+// RetryableProbe + RetryConfig{TrackStats: true} + RetryableProbe.Stats().
+// / ProbeWithRetryStats 在 v0.3.1 移除（P4.1 审计路线图）：与
+// RetryableProbe 重复 90% 的代码现表示为 RetryableProbe +
+// RetryConfig{TrackStats: true} + RetryableProbe.Stats()。
