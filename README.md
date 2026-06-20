@@ -106,17 +106,27 @@ fg-qimen projects list
 | `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write to coils/registers) |
 | `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
 | `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |
+| `ntp` | 123 (UDP) | ✅ (NTPv4 client, Mode=4 check) | – (added v0.3.1) |
+| `tftp` | 69 (UDP) | ✅ (RRQ → DATA/ERROR) | – (added v0.3.1) |
+| `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | – (added v0.3.1) |
 | `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS) |
 
-30 plugins / authenticators covering enterprise-internal + cloud-native
-+ industrial control + building automation services. Credential testing
-covers **26 services** in v0.2 (SSH + FTP + MySQL + Redis + Memcached
-+ MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
-Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
-+ RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS), with full no-exploit
-enforcement (`creds.txt` is the only side-effect).
+33 plugins / authenticators covering enterprise-internal + cloud-native
++ industrial control + building automation + UDP services (NTP / TFTP /
+DNS) in v0.3.1+. Credential testing covers **26 services** in v0.2
+(SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB +
+PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
+IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ + Modbus +
+IPMI v2.0 + BACnet + NFS), with full no-exploit enforcement
+(`creds.txt` is the only side-effect). IPv6 targets are first-class
+(single IP, CIDR, comma-list). Custom web-fingerprint rulesets
+can be loaded via `--web-fingerprint <file>` in either the
+FG-QiMen native JSON or the EHole `{"cms": [...]}` format.
 
-30 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控服务。
+33 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控 + UDP 服务
+（NTP / TFTP / DNS）于 v0.3.1+。IPv6 目标为一等公民（裸 IP / CIDR / 逗号
+列表）。Web 指纹支持通过 `--web-fingerprint <file>` 加载自定义规则
+（FG-QiMen 原生 JSON 或 EHole `{"cms": [...]}` 格式）。
 v0.2 凭据测试覆盖 **26 个服务**（SSH + FTP + MySQL + Redis + Memcached +
 MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
 Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
