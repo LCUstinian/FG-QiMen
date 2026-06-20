@@ -64,9 +64,12 @@ These are enforced by:
 - At-rest bbolt values are AES-256-GCM (post-v0.3.1).
 - Per-value magic-byte AAD binding prevents bit-flip → "plaintext"
   confusion.
-- Key derivation uses SHA-256(passphrase) as of v0.3.1. **The
-  v0.4+ roadmap moves to Argon2id** (see `internal/store/crypto.go`
-  + audit roadmap).
+- Key derivation: v0.3.x used SHA-256(passphrase); v0.4+ uses
+  **Argon2id** with OWASP-2024 parameters (time=3, memory=64 MiB,
+  parallelism=4, salt=16 B). Old SHA-256 KDF stays in `Open()` so
+  v0.3.x DBs remain readable. See `internal/store/crypto.go` for
+  the magic-byte dispatch (`0x01`/`0x02` → SHA-256, `0x03` →
+  Argon2id).
 
 ## Out-of-Scope
 

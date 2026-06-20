@@ -54,8 +54,14 @@ export FG_QIMEN_PROJECT_KEY=$(openssl rand -hex 32)
 fg-qimen -p myproject -H 10.0.0.0/24 -mode linked
 ```
 
-Key derivation is SHA-256(passphrase) → 32-byte AES-256 key. The
-format is documented in `internal/store/crypto.go`:
+Key derivation:
+  - v0.3.x (legacy, still readable): SHA-256(passphrase) → 32-byte key.
+  - v0.4+ (current, new writes): Argon2id(passphrase, salt) with
+    OWASP-2024 parameters (time=3, memory=64 MiB, parallelism=4,
+    salt=16 B). The salt is per-DB and cached in `EncryptedValue`,
+    so the cost is paid once at project open.
+
+The on-disk format is documented in `internal/store/crypto.go`:
 
 ```
 +--------+------------------+--------------------+
@@ -65,8 +71,13 @@ format is documented in `internal/store/crypto.go`:
 ```
 
 - `0x00` magic: plaintext (legacy v0.2.x)
-- `0x01` magic: v0.3.0 encrypted, AAD=nil (legacy)
-- `0x02` magic: v0.3.1+ encrypted, AAD=magic (AAD-protected, current)
+- `0x01` magic: v0.3.0 encrypted, SHA-256 key, AAD=nil (legacy)
+- `0x02` magic: v0.3.1+ encrypted, SHA-256 key, AAD=magic (legacy, readable)
+- `0x03` magic: v0.4+   encrypted, Argon2id key, AAD=magic (current)
+
+`Open()` dispatches on the magic byte to the right KDF, so v0.3.x
+DBs remain readable on v0.4+ builds; new writes always use `0x03`
+once `FG_QIMEN_PROJECT_KEY` is set.
 
 The magic byte is bound to the ciphertext via GCM AAD. Bit-flips
 on the magic byte are detected as `ErrDecryptFailed` rather than
