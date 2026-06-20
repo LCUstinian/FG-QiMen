@@ -111,22 +111,30 @@ fg-qimen projects list
 | `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | – (added v0.3.1) |
 | `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL call; no AUTH_GSS) |
 
-33 plugins / authenticators covering enterprise-internal + cloud-native
+42 plugins / authenticators covering enterprise-internal + cloud-native
 + industrial control + building automation + UDP services (NTP / TFTP /
-DNS) in v0.3.1+. Credential testing covers **26 services** in v0.2
+DNS) + cloud-metadata (AWS IMDS / Azure IMDS) + web frameworks
+(Jenkins / Kafka / ActiveMQ / RocketMQ / Kibana / WebLogic / RDPv8) in
+v0.3.1+. Credential testing covers **26 services** in v0.2
 (SSH + FTP + MySQL + Redis + Memcached + MongoDB + MSSQL + SMB +
 PostgreSQL + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 +
 IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker + RabbitMQ + Modbus +
 IPMI v2.0 + BACnet + NFS), with full no-exploit enforcement
 (`creds.txt` is the only side-effect). IPv6 targets are first-class
 (single IP, CIDR, comma-list). Custom web-fingerprint rulesets
-can be loaded via `--web-fingerprint <file>` in either the
-FG-QiMen native JSON or the EHole `{"cms": [...]}` format.
+can be loaded via `--web-fingerprint <path-or-url>` — accepts a
+local file path or an HTTP(S) URL for live-update from a rules
+server. RDP NLA posture (HYBRID / SSL / legacy) is detected by the
+`rdp-nla` plugin; full CredSSP authentication remains a v0.4+ task
+per the README deferral.
 
-33 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控 + UDP 服务
-（NTP / TFTP / DNS）于 v0.3.1+。IPv6 目标为一等公民（裸 IP / CIDR / 逗号
-列表）。Web 指纹支持通过 `--web-fingerprint <file>` 加载自定义规则
-（FG-QiMen 原生 JSON 或 EHole `{"cms": [...]}` 格式）。
+42 个插件/认证器覆盖企业内网 + 云原生 + 工业控制 + 楼宇自控 + UDP 服务
+（NTP / TFTP / DNS）+ 云元数据（AWS IMDS / Azure IMDS）+ Web 框架
+（Jenkins / Kafka / ActiveMQ / RocketMQ / Kibana / WebLogic / RDPv8）
+于 v0.3.1+。IPv6 目标为一等公民。Web 指纹支持
+`--web-fingerprint <path-or-url>`（本地文件或 HTTP URL live-update）。
+RDP NLA 状态（HYBRID / SSL / 旧版）由 `rdp-nla` 插件探测；完整
+CredSSP 认证仍是 v0.4+ 项（README 已 defer）。
 v0.2 凭据测试覆盖 **26 个服务**（SSH + FTP + MySQL + Redis + Memcached +
 MongoDB + MSSQL + SMB + PostgreSQL + Elasticsearch + VNC + Telnet +
 Oracle + WinRM + POP3 + IMAP + SOCKS5 + LDAP + SNMPv2c + Rsync + Docker
