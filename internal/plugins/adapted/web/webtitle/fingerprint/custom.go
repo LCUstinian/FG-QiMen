@@ -1,11 +1,18 @@
-// custom.go — load a user-supplied ruleset file and merge it with
-// the built-in (FingerprintHub + hardcoded) rules. Phase D (audit
-// roadmap): operators can drop in EHole-format JSON files without
-// us maintaining a separate library.
+// custom.go — load a user-supplied ruleset (file or URL) and
+// merge it with the built-in (FingerprintHub + hardcoded) rules.
+// Phase D (audit roadmap): operators can drop in EHole-format
+// JSON files. Phase 1.6: the source can also be an HTTP(S) URL
+// for live-update.
 //
-// custom.go — 加载用户提供的规则集文件并与内置（FingerprintHub +
-// 硬编码）规则合并。Phase D（审计路线图）：操作员可投喂 EHole 格式
-// JSON 文件而我们不维护单独的库。
+// custom.go — 加载用户提供的规则集（文件或 URL）并与内置
+// （FingerprintHub + 硬编码）规则合并。Phase D（审计路线图）：
+// 操作员可投喂 EHole 格式 JSON 文件。Phase 1.6：源也可以是
+// HTTP(S) URL 以支持 live-update。
+//
+// Supported source paths:
+//   - Local file (any path) — read with os.ReadFile
+//   - HTTP(S) URL (http:// or https:// prefix) — fetch with
+//     http.Get, 5s timeout
 //
 // Supported file formats (auto-detected by JSON shape):
 //   1. "rules" key (FG-QiMen native) — flat list of rules.
@@ -15,12 +22,21 @@
 package fingerprint
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
+	"time"
 )
+
+// sourceTimeout caps a single ruleset fetch. / sourceTimeout 是单
+// 次规则集获取的超时。
+const sourceTimeout = 10 * time.Second
 
 // matcher mirrors the FingerprintHub HTTP matcher shape. Defined
 // as a named type so we can build it without inline struct literals
@@ -73,16 +89,52 @@ var (
 	customRules   []EnhancedFingerprint
 )
 
-// LoadCustomRuleset reads a JSON file, auto-detects its format, and
-// registers the rules. Returns the number of rules added. /
-// LoadCustomRuleset 读 JSON 文件，自动检测格式，注册规则。返回新
-// 加规则数。
+// LoadCustomRuleset reads a JSON file or fetches a URL, auto-detects
+// its format, and registers the rules. Returns the number of rules
+// added. Phase 1.6: source can be http:// or https://.
+// / LoadCustomRuleset 读 JSON 文件或抓 URL，自动检测格式，
+// 注册规则。返回新加规则数。Phase 1.6：源可以是 http:// 或
+// https://。
 func LoadCustomRuleset(path string) (int, error) {
-	data, err := os.ReadFile(path)
+	data, err := loadRulesetSource(path)
 	if err != nil {
-		return 0, fmt.Errorf("read ruleset: %w", err)
+		return 0, err
 	}
 	return parseAndRegister(data)
+}
+
+// loadRulesetSource fetches the ruleset bytes from either a local
+// file or an HTTP(S) URL. / loadRulesetSource 从本地文件或
+// HTTP(S) URL 取规则集字节。
+func loadRulesetSource(path string) ([]byte, error) {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fetchURL(path)
+	}
+	return os.ReadFile(path)
+}
+
+// fetchURL retrieves a URL with a 10s timeout. / fetchURL 用
+// 10s 超时取 URL。
+func fetchURL(url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", "fg-qimen/0.3.1")
+	client := &http.Client{Timeout: sourceTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("fetch %s: status %d", url, resp.StatusCode)
+	}
+	// 16 MiB cap to prevent a malicious server from OOMing us.
+	// / 16 MiB 上限防恶意 server OOM。
+	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
 
 // parseAndRegister detects the JSON shape and dispatches. /
