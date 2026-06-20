@@ -103,7 +103,15 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 		// P1#1 + C1 审计修法：底部（约 128 行）唯一的 defer close(items)
 		// 覆盖所有返回路径。此处早先的重复 defer close(items) 会在每
 		// 次扫描时 double-close 并 panic。v0.2 审计删除。
-		ports, _ := cfg.ParsePorts()
+		// P4.8 (audit roadmap): propagate ParsePorts error instead
+		// of silently running 0 ports on `--ports 99999` (out of
+		// range) or `--ports abc` (non-numeric). / 传播 ParsePorts
+		// 错误，不再静默跑 0 端口。
+		ports, err := cfg.ParsePorts()
+		if err != nil {
+			sess.Log.Error("parse ports: %v", err)
+			return
+		}
 		scanRes := make(chan scan.Result, DefaultChannelBuffer)
 		sc := scan.NewScanner(scan.ScanOptions{
 			Probe:      scan.NewTCPConnectProbe(),

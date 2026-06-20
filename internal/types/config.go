@@ -167,19 +167,19 @@ type Config struct {
 // validation helper 对 Threads / Timeout 做上限检查。
 func (c *Config) Validate() error {
 	if c.Threads <= 0 {
-		return errors.New("threads must be > 0")
+		return CodeInvalidTimeout.New("threads must be > 0", "use -t 200 (default) or any positive integer")
 	}
 	if c.Threads > 10000 {
 		return fmt.Errorf("threads too large: %d (max 10000)", c.Threads)
 	}
 	if c.Timeout <= 0 {
-		return errors.New("timeout must be > 0")
+		return CodeInvalidTimeout.New("timeout must be > 0", "use --timeout 3s (default) or any positive duration")
 	}
 	if c.Timeout > 3600*time.Second {
 		return fmt.Errorf("timeout too large: %s (max 3600s)", c.Timeout)
 	}
 	if c.ShutdownTimeout <= 0 {
-		return errors.New("shutdown-timeout must be > 0")
+		return CodeInvalidTimeout.New("shutdown-timeout must be > 0", "use --shutdown-timeout 5s (default)")
 	}
 	switch c.Mode {
 	case ModeScan, ModeCrack, ModeLinked:
@@ -191,7 +191,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid mode %q (expected scan|crack|linked)", c.Mode)
 	}
 	if c.Project == "" && c.Resume {
-		return errors.New("-resume requires -p <project>")
+		return CodeConflictingFlag.New("-resume requires -p <project>", "add -p <name> or drop --resume")
 	}
 	// M6 audit fix: conflict detection. / M6 审计修法：冲突检测。
 	if c.NoState && c.Resume {

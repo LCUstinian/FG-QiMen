@@ -1,11 +1,17 @@
-// pool_test.go — pin the dedup-key HMAC behaviour and the Clear()
-// semantics from the v0.2.1 audit.
+// pool_test.go — pin the dedup-key HMAC behaviour from the
+// v0.2.1 audit.
 //
 // The P3 / F-15 audit finding was that the dedup key held
 // cleartext on the heap (a process memory dump would surface
 // every sprayed cred). The fix HMAC-hashes the key with a
-// per-process random nonce and adds Clear() to wipe the
-// credential strings post-scan.
+// per-process random nonce.
+//
+// Note: Pool.Clear() was removed in v0.3.1 (Phase 4.6 of the
+// optimization roadmap) — it was dead code with no production
+// callers and the practical zeroing benefit was near-zero since
+// Go string backing arrays aren't wipeable. Production code uses
+// the creds slice in `loadCreds` (not a Pool instance) and lets
+// GC reclaim strings normally.
 //
 // We test:
 //   - dedupKey of same cred → same key (no false dup-skips)
@@ -13,7 +19,6 @@
 //     dedup-hits)
 //   - dedupKey contains no substring of the cleartext (heap
 //     dump regression guard)
-//   - Clear() resets Len() to 0 and the pool can be re-used
 //   - Two processes' dedupKeys (we can't actually fork, so we
 //     simulate by computing one and re-deriving via the
 //     package-level key — see below for what we can/can't test)
@@ -102,25 +107,13 @@ func TestPoolAddDedup(t *testing.T) {
 	}
 }
 
-// TestPoolClear — Clear resets Len, dedup state, and creds
-// slice. The pool must be re-usable after Clear.
-func TestPoolClear(t *testing.T) {
-	p := NewPool()
-	p.Add(Cred{User: "u1", Pass: "p1", Method: AuthPassword})
-	p.Add(Cred{User: "u2", Pass: "p2", Method: AuthPassword})
-	if p.Len() != 2 {
-		t.Fatalf("setup: Len = %d, want 2", p.Len())
-	}
-	p.Clear()
-	if p.Len() != 0 {
-		t.Errorf("after Clear: Len = %d, want 0", p.Len())
-	}
-	// Re-use: adding the same cred should now succeed (index
-	// was wiped).
-	if !p.Add(Cred{User: "u1", Pass: "p1", Method: AuthPassword}) {
-		t.Error("Add after Clear returned false; want true (fresh index)")
-	}
-}
+// TestPoolClear removed in v0.3.1 — Pool.Clear() was dead code with
+// no production callers (see Phase 4.6 of the optimization roadmap).
+// The pool is exercised via NewPool() + Add() + All() in the tests
+// below; Clear() semantics are no longer in scope. / TestPoolClear 在
+// v0.3.1 移除——Pool.Clear() 是无生产调用方的 dead code（见优化路线
+// 图 Phase 4.6）。Pool 通过 NewPool() + Add() + All() 在下方测试中
+// 覆盖；Clear() 语义不再在范围内。
 
 // TestPoolAllReturnsCopy — All() returns a slice; mutations to
 // the returned slice don't affect the pool. (We can't enforce
@@ -135,8 +128,8 @@ func TestPoolAllReturnsCopy(t *testing.T) {
 	}
 	// Mutate the returned slice; the pool's slice must not change.
 	got[0] = Cred{User: "MUTATED"}
-	p.Clear()
-	if p.Len() != 0 {
-		t.Errorf("Clear after external mutation: Len = %d, want 0", p.Len())
+	all2 := p.All()
+	if all2[0].User == "MUTATED" {
+		t.Error("external mutation leaked into pool's All() — copy not deep enough")
 	}
 }

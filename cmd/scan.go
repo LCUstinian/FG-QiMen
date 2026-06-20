@@ -314,13 +314,24 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 //
 // loadResumeState 把 bbolt 持久化的 seen-set 加载到内存 State，让
 // pipeline 跳过已处理项。未设 -resume 或即扫即走模式下空操作。
+// loadResumeState rehydrates the in-memory seen-set from the bbolt
+// store. When -resume is set but the bbolt file is corrupt /
+// unreadable, we degrade to a warning + fresh run rather than
+// aborting the scan — the operator can re-scan from scratch and
+// the corrupt DB can be deleted manually. P4.9 (audit roadmap).
+//
+// loadResumeState 从 bbolt store 重水化内存中的 seen-set。当
+// -resume 设置但 bbolt 文件损坏/不可读时，降级为 warning + 重新
+// 跑扫描（操作员可从头重扫并手动删损坏 DB）。P4.9（审计路线图）。
 func loadResumeState(sess *session.Session, cfg *types.Config) error {
 	if !cfg.Resume || sess.Store == nil {
 		return nil
 	}
 	hashes, err := sess.Store.LoadSeenHashes()
 	if err != nil {
-		return fmt.Errorf("load seen set: %w", err)
+		sess.Log.Warn("resume: bbolt read failed (%v); continuing with empty seen-set. "+
+			"Delete the corrupt fg.db to silence this warning.", err)
+		return nil
 	}
 	for _, h := range hashes {
 		sess.State.MarkSeen(h)

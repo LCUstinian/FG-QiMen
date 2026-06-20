@@ -129,6 +129,13 @@ func (s *Store) LoadSeenHashes() ([]string, error) {
 		if bk == nil {
 			return nil
 		}
+		// Pre-allocate the slice using the bucket's KeyN stat so
+		// ForEach doesn't trigger ~log2(N) reallocs. For a 100k-
+		// hash resume this is the difference between 17 allocations
+		// and 1. / 用 bucket 的 KeyN 统计预分配 slice，让 ForEach 不
+		// 触发 ~log2(N) 次重分配。10 万 hash 的 resume 场景下，这是
+		// 17 次分配和 1 次分配的区别。
+		out = make([]string, 0, bk.Stats().KeyN)
 		return bk.ForEach(func(k, _ []byte) error {
 			out = append(out, string(k))
 			return nil

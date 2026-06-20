@@ -81,9 +81,16 @@ type Output struct {
 	// bool 一定是 0。
 	csvHeaderWritten bool
 
-	// showCleartext gates the result.txt cred suffix; creds.txt is
-	// always cleartext. See OutputConfig.ShowCleartext.
-	// showCleartext 守卫 result.txt 的 cred 后缀；creds.txt 始终明文。
+	// showCleartext gates whether result.txt, result.json, and result.csv
+	// embed the cleartext password (default: redacted fingerprint).
+	// creds.txt is ALWAYS cleartext — the operator's working file.
+	// See OutputConfig.ShowCleartext. P4.5 (audit roadmap): the
+	// --show-creds flag (which sets ShowCleartext) applies to ALL
+	// shareable sinks (TXT/JSON/CSV), NOT to creds.txt.
+	// / showCleartext 决定 result.txt / result.json / result.csv 是否
+	// 嵌入明文密码（默认：脱敏指纹）。creds.txt 始终明文——操作员工作文
+	// 件。P4.5（审计路线图）：--show-creds flag（设置 ShowCleartext）作用
+	// 于所有可分享 sink（TXT/JSON/CSV），而非 creds.txt。
 	showCleartext bool
 }
 

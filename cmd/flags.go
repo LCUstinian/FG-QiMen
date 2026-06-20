@@ -209,7 +209,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 
 	// 9. Safety / 安全
 	pf.BoolVar(&flagShowCleartext, "show-creds", false,
-		"render discovered credentials in cleartext on stderr / TUI / result.txt (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword)")
+		"render discovered credentials in cleartext on TUI, stderr, result.txt, result.json, and result.csv (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword). NOTE: creds.txt is ALWAYS cleartext regardless of this flag — that's the operator's working file.")
 	pf.BoolVar(&flagInsecureTLS, "insecure-tls", false,
 		"disable TLS certificate verification (chain + hostname) on HTTPS probes (P1#3). Default verifies — opt in only for known-trusted self-signed test environments.")
 	pf.BoolVar(&flagInsecureSSH, "insecure-ssh", false,

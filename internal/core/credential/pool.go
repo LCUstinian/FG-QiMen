@@ -129,44 +129,6 @@ func (p *Pool) All() []Cred {
 // Len returns the number of unique credentials. / Len 返回去重后凭据数。
 func (p *Pool) Len() int { return len(p.creds) }
 
-// Clear wipes the pool's credential strings and drops the dedup
-// index. After Clear, Len() == 0 and All() returns an empty slice.
-// The pool can be re-used (Add() will start a fresh index).
-//
-// Clear is best-effort against heap dumps — it zeros the Cred
-// struct fields in place. The backing string allocation may
-// still hold the cleartext in freed memory until the GC reclaims
-// it (Go's runtime doesn't guarantee immediate wipe on free), so
-// this is a defense-in-depth measure, not a guarantee.
-//
-// Clear 清零池的凭据字符串并丢弃去重索引。Clear 后 Len()==0 且
-// All() 返回空切片。池可继续用（Add() 会起新索引）。
-//
-// Clear 是堆 dump 防御——原地清零 Cred 结构字段。底层的 string 分
-// 配在 GC 回收前仍可能保留明文（Go runtime 不保证 free 时立即清
-// 零），所以是纵深防御，不是保证。
-func (p *Pool) Clear() {
-	for i := range p.creds {
-		// Zeroing a string is a no-op (strings are immutable in
-		// Go) — but we can overwrite the Cred struct's fields by
-		// mutating the slice in place via a small dance. In
-		// practice the runtime allocates Cred as a value type
-		// (not a pointer), so p.creds[i] is mutable.
-		//
-		// 清零 string 是 no-op（Go 里 string 不可变）——但我们可
-		// 以通过原地修改 Cred 结构字段。实际运行时把 Cred 当值
-		// 类型（不是指针），所以 p.creds[i] 可变。
-		p.creds[i] = Cred{}
-	}
-	p.creds = p.creds[:0]
-	// Drop the index entirely; reuse requires a fresh map so
-	// the runtime can GC the old string references in map
-	// keys. (We can't iterate p.index to clear it — the keys
-	// are HMAC hashes, but the map's hash slots still hold
-	// references that prevent GC of the bucket array.)
-	p.index = make(map[string]struct{})
-}
-
 // dedupKey returns the HMAC-SHA256(dedupHMACKey, ...) of the
 // (method, user, pass, keypath) tuple, base32-encoded for a
 // printable map key. Two identical creds produce the same key;
