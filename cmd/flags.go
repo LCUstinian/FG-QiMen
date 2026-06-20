@@ -94,11 +94,11 @@ var (
 	flagPlugins       string
 )
 
-// registerGlobalFlags wires all 28 persistent flags into pf (which is
+// registerGlobalFlags wires all persistent flags into pf (which is
 // rootCmd.PersistentFlags()). Called from root.go's init(); kept here
 // so root.go stays a Cobra-scaffolding file.
 //
-// registerGlobalFlags 把 28 个持久化 flag 绑定到 pf（rootCmd 的
+// registerGlobalFlags 把所有持久化 flag 绑定到 pf（rootCmd 的
 // PersistentFlags()）。由 root.go 的 init() 调用；放在这里以保持
 // root.go 是纯 Cobra 脚手架文件。
 //
