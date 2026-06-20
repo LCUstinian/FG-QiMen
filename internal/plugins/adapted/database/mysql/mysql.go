@@ -12,11 +12,11 @@
 //
 // Wire format (MySQL Protocol / MySQL Client/Server Protocol 5.7+):
 //   - server greeting: 4-byte header (payload_len, seq=0) + payload
-//     - payload: 1B protocol_version (0x0A) + null-terminated
-//       server_version + 4B thread_id + 8B auth-plugin-data-part-1
-//       + 1B filler 0x00 + 2B capability_flags_lower + 1B charset
-//       + 2B status_flags + 2B capability_flags_upper
-//       + 1B auth-plugin-data-len + 10B reserved (0x00) + ...
+//   - payload: 1B protocol_version (0x0A) + null-terminated
+//     server_version + 4B thread_id + 8B auth-plugin-data-part-1
+//   - 1B filler 0x00 + 2B capability_flags_lower + 1B charset
+//   - 2B status_flags + 2B capability_flags_upper
+//   - 1B auth-plugin-data-len + 10B reserved (0x00) + ...
 //   - client auth: 4-byte header + payload (login credentials).
 //
 // / 协议格式 (MySQL Client/Server Protocol 5.7+)：4 字节头 + payload。
@@ -140,7 +140,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 			Host:    host,
 			Port:    port,
 			Service: "mysql",
-			Banner: fmt.Sprintf("MySQL %s (thread_id=%d, auth=%s)", ver, threadID, authPluginName),
+			Banner:  fmt.Sprintf("MySQL %s (thread_id=%d, auth=%s)", ver, threadID, authPluginName),
 			Time:    time.Now(),
 		}
 	})

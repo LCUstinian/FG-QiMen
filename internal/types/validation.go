@@ -147,6 +147,7 @@ func ValidateThreads(threads int) error {
 	}
 	return nil
 }
+
 // (SanitizeFilePath was removed in v0.3.1 — dead code with no callers.
 // Path-traversal protection lives in cmd/scan.go:safeOutputPath and
 // workspace.ValidateProjectName. See Phase 1.10 of the optimization

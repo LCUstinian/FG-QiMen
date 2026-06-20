@@ -4,12 +4,12 @@
 // A full fake TDS server (PRELOGIN + Login7 + LOGINACK) is large and
 // fragile. For v0.1 we verify the call path goes through
 // github.com/microsoft/go-mssqldb by:
-//   1. Starting a TCP server that accepts and immediately closes.
-//   2. Calling Authenticate with valid creds.
-//   3. Confirming we get a nil hit and a non-panic result (the
-//      go-mssqldb driver errors out on the bogus server; our
-//      Authenticate classifies the error as "not MSSQL" / "wrong
-//      creds" and returns nil).
+//  1. Starting a TCP server that accepts and immediately closes.
+//  2. Calling Authenticate with valid creds.
+//  3. Confirming we get a nil hit and a non-panic result (the
+//     go-mssqldb driver errors out on the bogus server; our
+//     Authenticate classifies the error as "not MSSQL" / "wrong
+//     creds" and returns nil).
 //
 // This proves the code path uses the driver, the DSN builder is
 // well-formed, and error handling doesn't crash.

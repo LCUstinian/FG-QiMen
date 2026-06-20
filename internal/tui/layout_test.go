@@ -87,7 +87,7 @@ func TestWindowSizeMsg_ReValidatesLayout(t *testing.T) {
 // newTestModel 用安全默认值构造一个 Model 供测试用。
 func newTestModel() Model {
 	return Model{
-		uiMode:  modeRun,
+		uiMode:   modeRun,
 		runState: runIdle,
 	}
 }

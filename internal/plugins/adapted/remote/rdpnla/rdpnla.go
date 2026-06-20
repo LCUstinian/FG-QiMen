@@ -7,15 +7,15 @@
 // 据测试）。
 //
 // What this plugin does:
-//   1. Sends an X.224 CR with PROTOCOL_HYBRID (or PROTOCOL_HYBRID_EX).
-//   2. Reads the server's CC and checks whether the server selected
-//      HYBRID or HYBRID_EX — this is the basic "NLA enabled" signal.
-//   3. Sends a minimal NTLM NEGOTIATE message in plaintext (no
-//      TLS upgrade) and reads the response. Servers that
-//      require TLS for NLA will close the connection; servers
-//      that allow non-TLS NLA will respond with NTLM CHALLENGE.
-//   4. Reports the server's NLA posture (enabled / required /
-//      disabled).
+//  1. Sends an X.224 CR with PROTOCOL_HYBRID (or PROTOCOL_HYBRID_EX).
+//  2. Reads the server's CC and checks whether the server selected
+//     HYBRID or HYBRID_EX — this is the basic "NLA enabled" signal.
+//  3. Sends a minimal NTLM NEGOTIATE message in plaintext (no
+//     TLS upgrade) and reads the response. Servers that
+//     require TLS for NLA will close the connection; servers
+//     that allow non-TLS NLA will respond with NTLM CHALLENGE.
+//  4. Reports the server's NLA posture (enabled / required /
+//     disabled).
 //
 // What this plugin does NOT do:
 //   - Full CredSSP / TLS / NTLM authentication handshake (we
@@ -114,8 +114,8 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		}
 		selected := binary.LittleEndian.Uint16(rest[6:8])
 		const (
-			protocolRDP  = 0x00000000
-			protocolSSL  = 0x00000001
+			protocolRDP    = 0x00000000
+			protocolSSL    = 0x00000001
 			protocolHYBRID = 0x00000002
 		)
 		var nlaState string
@@ -147,7 +147,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 			return &types.Result{
 				Host: host, Port: port, Service: "rdp-nla",
 				Banner: "RDP NLA: " + nlaState + " (write failed)",
-				Time: time.Now(),
+				Time:   time.Now(),
 			}
 		}
 		// Read response (or wait for disconnect). / 读响应（或等断）。

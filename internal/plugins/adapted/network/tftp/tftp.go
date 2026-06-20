@@ -2,9 +2,10 @@
 // / TFTP 服务指纹插件（仅服务识别）。
 //
 // Wire format (RFC 1350):
-//   RRQ:  \x00\x01 | filename | \x00 | "octet" | \x00
-//   Resp: \x00\x03 (DATA) | block# (2B) | data
-//         \x00\x05 (ERROR) | errcode (2B) | msg | \x00
+//
+//	RRQ:  \x00\x01 | filename | \x00 | "octet" | \x00
+//	Resp: \x00\x03 (DATA) | block# (2B) | data
+//	      \x00\x05 (ERROR) | errcode (2B) | msg | \x00
 //
 // Some servers reply with ERROR code 1 (File not found) to unknown
 // filenames; both DATA and ERROR are valid TFTP banners. / 部分

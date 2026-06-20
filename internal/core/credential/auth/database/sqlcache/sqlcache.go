@@ -33,10 +33,10 @@ var Global = NewCache(256)
 // Safe for concurrent use. / Cache 是以 string 为 key 的 *sql.DB
 // LRU 缓存。并发安全。
 type Cache struct {
-	mu    sync.Mutex
-	cap   int
-	ll    *list.List               // front = most recent, back = oldest
-	m    map[string]*list.Element // key → *list.Element holding *entry
+	mu  sync.Mutex
+	cap int
+	ll  *list.List               // front = most recent, back = oldest
+	m   map[string]*list.Element // key → *list.Element holding *entry
 }
 
 type entry struct {

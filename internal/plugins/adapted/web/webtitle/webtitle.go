@@ -13,28 +13,28 @@
 // dedup, banner building) lives in helpers.go.
 //
 // 插件结构 + Plugin 接口方法 + Identify 在本文件。所有 HTTP 机器
-//（协议探测、客户端搭建、重定向、头格式化、标题抽取、favicon
+// （协议探测、客户端搭建、重定向、头格式化、标题抽取、favicon
 // 哈希、去重、banner 构造）都在 helpers.go。
 //
 // What this plugin does (Identify phase):
-//   1. Smart protocol detection (HTTP vs HTTPS via cached service info
-//      or active TLS probe).
-//   2. HTTP GET with the no-redirect client; capture status / server
-//      header / title.
-//   3. If 3xx, follow the redirect and re-collect headers / body.
-//   4. Fetch /favicon.ico and compute its mmh3 + MD5 hash.
-//   5. Run fingerprint matching against:
-//        - hardcoded rules (rules.go)
-//        - FingerprintHub JSON (enhanced.go)
-//   6. Return Banner with the matched fingerprints appended.
+//  1. Smart protocol detection (HTTP vs HTTPS via cached service info
+//     or active TLS probe).
+//  2. HTTP GET with the no-redirect client; capture status / server
+//     header / title.
+//  3. If 3xx, follow the redirect and re-collect headers / body.
+//  4. Fetch /favicon.ico and compute its mmh3 + MD5 hash.
+//  5. Run fingerprint matching against:
+//     - hardcoded rules (rules.go)
+//     - FingerprintHub JSON (enhanced.go)
+//  6. Return Banner with the matched fingerprints appended.
 //
 // 本插件做的事（Identify 阶段）：
-//   1. 智能协议检测（HTTP vs HTTPS，靠缓存的服务信息或主动 TLS 探测）
-//   2. HTTP GET（不跟随重定向），捕获状态码 / Server 头 / 标题
-//   3. 如 3xx，跟随重定向并重新收 headers / body
-//   4. 取 /favicon.ico 算 mmh3 + MD5 哈希
-//   5. 跑指纹匹配：硬编码规则 + FingerprintHub JSON
-//   6. 返回 Banner，附上匹配的指纹
+//  1. 智能协议检测（HTTP vs HTTPS，靠缓存的服务信息或主动 TLS 探测）
+//  2. HTTP GET（不跟随重定向），捕获状态码 / Server 头 / 标题
+//  3. 如 3xx，跟随重定向并重新收 headers / body
+//  4. 取 /favicon.ico 算 mmh3 + MD5 哈希
+//  5. 跑指纹匹配：硬编码规则 + FingerprintHub JSON
+//  6. 返回 Banner，附上匹配的指纹
 //
 // HARD RULE: this plugin does NOT run any POC. It only identifies.
 // See the no-exploit policy in README.

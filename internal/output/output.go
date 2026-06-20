@@ -204,8 +204,8 @@ func (o *Output) Close() error {
 // Flush 强制把所有 buffer 写盘。周期性调用（以及关闭前）以保证数据落盘。
 func (o *Output) Flush() error {
 	type flushable struct {
-		w     *flushCloser
-		mu    *sync.Mutex
+		w  *flushCloser
+		mu *sync.Mutex
 	}
 	flushers := []flushable{
 		{o.txt, &o.txtMu},

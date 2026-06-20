@@ -3,9 +3,10 @@
 // 48 字节 NTPv4 client 请求并校验响应 Mode 位。
 //
 // Wire format (RFC 5905 §7.3):
-//   bytes 0:    LI(2)|VN(3)|Mode(3)  → request: 0b00011011 = 0x1B
-//                                       response: 0b00100100 = 0x24
-//   bytes 1-47: 47 bytes of stratum / poll / precision / timestamps
+//
+//	bytes 0:    LI(2)|VN(3)|Mode(3)  → request: 0b00011011 = 0x1B
+//	                                    response: 0b00100100 = 0x24
+//	bytes 1-47: 47 bytes of stratum / poll / precision / timestamps
 //
 // We only check the first byte; if Mode == 4 (server), the host
 // spoke NTP. We don't parse the timestamps (we're a scanner, not

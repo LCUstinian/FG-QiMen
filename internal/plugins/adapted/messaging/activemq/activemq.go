@@ -7,6 +7,7 @@
 //   - 1 byte:  minor version (1 = OpenWire v1, 2 = v2, 3 = v3, ...)
 //   - 1 byte:  major version
 //   - remaining: frame payload
+//
 // We just need the magic + version to identify.
 // / 我们只需要 magic + version 来识别。
 package activemq

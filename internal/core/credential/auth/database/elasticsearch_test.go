@@ -36,6 +36,7 @@ import (
 // / 路径：
 //   - Authorization: Basic <right> → 200 + ES 风格 JSON
 //   - 其他 → 401
+//
 // "right" 是 rightUser:rightPass 的 base64。
 func fakeESServer(t *testing.T, rightUser, rightPass string) *httptest.Server {
 	t.Helper()

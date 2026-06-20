@@ -95,8 +95,8 @@ func probeIMDS(ctx context.Context, host string, port int) *types.Result {
 	// 等。
 	var inst struct {
 		Compute struct {
-			VMSize              string `json:"vmSize"`
-			OSProfile           struct {
+			VMSize    string `json:"vmSize"`
+			OSProfile struct {
 				ComputerName string `json:"computerName"`
 			} `json:"osProfile"`
 			Location string `json:"location"`
@@ -114,7 +114,7 @@ func probeIMDS(ctx context.Context, host string, port int) *types.Result {
 		Host:    host,
 		Port:    port,
 		Service: "azure-imds",
-		Banner:  fmt.Sprintf("Azure IMDS (vmSize=%s, location=%s)",
+		Banner: fmt.Sprintf("Azure IMDS (vmSize=%s, location=%s)",
 			inst.Compute.VMSize, inst.Compute.Location),
 		Time: time.Now(),
 	}

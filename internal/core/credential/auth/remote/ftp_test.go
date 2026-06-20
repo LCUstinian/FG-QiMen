@@ -26,11 +26,11 @@ import (
 // startFakeFTP starts a minimal RFC 959 server on 127.0.0.1.
 // requirePass is the password that will succeed; everything else fails.
 //
-//  - 220 <welcome> on connect
-//  - USER <u> → 331 Password required
-//  - PASS <p> → 230 (if p==requirePass) else 530
-//  - QUIT     → 221 Goodbye
-//  - anything else → 500 Unknown command
+//   - 220 <welcome> on connect
+//   - USER <u> → 331 Password required
+//   - PASS <p> → 230 (if p==requirePass) else 530
+//   - QUIT     → 221 Goodbye
+//   - anything else → 500 Unknown command
 //
 // startFakeFTP 启动一个最小化的 RFC 959 服务在 127.0.0.1。requirePass
 // 是会成功的密码，其他都失败。

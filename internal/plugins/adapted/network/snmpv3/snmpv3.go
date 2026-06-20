@@ -107,11 +107,11 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		// server 对错误的看法——我们可以检测 v3 启用 vs 未启用。
 		errStr := err.Error()
 		v3Enabled := containsAny(errStr, []string{
-			"unknownUserName",     // user not in config = server speaks v3
-			"wrongDigest",         // wrong password = server speaks v3
-			"noSuchContext",       // unsupported security level = v3
-			"notInTimeWindow",     // out-of-sync clock = v3
-			"usmStats",            // any USM error = v3
+			"unknownUserName", // user not in config = server speaks v3
+			"wrongDigest",     // wrong password = server speaks v3
+			"noSuchContext",   // unsupported security level = v3
+			"notInTimeWindow", // out-of-sync clock = v3
+			"usmStats",        // any USM error = v3
 		})
 		if v3Enabled {
 			// Classify. / 分类。

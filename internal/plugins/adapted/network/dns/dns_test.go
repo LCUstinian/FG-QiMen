@@ -35,11 +35,13 @@ func startFakeDNS(t *testing.T) (string, int) {
 			// RCODE=0, QDCOUNT=1, ANCOUNT=1. / 构造最小响应：
 			// 回显 ID，置 QR=1，RCODE=0，QDCOUNT=1，ANCOUNT=1。
 			resp := make([]byte, 32)
-			copy(resp[:2], buf[:2])           // ID echo
-			resp[2] = 0x81                   // QR=1, RD=1
-			resp[3] = 0x80                   // RA=1, RCODE=0
-			resp[4] = 0x00; resp[5] = 0x01    // QDCOUNT=1
-			resp[6] = 0x00; resp[7] = 0x01    // ANCOUNT=1
+			copy(resp[:2], buf[:2]) // ID echo
+			resp[2] = 0x81          // QR=1, RD=1
+			resp[3] = 0x80          // RA=1, RCODE=0
+			resp[4] = 0x00
+			resp[5] = 0x01 // QDCOUNT=1
+			resp[6] = 0x00
+			resp[7] = 0x01 // ANCOUNT=1
 			_, _ = conn.WriteToUDP(resp, raddr)
 		}
 	}()

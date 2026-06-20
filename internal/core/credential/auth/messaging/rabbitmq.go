@@ -2,12 +2,12 @@
 //
 // Strategy: AMQP 0-9-1 PLAIN auth flow. / 策略：AMQP 0-9-1 PLAIN
 // 认证流程。
-//   1. Send protocol header "AMQP\0\0\9\1" (8 bytes).
-//   2. Server sends Connection.Start.
-//   3. We send Connection.Start-Ok with credentials in PLAIN
-//      format: long-string "\0user\0pass" (zero-padded).
-//   4. Server replies with either Connection.Tune (hit) or
-//      Connection.Close (miss).
+//  1. Send protocol header "AMQP\0\0\9\1" (8 bytes).
+//  2. Server sends Connection.Start.
+//  3. We send Connection.Start-Ok with credentials in PLAIN
+//     format: long-string "\0user\0pass" (zero-padded).
+//  4. Server replies with either Connection.Tune (hit) or
+//     Connection.Close (miss).
 //
 // HARD RULE: on a hit we return. We do NOT declare exchanges,
 // publish messages, or create queues.
@@ -37,7 +37,7 @@ import (
 //
 // DefaultPorts returns 5672 (AMQP) / 15672 (Management HTTP — we
 // don't auth that in v0.1). / DefaultPorts 返 5672（AMQP）/ 15672
-//（管理 HTTP——v0.1 不认证那个）。
+// （管理 HTTP——v0.1 不认证那个）。
 type RabbitMQAuthenticator struct{}
 
 // NewRabbitMQAuthenticator returns a default RabbitMQ authenticator.

@@ -2,9 +2,10 @@
 // DNS 服务指纹插件（仅识别）。
 //
 // Wire format (RFC 1035 §4):
-//   Header (12 bytes): ID | QR|Opcode|... | QDCOUNT | ANCOUNT | NSCOUNT | ARCOUNT
-//   Question:          QNAME | QTYPE | QCLASS
-//   Answer:            NAME | TYPE | CLASS | TTL | RDLENGTH | RDATA
+//
+//	Header (12 bytes): ID | QR|Opcode|... | QDCOUNT | ANCOUNT | NSCOUNT | ARCOUNT
+//	Question:          QNAME | QTYPE | QCLASS
+//	Answer:            NAME | TYPE | CLASS | TTL | RDLENGTH | RDATA
 //
 // We send a standard A query for "version.bind" CH TXT. The
 // "version.bind" / "authors.bind" queries are the de-facto DNS
@@ -195,7 +196,7 @@ func buildChaosQuery() []byte {
 		// QNAME: version.bind
 		0x07, 'v', 'e', 'r', 's', 'i', 'o', 'n',
 		0x04, 'b', 'i', 'n', 'd',
-		0x00, // terminator
+		0x00,       // terminator
 		0x00, 0x10, // QTYPE = TXT = 16
 		0x00, 0x03, // QCLASS = CH = 3
 	}

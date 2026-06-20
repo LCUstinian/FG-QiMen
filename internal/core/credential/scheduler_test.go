@@ -3,19 +3,19 @@
 // scheduler_test.go — credential Scheduler 的单元测试。
 //
 // The Scheduler is a thin wrapper around:
-//   1. Bounded global concurrency (sem)
-//   2. Per-target throttling (time gap between attempts)
-//   3. Hit sink fan-out
-//   4. ctx cancellation propagation
+//  1. Bounded global concurrency (sem)
+//  2. Per-target throttling (time gap between attempts)
+//  3. Hit sink fan-out
+//  4. ctx cancellation propagation
 //
 // We test each independently with a fake Authenticator that records
 // call timing and either returns nil or a Hit on demand.
 //
 // Scheduler 是以下几件事的薄包装：
-//   1. 有界全局并发（sem）
-//   2. 按目标限流（尝试间隔）
-//   3. Hit sink 扇出
-//   4. ctx 取消传播
+//  1. 有界全局并发（sem）
+//  2. 按目标限流（尝试间隔）
+//  3. Hit sink 扇出
+//  4. ctx 取消传播
 //
 // 用一个会记录调用时间并按需返回 nil 或 Hit 的假 Authenticator 逐项
 // 测试。

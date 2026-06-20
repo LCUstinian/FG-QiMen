@@ -4,11 +4,13 @@
 // GetRouteInfoByTopic 请求并解析响应头。
 //
 // Wire format (RocketMQ RemotingCommand v1):
-//   request header (4 ints, 16 bytes):
-//     [4B code][4B language][4B version][4B opaque]
-//   request body: variable
-//   response header: same as request
-//   response body: variable
+//
+//	request header (4 ints, 16 bytes):
+//	  [4B code][4B language][4B version][4B opaque]
+//	request body: variable
+//	response header: same as request
+//	response body: variable
+//
 // / 请求头 (4 个 int, 16 字节)：[4B code][4B language][4B version]
 // [4B opaque]。
 package rocketmq

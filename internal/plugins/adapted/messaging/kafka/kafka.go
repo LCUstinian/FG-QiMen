@@ -4,9 +4,10 @@
 // （key=18）并解析响应。
 //
 // Wire format (Kafka protocol 0.10+):
-//   request:  [4B length][2B api_key][2B api_ver][4B corr_id][1B client_id]
-//   response: [4B length][4B corr_id][2B error][4B array_len][per-array]
-//             where each entry is [2B api_key][2B min_ver][2B max_ver]
+//
+//	request:  [4B length][2B api_key][2B api_ver][4B corr_id][1B client_id]
+//	response: [4B length][4B corr_id][2B error][4B array_len][per-array]
+//	          where each entry is [2B api_key][2B min_ver][2B max_ver]
 //
 // We only care about the response being well-formed (i.e. a Kafka
 // broker is listening). / 我们只关心响应格式良构（即 Kafka
@@ -54,9 +55,9 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		// api_ver=0, corr_id=1, client_id="fg-qimen"。
 		clientID := "fg-qimen"
 		reqBody := make([]byte, 0, 2+2+4+2+len(clientID))
-		reqBody = binary.BigEndian.AppendUint16(reqBody, 18)  // api_key
-		reqBody = binary.BigEndian.AppendUint16(reqBody, 0)   // api_ver
-		reqBody = binary.BigEndian.AppendUint32(reqBody, 1)   // corr_id
+		reqBody = binary.BigEndian.AppendUint16(reqBody, 18) // api_key
+		reqBody = binary.BigEndian.AppendUint16(reqBody, 0)  // api_ver
+		reqBody = binary.BigEndian.AppendUint32(reqBody, 1)  // corr_id
 		reqBody = binary.BigEndian.AppendUint16(reqBody, uint16(len(clientID)))
 		reqBody = append(reqBody, clientID...)
 		// Prepend 4-byte length. / 前置 4 字节长度。

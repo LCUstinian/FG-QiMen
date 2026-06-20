@@ -4,10 +4,10 @@
 // A full fake SMB2 server (Negotiate Protocol + Session Setup with
 // NTLMv2) is large. For v0.1 we verify the path through
 // github.com/hirochachacha/go-smb2 by:
-//   1. Starting a TCP server that accepts and immediately closes.
-//   2. Calling Authenticate with valid creds.
-//   3. Confirming we get nil (the go-smb2 client errors on the
-//      bogus server; we treat it as a miss, not a crash).
+//  1. Starting a TCP server that accepts and immediately closes.
+//  2. Calling Authenticate with valid creds.
+//  3. Confirming we get nil (the go-smb2 client errors on the
+//     bogus server; we treat it as a miss, not a crash).
 //
 // 写一个完整的假 SMB2 服务器（Negotiate Protocol + NTLMv2 Session
 // Setup）工作量很大。v0.1 用冒烟测试：起一个接受后立即关闭的

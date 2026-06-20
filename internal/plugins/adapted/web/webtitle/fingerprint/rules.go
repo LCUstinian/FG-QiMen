@@ -202,7 +202,7 @@ var RuleDatas = []RuleData{
 	{Name: "WordPress-Login", Type: "code", Rule: "(<form.*name=\"loginform\")"},
 	{Name: "Drupal", Type: "code", Rule: "(Drupal\\.settings|/sites/default/files)"},
 	{Name: "Joomla", Type: "code", Rule: "(/templates/.*\\.css|/media/system/js)"},
-	{Name: "Magento", Type: "code", Rule: "(skin/frontend|Magento_)" },
+	{Name: "Magento", Type: "code", Rule: "(skin/frontend|Magento_)"},
 	{Name: "Shopify", Type: "headers", Rule: "(X-ShopId|X-Shopify-Stage)"},
 	{Name: "Wix", Type: "code", Rule: "(wix.com|_wix_browser)"},
 	{Name: "Squarespace", Type: "code", Rule: "(squarespace\\.com|sqsp)"},

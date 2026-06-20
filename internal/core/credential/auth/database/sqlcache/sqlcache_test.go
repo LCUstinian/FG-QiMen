@@ -18,7 +18,7 @@ type noopConn struct{}
 
 func (c noopConn) Prepare(_ string) (driver.Stmt, error) { return nil, nil }
 func (c noopConn) Close() error                          { return nil }
-func (c noopConn) Begin() (driver.Tx, error)            { return nil, nil }
+func (c noopConn) Begin() (driver.Tx, error)             { return nil, nil }
 
 func init() {
 	sql.Register("noop", noopDriver{})

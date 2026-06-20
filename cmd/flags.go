@@ -57,8 +57,8 @@ var (
 	flagAliveOnly    bool
 
 	// 4. Network / 网络
-	flagProxy       string
-	flagSocks5      string
+	flagProxy          string
+	flagSocks5         string
 	flagIface          string
 	flagPortTimeout    time.Duration
 	flagWebTimeout     time.Duration
