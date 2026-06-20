@@ -104,6 +104,11 @@ type Pool struct {
 	windowMu  sync.Mutex
 	window    []windowSample
 	windowMax int
+
+	// busyTimer is reused across busy-wait iterations to avoid
+	// allocating a fresh Timer on every time.After call. / busyTimer
+	// 跨 busy-wait 迭代复用，避免每次 time.After 分配 Timer。
+	busyTimer *time.Timer
 }
 
 type windowSample struct {
@@ -140,9 +145,30 @@ func NewPool(opts PoolOptions) *Pool {
 	p := &Pool{
 		opts:      opts,
 		windowMax: 256,
+		// Stop the timer immediately so it doesn't fire on the
+		// first Reset. / 立即停止 timer，避免首次 Reset 前就触发。
+		busyTimer: time.NewTimer(0),
+	}
+	if !p.busyTimer.Stop() {
+		<-p.busyTimer.C
 	}
 	p.currentThreads.Store(int32(opts.InitialThreads))
 	return p
+}
+
+// resetTimer is a small wrapper that drains a stopped timer's
+// channel and resets it to fire after d. Used by the busy-wait loop
+// to avoid the per-iteration time.After allocation. / resetTimer 是
+// 排空已停 timer channel 并重置为 d 后触发的薄包装。busy-wait 循环
+// 用它避免每次迭代 time.After 分配。
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
 }
 
 // Run consumes items from iter, dispatches to workers, and pushes
@@ -220,13 +246,21 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				default:
 				}
 			}
+			// Phase 2.5 (audit roadmap): use a reused Timer instead of
+			// time.After(1ms), which allocates a new Timer per
+			// busy-wait iteration. At 500 workers × 500Hz that's
+			// 250k Timers/sec. / Phase 2.5（审计路线图）：用复用的
+			// Timer 替代 time.After(1ms)，后者每次 busy-wait 分配新
+			// Timer。500 worker × 500Hz 是 250k Timer/秒。
+			resetTimer(p.busyTimer, 1*time.Millisecond)
 			select {
 			case <-ctx.Done():
+				p.busyTimer.Stop()
 				close(stopAdj)
 				wg.Wait()
 				<-adjDone
 				return ctx.Err()
-			case <-time.After(1 * time.Millisecond):
+			case <-p.busyTimer.C:
 				// brief backoff then re-check / 短暂退避后重检
 			}
 		}

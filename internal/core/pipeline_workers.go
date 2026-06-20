@@ -45,9 +45,14 @@ import (
 // 每轮迭代的 stage 0：Nmap 风格 banner 指纹（fingerprint.MatchBanner）。
 // 在 plugin 之前跑，识别结果先进结果流。plugin 仍可随后跑补协议细节
 // （如 http 端口的 webtitle）。
+//
+// creds is built once in scanner.go and shared by reference across
+// all workers — Phase 2.8 of the audit roadmap. / creds 由 scanner.go
+// 一次构建，跨所有 worker 通过引用共享——Phase 2.8 审计路线图。
 func runPluginWorker(
 	ctx context.Context,
 	sess *session.Session,
+	creds []types.Cred,
 	in <-chan types.ScanItem,
 	out chan<- *types.Result,
 ) {
@@ -60,7 +65,6 @@ func runPluginWorker(
 			sess.Log.Warn("plugin worker panic: %v", r)
 		}
 	}()
-	creds := loadCreds(sess)
 	// Lazy VScan. Built on first banner we see. / 懒 VScan。
 	var vscan *fingerprint.VScan
 	vscanOnce := sync.Once{}

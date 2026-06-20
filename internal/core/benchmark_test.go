@@ -40,7 +40,7 @@ func BenchmarkPluginWorker(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		go runPluginWorker(context.Background(), sess, in, out)
+		go runPluginWorker(context.Background(), sess, nil, in, out)
 	}
 }
 

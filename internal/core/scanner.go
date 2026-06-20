@@ -199,12 +199,18 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 		workerCount = maxWorkers
 	}
 
+	// Phase 2.8 (audit roadmap): build the creds slice once instead
+	// of in every worker goroutine. N workers × N cred pairs used
+	// to be N Cartesian products. / Phase 2.8（审计路线图）：凭据 slice
+	// 只构建一次，不再每个 worker goroutine 各算一次。N worker × N
+	// 凭据对以前是 N 次笛卡尔积。
+	creds := loadCreds(sess)
 	var workersWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
 		workersWG.Add(1)
 		go func() {
 			defer workersWG.Done()
-			runPluginWorker(ctx, sess, items, results)
+			runPluginWorker(ctx, sess, creds, items, results)
 		}()
 	}
 	go func() {
