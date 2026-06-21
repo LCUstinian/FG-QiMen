@@ -65,7 +65,8 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	defer cancel()
 	var ver string
 	row := db.QueryRowContext(ctx, "SELECT @@VERSION")
-	if err := row.Scan(&ver); err == nil {
+	scanErr := row.Scan(&ver)
+	if scanErr == nil {
 		// Successful query = auth somehow worked. Still report.
 		// / 成功 = 某种程度 auth 过了。仍上报。
 		return &types.Result{
@@ -77,7 +78,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	// the server name. We can pull it from the error.
 	// / 查询失败（auth），但 TDS PRELOGIN 握手返回了 server 名。可以
 	// 从 error 抽出来。
-	errStr := err.Error()
+	errStr := scanErr.Error()
 	if strings.Contains(errStr, "SQL Server") || strings.Contains(errStr, "mssql") ||
 		strings.Contains(errStr, "denied") || strings.Contains(errStr, "login") {
 		// Even on auth failure, we've confirmed it's MSSQL.
