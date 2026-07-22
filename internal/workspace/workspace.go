@@ -59,13 +59,51 @@ type Project struct {
 //
 // Open 创建项目工作区。name=="" → 即扫即走；name!="" → 增量。
 func Open(name string) (*Project, error) {
+	return OpenWithOptions(name, OpenOptions{})
+}
+
+// OpenOptions configures OpenWithOptions. Zero value preserves the
+// legacy Open(name) behaviour (persistent mode, bbolt opened).
+//
+// OpenOptions 配置 OpenWithOptions。零值保留旧 Open(name) 行为
+//（持久化模式，打开 bbolt）。
+type OpenOptions struct {
+	// NoState disables bbolt persistence even for named projects.
+	// Task 4 (first-batch fixes): `--no-state` was previously dead
+	// code — the flag was wired through cfg.NoState but the
+	// production path unconditionally called proj.AsStore(), which
+	// forced a bbolt open via openPersistent. Now the operator's
+	// "don't create fg.db" intent is honoured at workspace-init
+	// time: openPersistent returns a Project with DB=nil and does
+	// not call bolt.Open, so no fg.db file is created on disk.
+	//
+	// NoState 禁用 bbolt 持久化，即使对命名项目。第一批修复 Task 4：
+	// `--no-state` 以前是死代码——flag 通过 cfg.NoState 传递，但生产
+	// 路径无条件调 proj.AsStore()，迫使 openPersistent 打开 bbolt。
+	// 现在操作员"不创建 fg.db"的意图在 workspace 初始化阶段兑现：
+	// openPersistent 返回 DB=nil 的 Project 且不调 bolt.Open，磁盘
+	// 上不创建 fg.db 文件。
+	NoState bool
+}
+
+// OpenWithOptions creates a project workspace with explicit options.
+// name == "" always returns ephemeral regardless of opts.NoState
+// (ephemeral never had a DB to suppress). For named projects,
+// opts.NoState=true returns a Project with DB=nil and DBPath="",
+// skipping the bbolt open and the directory creation entirely.
+//
+// OpenWithOptions 用显式选项创建项目工作区。name=="" 时无论
+// opts.NoState 是什么都返回 ephemeral（即扫即走模式本就没有 DB 要
+// 禁用）。对命名项目，opts.NoState=true 返回 DB=nil、DBPath="" 的
+// Project，完全跳过 bbolt 打开和目录创建。
+func OpenWithOptions(name string, opts OpenOptions) (*Project, error) {
 	if name == "" {
 		return openEphemeral()
 	}
 	if err := ValidateProjectName(name); err != nil {
 		return nil, err
 	}
-	return openPersistent(name)
+	return openPersistent(name, opts.NoState)
 }
 
 // ValidateProjectName rejects names that could escape ProjectsRoot via path
@@ -111,11 +149,29 @@ func openEphemeral() (*Project, error) {
 // at ./runs/projects/<name>/fg.db, and returns the project.
 // openPersistent 创建 ./runs/projects/<name>/（如缺失），在
 // ./runs/projects/<name>/fg.db 打开 bbolt，并返回 project。
-func openPersistent(name string) (*Project, error) {
+//
+// Task 4 (first-batch fixes): when noState=true, neither the
+// directory nor fg.db are created. The Project is returned with
+// DB=nil and DBPath="" so callers can detect the no-state mode
+// without consulting cfg.NoState themselves. close() is still
+// safe (the existing nil-DB guard makes it a no-op).
+//
+// 第一批修复 Task 4：当 noState=true 时，目录和 fg.db 都不创建。
+// 返回的 Project DB=nil、DBPath=""，让调用方无需查 cfg.NoState 就能
+// 识别 no-state 模式。close() 仍安全（现有 nil-DB 守卫把它变成 no-op）。
+func openPersistent(name string, noState bool) (*Project, error) {
 	if name == "" {
 		return nil, fmt.Errorf("persistent project requires non-empty name")
 	}
 	dir := filepath.Join(ProjectsRoot(), name)
+	if noState {
+		return &Project{
+			Name:   name,
+			Root:   dir,
+			DB:     nil,
+			DBPath: "",
+		}, nil
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}

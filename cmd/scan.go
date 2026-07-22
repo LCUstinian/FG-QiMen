@@ -233,6 +233,20 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	// 选择之前，让 TUI 路径也获得持久化——旧版只在 text-UI 分支赋值
 	// Store，导致 -resume 在 TUI 模式下静默失效。
 	//
+	// Task 4 (first-batch fixes): when cfg.NoState is true, leave
+	// sess.Store = nil regardless of project mode. The earlier
+	// path unconditionally called proj.AsStore(), which is a no-op
+	// when proj.DB is nil (openPersistent returned DB=nil for the
+	// noState branch) but the explicit cfg.NoState check makes
+	// intent visible and prevents a future refactor from
+	// re-introducing the bbolt open.
+	//
+	// 第一批修复 Task 4：当 cfg.NoState 为 true 时，无论项目模式
+	// sess.Store 一律保持 nil。旧路径无条件调 proj.AsStore()，对
+	// proj.DB 为 nil（openPersistent 为 noState 分支返回 DB=nil）
+	// 时是空操作，但显式 cfg.NoState 检查让意图可见，并防止未来
+	// 重构再次引入 bbolt 打开。
+	//
 	// Encryption: if cfg.ProjectKey is non-empty, hand it to
 	// AsStoreWithPassphrase which runs it through Argon2id (v0.4+) and
 	// uses the resulting key to encrypt the JSON payload at rest. New
@@ -244,7 +258,9 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	// Argon2id（v0.4+）派生 key 加密 JSON 负载。新写入用 magic 0x03
 	// （Argon2id 派生）；旧的 0x01/0x02 值（SHA-256 KDF）同一 store
 	// 仍可读。空 key → 明文（v0.2.x 磁盘格式，向后兼容）。
-	if cfg.ProjectKey != "" && proj.DB != nil {
+	if cfg.NoState {
+		sess.Store = nil
+	} else if cfg.ProjectKey != "" && proj.DB != nil {
 		sess.Store = proj.AsStoreWithPassphrase(cfg.ProjectKey)
 	} else {
 		sess.Store = proj.AsStore()
@@ -486,9 +502,22 @@ func buildConfig() (*types.Config, error) {
 }
 
 // openProject opens a project workspace (ephemeral or persistent).
+// Task 4 (first-batch fixes): honours cfg.NoState by passing it
+// through to workspace.OpenWithOptions, so a `--no-state` invocation
+// on a named project skips the bbolt open and the runs/projects/<name>/
+// directory creation entirely. Without this, `--no-state` was dead
+// code: the flag was wired through cfg.NoState but the production
+// path unconditionally called proj.AsStore(), which forced a bbolt
+// open in workspace.Open.
+//
 // openProject 打开项目工作区（即扫即走 / 增量扫描）。
+// 第一批修复 Task 4：通过 workspace.OpenWithOptions 兑现 cfg.NoState，
+// 让对命名项目的 `--no-state` 调用完全跳过 bbolt 打开和
+// runs/projects/<name>/ 目录创建。否则 `--no-state` 是死代码：flag
+// 通过 cfg.NoState 传递，但生产路径无条件调 proj.AsStore()，迫使
+// workspace.Open 打开 bbolt。
 func openProject(cfg *types.Config) (*workspace.Project, error) {
-	return workspace.Open(cfg.Project)
+	return workspace.OpenWithOptions(cfg.Project, workspace.OpenOptions{NoState: cfg.NoState})
 }
 
 // resolveOutputPath resolves a possibly-empty output path to a default
