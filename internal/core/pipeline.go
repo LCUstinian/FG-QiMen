@@ -30,6 +30,7 @@
 package core
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -39,21 +40,50 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
-// loadCreds builds the []types.Cred from cfg (inline users/passes).
-// loadCreds 从 cfg（内联 users/passes）构造 []types.Cred。
-func loadCreds(sess *session.Session) []types.Cred {
-	users := sess.Config.Users
-	passes := sess.Config.Passes
-	if len(users) == 0 || len(passes) == 0 {
-		return nil
+// loadCreds builds the []types.Cred from cfg (inline users/passes plus
+// user-file / pass-file dictionaries) and surfaces loader errors. The
+// audit flagged the previous implementation as silently ignoring
+// UserFile / PassFile, so a CLI invocation with `-user-file u.txt
+// -pass-file p.txt` produced zero auth attempts with no diagnostic.
+// Now loadCreds delegates to credential.LoadInto (the same loader used
+// by the standalone crack-mode path) so inline and file inputs share
+// one source of truth: dedup, MaxUsers / MaxPasses / MaxCredPairs
+// limits, and unreadable-file errors. A non-nil error means no creds
+// were produced and RunScan must abort — starting network workers
+// with zero creds would waste a port scan against every target.
+//
+// loadCreds 从 cfg（内联 users/passes + user-file / pass-file 字典）
+// 构造 []types.Cred 并向上抛 loader 错误。审计发现旧实现静默忽略
+// UserFile / PassFile，导致 CLI 用 `-user-file u.txt -pass-file p.txt`
+// 时零次认证且无诊断。现在 loadCreds 委托给 credential.LoadInto（crack
+// 模式独立路径用的同一 loader），让内联和文件输入共用：去重、
+// MaxUsers / MaxPasses / MaxCredPairs 上限、不可读文件错误。非 nil
+// error 表示未产出任何 cred，RunScan 必须中止——带零 cred 启动网络
+// worker 会让端口扫描对每个目标空跑一遍。
+func loadCreds(sess *session.Session) ([]types.Cred, error) {
+	cfg := sess.Config
+	if cfg == nil {
+		return nil, fmt.Errorf("nil config")
 	}
-	out := make([]types.Cred, 0, len(users)*len(passes))
-	for _, u := range users {
-		for _, p := range passes {
-			out = append(out, types.Cred{User: u, Pass: p, AuthType: string(credential.AuthPassword)})
-		}
+	pool := credential.NewPool()
+	added, err := credential.LoadInto(pool, credential.LoadOptions{
+		Users:    cfg.Users,
+		Passes:   cfg.Passes,
+		UserFile: cfg.UserFile,
+		PassFile: cfg.PassFile,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return out
+	if added == 0 {
+		return nil, nil
+	}
+	src := pool.All()
+	out := make([]types.Cred, len(src))
+	for i, c := range src {
+		out[i] = types.Cred{User: c.User, Pass: c.Pass, AuthType: string(c.Method)}
+	}
+	return out, nil
 }
 
 // selectPlugins returns the subset of all that match the

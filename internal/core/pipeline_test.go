@@ -22,6 +22,8 @@ package core
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -49,10 +51,12 @@ func (f *fakePlugin) Credential(_ context.Context, _ string, _ int, _ []types.Cr
 	return nil
 }
 
-// TestLoadCreds — Cartesian product of (users × passes). Empty
-// either side returns nil (matches the documented "skip cred phase"
-// contract). The password field must be preserved verbatim (no
-// trimming / case-folding by loadCreds itself).
+// TestLoadCreds — Cartesian product of (users × passes). Both empty
+// returns nil (the documented "skip cred phase" contract via
+// LoadInto). LoadInto skips empty users (no "anonymous" probe) but
+// preserves empty passes (empty pass is allowed for protocols that
+// treat "no password" as a valid attempt). The password field is
+// preserved verbatim (no trimming / case-folding by loadCreds itself).
 func TestLoadCreds(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -62,8 +66,13 @@ func TestLoadCreds(t *testing.T) {
 		wantUser string // spot-check first entry's user
 		wantPass string // spot-check first entry's pass
 	}{
+		// Both empty → skip cred phase (LoadInto short-circuit).
+		{"both empty", nil, nil, 0, "", ""},
+		// Empty users + passes → 0 creds (LoadInto skips "" users).
 		{"empty users", nil, []string{"p1", "p2"}, 0, "", ""},
-		{"empty passes", []string{"u1", "u2"}, nil, 0, "", ""},
+		// Empty passes + users → N creds with empty pass per user
+		// (LoadInto preserves "" passes per its inline comment).
+		{"empty passes", []string{"u1", "u2"}, nil, 2, "u1", ""},
 		{"2x2", []string{"u1", "u2"}, []string{"p1", "p2"}, 4, "u1", "p1"},
 		{"3x1", []string{"u1", "u2", "u3"}, []string{"p"}, 3, "u1", "p"},
 		{"1x5", []string{"u"}, []string{"p1", "p2", "p3", "p4", "p5"}, 5, "u", "p1"},
@@ -73,7 +82,10 @@ func TestLoadCreds(t *testing.T) {
 			sess := &session.Session{
 				Config: &types.Config{Users: c.users, Passes: c.passes},
 			}
-			got := loadCreds(sess)
+			got, err := loadCreds(sess)
+			if err != nil {
+				t.Fatalf("loadCreds: %v", err)
+			}
 			if len(got) != c.wantLen {
 				t.Errorf("loadCreds() returned %d creds, want %d", len(got), c.wantLen)
 			}
@@ -93,6 +105,106 @@ func TestLoadCreds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestLoadCredsUsesFiles — file-only credentials enter the production
+// cred slice. The audit flagged UserFile / PassFile being honored by
+// LoadInto but silently ignored by the production loadCreds, so a CLI
+// invocation with `-user-file u.txt -pass-file p.txt` would produce
+// zero auth attempts. Now loadCreds must read both files.
+//
+// / TestLoadCredsUsesFiles — 纯文件凭据进入生产 cred slice。审计
+// 发现 UserFile / PassFile 被 LoadInto 支持却被生产 loadCreds 静默
+// 忽略，导致 CLI 用 `-user-file u.txt -pass-file p.txt` 时零次认证。
+// 现在 loadCreds 必须读这两个文件。
+func TestLoadCredsUsesFiles(t *testing.T) {
+	dir := t.TempDir()
+	users := filepath.Join(dir, "users.txt")
+	passes := filepath.Join(dir, "passes.txt")
+	if err := os.WriteFile(users, []byte("alice\nbob\n"), 0600); err != nil {
+		t.Fatalf("write users: %v", err)
+	}
+	if err := os.WriteFile(passes, []byte("one\ntwo\n"), 0600); err != nil {
+		t.Fatalf("write passes: %v", err)
+	}
+
+	sess := &session.Session{
+		Config: &types.Config{UserFile: users, PassFile: passes},
+	}
+	got, err := loadCreds(sess)
+	if err != nil {
+		t.Fatalf("loadCreds(file-only): %v", err)
+	}
+	if len(got) != 4 {
+		t.Errorf("loadCreds(file-only) returned %d creds, want 4 (2 users × 2 passes)", len(got))
+	}
+	for _, c := range got {
+		if c.AuthType != string(credential.AuthPassword) {
+			t.Errorf("file-only cred %q has AuthType %q, want %q",
+				c.User, c.AuthType, credential.AuthPassword)
+		}
+	}
+}
+
+// TestLoadCredsMixedInlineAndFile — inline + file inputs merge and
+// dedup. With users={"a"} and UserFile containing "a\nb\n", the dedup
+// map should produce only "a" and "b" — not "a" twice.
+//
+// / TestLoadCredsMixedInlineAndFile — 内联 + 文件输入合并并去重。
+// users={"a"} 且 UserFile 含 "a\nb\n" 时，去重后只应得 "a" 和 "b"
+// ——而非两个 "a"。
+func TestLoadCredsMixedInlineAndFile(t *testing.T) {
+	dir := t.TempDir()
+	usersFile := filepath.Join(dir, "users.txt")
+	passesFile := filepath.Join(dir, "passes.txt")
+	if err := os.WriteFile(usersFile, []byte("a\nb\n"), 0600); err != nil {
+		t.Fatalf("write users: %v", err)
+	}
+	if err := os.WriteFile(passesFile, []byte("p1\np2\n"), 0600); err != nil {
+		t.Fatalf("write passes: %v", err)
+	}
+
+	sess := &session.Session{
+		Config: &types.Config{
+			Users:    []string{"a"},
+			Passes:   []string{"p1"},
+			UserFile: usersFile,
+			PassFile: passesFile,
+		},
+	}
+	got, err := loadCreds(sess)
+	if err != nil {
+		t.Fatalf("loadCreds(mixed): %v", err)
+	}
+	// After dedup: users={a,b}, passes={p1,p2} → 4 unique pairs.
+	if len(got) != 4 {
+		t.Errorf("loadCreds(mixed) returned %d creds, want 4 (deduped a,b × p1,p2)", len(got))
+	}
+}
+
+// TestLoadCredsUnreadableUserFile — an unreadable user file must
+// surface as an error from loadCreds, not a silently empty cred
+// slice. Without this, an operator with a typo'd -user-file would
+// get "0 auth attempts" with no diagnostic.
+//
+// / TestLoadCredsUnreadableUserFile — 不可读 user 文件必须从
+// loadCreds 返回错误，而非静默空 cred slice。否则拼错 -user-file
+// 的操作员会得到 "0 认证尝试" 且无任何诊断。
+func TestLoadCredsUnreadableUserFile(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist.txt")
+	passes := filepath.Join(dir, "passes.txt")
+	if err := os.WriteFile(passes, []byte("p1\n"), 0600); err != nil {
+		t.Fatalf("write passes: %v", err)
+	}
+
+	sess := &session.Session{
+		Config: &types.Config{UserFile: missing, PassFile: passes},
+	}
+	got, err := loadCreds(sess)
+	if err == nil {
+		t.Fatalf("loadCreds(unreadable) returned err=nil, want non-nil; got %d creds", len(got))
 	}
 }
 

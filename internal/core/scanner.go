@@ -204,7 +204,20 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	// to be N Cartesian products. / Phase 2.8（审计路线图）：凭据 slice
 	// 只构建一次，不再每个 worker goroutine 各算一次。N worker × N
 	// 凭据对以前是 N 次笛卡尔积。
-	creds := loadCreds(sess)
+	//
+	// Task 2 (first-batch fixes): a loader error (unreadable user/pass
+	// file, exceeded MaxUsers / MaxPasses / MaxCredPairs) must abort
+	// RunScan before any worker goroutine starts — running a port scan
+	// with an empty cred slice silently yields zero auth attempts, which
+	// looks like a "scan found no vulnerabilities" instead of a config
+	// typo. / 第一批修复 Task 2：loader 错误（不可读 user/pass 文件、
+	// 超过 MaxUsers / MaxPasses / MaxCredPairs）必须在任何 worker
+	// goroutine 启动前中止 RunScan——空 cred slice 跑端口扫描会静默
+	// 得零次认证，看起来像"扫描未发现漏洞"而非配置拼错。
+	creds, err := loadCreds(sess)
+	if err != nil {
+		return 0, fmt.Errorf("load credentials: %w", err)
+	}
 	var workersWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
 		workersWG.Add(1)
