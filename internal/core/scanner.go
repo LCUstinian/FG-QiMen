@@ -92,6 +92,31 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	var wg sync.WaitGroup
 
 	// Stage 1: port scan (core/scan). / 阶段 1：端口扫描。
+
+	// Task 3 (first-batch fixes): resolve the effective port list
+	// (include + exclude) ONCE here, before any goroutine starts,
+	// instead of inside the worker goroutine. Previously:
+	//   - ParsePorts was called from inside the goroutine and its
+	//     error was only logged, so a bad --ports value silently
+	//     ran a 0-port scan ("no findings").
+	//   - ExcludePorts was stored in cfg but never read — the
+	//     `-exclude-ports` flag had no effect on the scan.
+	// ResolvePorts closes both gaps and propagates errors up to
+	// RunScan so a config typo aborts before any worker starts.
+	//
+	// 第一批修复 Task 3：在任何 goroutine 启动前一次性解析有效端口列
+	// 表（include + exclude），而非放在 worker goroutine 里。旧行为：
+	//   - ParsePorts 在 goroutine 里调用，error 只 log，坏的 --ports
+	//     静默跑 0 端口扫描（"无发现"）。
+	//   - ExcludePorts 存进 cfg 但从不读取——`-exclude-ports` flag 对
+	//     扫描完全无效。
+	// ResolvePorts 同时修补两处缺口，并把错误向上传到 RunScan，让配
+	// 置拼错在任何 worker 启动前中止。
+	ports, err := cfg.ResolvePorts()
+	if err != nil {
+		return 0, fmt.Errorf("resolve ports: %w", err)
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -103,15 +128,6 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 		// P1#1 + C1 审计修法：底部（约 128 行）唯一的 defer close(items)
 		// 覆盖所有返回路径。此处早先的重复 defer close(items) 会在每
 		// 次扫描时 double-close 并 panic。v0.2 审计删除。
-		// P4.8 (audit roadmap): propagate ParsePorts error instead
-		// of silently running 0 ports on `--ports 99999` (out of
-		// range) or `--ports abc` (non-numeric). / 传播 ParsePorts
-		// 错误，不再静默跑 0 端口。
-		ports, err := cfg.ParsePorts()
-		if err != nil {
-			sess.Log.Error("parse ports: %v", err)
-			return
-		}
 		scanRes := make(chan scan.Result, DefaultChannelBuffer)
 		sc := scan.NewScanner(scan.ScanOptions{
 			Probe:      scan.NewTCPConnectProbe(),
