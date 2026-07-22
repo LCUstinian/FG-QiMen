@@ -8,6 +8,8 @@
 package types
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -234,6 +236,61 @@ func (c *Config) ParseExcludePorts() ([]int, error) {
 		return nil, nil
 	}
 	return config.ParsePortSpec(c.ExcludePorts)
+}
+
+// ResolvePorts is the single source of truth for the effective port
+// list at scan start. It parses both Ports and ExcludePorts, removes
+// excluded ports from the include list, dedupes (input lists may have
+// repeats), and returns the result sorted ascending so downstream
+// iterators behave deterministically.
+//
+// Task 3 (first-batch fixes): the previous production path stored
+// ExcludePorts in cfg but never read it, so `-exclude-ports 80` had
+// no effect on the scan. ResolvePorts closes that gap and is called
+// once before any worker goroutine starts — invalid input returns
+// an error instead of silently scanning 0 ports (which would produce
+// "no findings" indistinguishable from a successful scan).
+//
+// ResolvePorts 是扫描启动时有效端口列表的唯一真相源。它同时解析
+// Ports 和 ExcludePorts，从 include 列表中移除 exclude 端口，去重
+// （输入可有重复），按升序返回，让下游迭代器行为可预测。
+//
+// 第一批修复 Task 3：旧生产路径把 ExcludePorts 存进 cfg 但从不读取，
+// 导致 `-exclude-ports 80` 对扫描无效。ResolvePorts 修补此缺口，且
+// 在任何 worker goroutine 启动前调用一次——非法输入返回 error，而非
+// 静默扫描 0 端口（与成功扫描同样产出"无发现"，无法区分）。
+func (c *Config) ResolvePorts() ([]int, error) {
+	include, err := c.ParsePorts()
+	if err != nil {
+		return nil, fmt.Errorf("parse include ports: %w", err)
+	}
+	exclude, err := c.ParseExcludePorts()
+	if err != nil {
+		return nil, fmt.Errorf("parse exclude ports: %w", err)
+	}
+	if len(exclude) == 0 {
+		// Sort the include list so the output is deterministic
+		// regardless of input order. / 排序 include 让输出与输入
+		// 顺序无关、确定性。
+		sort.Ints(include)
+		return include, nil
+	}
+	exclSet := make(map[int]struct{}, len(exclude))
+	for _, p := range exclude {
+		exclSet[p] = struct{}{}
+	}
+	out := make([]int, 0, len(include))
+	for _, p := range include {
+		if _, blocked := exclSet[p]; blocked {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("all %d ports excluded; effective port list is empty", len(include))
+	}
+	sort.Ints(out)
+	return out, nil
 }
 
 // parsePortList was removed in the MINOR audit fix — it was a dead

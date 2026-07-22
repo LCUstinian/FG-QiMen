@@ -14,6 +14,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -173,6 +174,45 @@ func TestSystemPing_Localhost(t *testing.T) {
 	if err == nil && hit.Method != MethodSystem {
 		t.Errorf("expected MethodSystem, got %q", hit.Method)
 	}
+}
+
+// TestSystemPingProbe_ConcurrentNoRace — Task 5 (first-batch fixes).
+// The audit flagged cmdProbe.Probe as a P0 data race: the method
+// reads-and-writes the shared `p.timeout` field from every call
+// (`if p.timeout <= 0 { p.timeout = 5*time.Second }` and the
+// caller-timeout clamp below it), so concurrent callers racing on
+// the same *cmdProbe instance corrupt each other's effective
+// timeout. Run with -race; failure here means the timeout field is
+// still being mutated concurrently.
+//
+// / TestSystemPingProbe_ConcurrentNoRace — 第一批修复 Task 5。
+// 审计将 cmdProbe.Probe 标为 P0 数据竞争：方法每次调用都读写共享
+// 的 `p.timeout` 字段（`if p.timeout <= 0 { p.timeout = 5*time.Second }`
+// 和紧随其后的 caller-timeout clamp），并发调用同一 *cmdProbe 实例
+// 时互相破坏对方的 effective timeout。用 -race 跑；这里失败说明
+// timeout 字段仍在被并发修改。
+func TestSystemPingProbe_ConcurrentNoRace(t *testing.T) {
+	probe := NewSystemPingProbe()
+	if err := probe.Available(); err != nil {
+		t.Skipf("ping not on PATH: %v", err)
+	}
+	const N = 16
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			// Vary the requested timeout so both branches of the
+			// clamp run; we don't care about the result, only that
+			// the call returns without panicking. / 改变请求的
+			// timeout 让 clamp 的两个分支都执行；只关心调用返
+			// 回不 panic，不关心结果。
+			_, _ = probe.Probe(ctx, "127.0.0.1", time.Duration(i+1)*100*time.Millisecond)
+		}()
+	}
+	wg.Wait()
 }
 
 // TestSystemPing_RejectsFlagLikeHost verifies the SECURITY guard against

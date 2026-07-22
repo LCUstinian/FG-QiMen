@@ -22,11 +22,28 @@ import (
 )
 
 // cmdProbe shells out to the system `ping` command. / cmdProbe 调系统 `ping` 命令。
+//
+// The default timeout (5s) lives in NewSystemPingProbe and is read-
+// only from this point on. Task 5 (first-batch fixes): the previous
+// implementation read-and-wrote `timeout` from every Probe call,
+// which raced across concurrent goroutines sharing one *cmdProbe
+// (the audit's P0 data race finding). Now `timeout` is set once at
+// construction and Probe only narrows it locally per call, leaving
+// the struct field untouched.
+//
+// cmdProbe 调系统 `ping` 命令。默认 timeout（5s）在 NewSystemPingProbe
+// 中设置，之后只读。第一批修复 Task 5：旧实现每次 Probe 调用都读写
+// `timeout`，并发 goroutine 共享同一 *cmdProbe 时数据竞争（审计
+// P0 发现）。现在 `timeout` 在构造时设一次，Probe 仅按调用本地
+// 收窄，不动 struct 字段。
 type cmdProbe struct {
-	// timeout is the wall-clock budget for the whole command. We pass
-	// a count=1 ping so the command self-terminates after one echo.
-	// timeout 是整条命令的墙钟超时。我们传 count=1 让命令在一次 echo
-	// 后自行结束。
+	// timeout is the default wall-clock budget for the whole command.
+	// Set once at construction (NewSystemPingProbe) and never mutated.
+	// Callers may pass a smaller timeout to Probe; we honour the
+	// smaller value locally without writing back to this field.
+	// / timeout 是整条命令的默认墙钟超时。仅在构造（NewSystemPingProbe）
+	// 时设一次，永不修改。调用方可向 Probe 传更小的 timeout；我们仅
+	// 本地取较小值，不回写本字段。
 	timeout time.Duration
 }
 
@@ -73,11 +90,20 @@ var (
 // Probe 执行 `ping -n 1`（Windows）或 `ping -c 1`（POSIX），
 // 若输出包含 "reply from"/"bytes from" 行则返回 Hit。
 func (p *cmdProbe) Probe(ctx context.Context, host string, timeout time.Duration) (Hit, error) {
-	if p.timeout <= 0 {
-		p.timeout = 5 * time.Second
+	// Task 5 (first-batch fixes): compute the effective timeout in a
+	// local variable. The previous version wrote the caller's
+	// narrowed timeout back to p.timeout, which raced across
+	// concurrent goroutines sharing one *cmdProbe (audit P0 race).
+	//
+	// 第一批修复 Task 5：在局部变量里算 effective timeout。旧版本把
+	// 调用方收窄的 timeout 回写到 p.timeout，跨并发 goroutine 共享
+	// 同一 *cmdProbe 时数据竞争（审计 P0）。
+	effective := p.timeout
+	if effective <= 0 {
+		effective = 5 * time.Second
 	}
-	if timeout > 0 && timeout < p.timeout {
-		p.timeout = timeout
+	if timeout > 0 && timeout < effective {
+		effective = timeout
 	}
 
 	var name string
@@ -86,12 +112,12 @@ func (p *cmdProbe) Probe(ctx context.Context, host string, timeout time.Duration
 		// -n 1: send 1 echo / 发送 1 次
 		// -w N: timeout N ms (override the default 4s wait)
 		name = "ping"
-		args = []string{"-n", "1", "-w", fmt.Sprintf("%d", p.timeout.Milliseconds()), host}
+		args = []string{"-n", "1", "-w", fmt.Sprintf("%d", effective.Milliseconds()), host}
 	} else {
 		// -c 1: send 1 echo
 		// -W N: timeout N seconds for each reply
 		name = "ping"
-		secs := int(p.timeout.Seconds())
+		secs := int(effective.Seconds())
 		if secs < 1 {
 			secs = 1
 		}
@@ -111,7 +137,7 @@ func (p *cmdProbe) Probe(ctx context.Context, host string, timeout time.Duration
 		return Hit{}, fmt.Errorf("%w: host starts with '-' which would be parsed as a ping flag: %q", ErrUnreachable, host)
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, p.timeout+1*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, effective+1*time.Second)
 	defer cancel()
 
 	start := time.Now()

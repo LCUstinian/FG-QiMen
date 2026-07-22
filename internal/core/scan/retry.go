@@ -12,6 +12,7 @@ package scan
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -54,14 +55,25 @@ func DefaultRetryConfig() RetryConfig {
 type RetryableProbe struct {
 	inner  Probe
 	config RetryConfig
-	// stats is updated by every Probe call. Pass config.TrackStats
-	// to enable; otherwise the counters stay at zero. The
-	// ProbeWithRetryStats wrapper from v0.2.x is gone — the same
-	// struct now does both jobs. P4.1 (audit roadmap).
-	// / stats 每次 Probe 调用更新。传 config.TrackStats 启用；否则计
-	// 数器保持零。v0.2.x 的 ProbeWithRetryStats 包装已移除——同
-	// 一结构现在做两件事。P4.1（审计路线图）。
-	stats RetryStats
+	// Stats counters. Task 5 (first-batch fixes): the previous
+	// implementation kept a single RetryStats value with plain int
+	// fields and incremented them from every Probe call — that
+	// raced across concurrent goroutines (audit P0). The counters
+	// now live as atomic.Int64 fields on RetryableProbe; the public
+	// RetryStats struct still exposes plain int fields as a snapshot
+	// of the atomic loads, so external callers keep their `int`
+	// API. / 统计计数器。第一批修复 Task 5：旧实现持一个 RetryStats
+	// 值（普通 int 字段），每次 Probe 调用都递增——并发 goroutine
+	// 下数据竞争（审计 P0）。计数器现作为 atomic.Int64 字段挂在
+	// RetryableProbe 上；公开 RetryStats 结构仍暴露普通 int 字段作
+	// 为 atomic load 的快照，外部调用方保留 `int` API。
+	//
+	// Stats 启用逻辑保持不变：config.TrackStats 为 true 时每次 Probe
+	// 调用递增；否则计数器保持零。P4.1（审计路线图）。
+	totalAttempts     atomic.Int64
+	successfulRetries atomic.Int64
+	failedRetries     atomic.Int64
+	resourceErrors    atomic.Int64
 }
 
 // NewRetryableProbe creates a new RetryableProbe.
@@ -92,7 +104,7 @@ func (r *RetryableProbe) Available() error {
 // Probe 实现带重试逻辑的 Probe。
 func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeout time.Duration) (Result, error) {
 	if r.config.TrackStats {
-		r.stats.TotalAttempts++
+		r.totalAttempts.Add(1)
 	}
 	var lastResult Result
 	var lastErr error
@@ -105,19 +117,19 @@ func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeo
 		// Success or non-retryable error / 成功或不可重试错误
 		if lastErr == nil || !isResourceExhaustedError(lastErr) {
 			if r.config.TrackStats && lastErr == nil && attempt > 0 {
-				r.stats.SuccessfulRetries++
+				r.successfulRetries.Add(1)
 			}
 			return lastResult, lastErr
 		}
 
 		if r.config.TrackStats && isResourceExhaustedError(lastErr) {
-			r.stats.ResourceErrors++
+			r.resourceErrors.Add(1)
 		}
 
 		// Last attempt failed, return / 最后一次尝试失败，返回
 		if attempt == r.config.MaxRetries {
 			if r.config.TrackStats {
-				r.stats.FailedRetries++
+				r.failedRetries.Add(1)
 			}
 			return lastResult, lastErr
 		}
@@ -137,12 +149,21 @@ func (r *RetryableProbe) Probe(ctx context.Context, host string, port int, timeo
 	return lastResult, lastErr
 }
 
-// Stats returns the current retry statistics. Only meaningful when
-// config.TrackStats is true; otherwise counters stay at zero.
-// Stats 返回当前重试统计信息。仅在 config.TrackStats 为 true 时有
-// 意义；否则计数器保持零。
+// Stats returns a snapshot of the current retry statistics. Only
+// meaningful when config.TrackStats is true; otherwise counters stay
+// at zero. The returned struct holds plain int fields (a copy of
+// the atomic loads) so callers can read it without any special
+// synchronisation.
+// Stats 返回当前重试统计的快照。仅在 config.TrackStats 为 true 时
+// 有意义；否则计数器保持零。返回结构持普通 int 字段（atomic load
+// 的副本），调用方读取时无需任何特殊同步。
 func (r *RetryableProbe) Stats() RetryStats {
-	return r.stats
+	return RetryStats{
+		TotalAttempts:     int(r.totalAttempts.Load()),
+		SuccessfulRetries: int(r.successfulRetries.Load()),
+		FailedRetries:     int(r.failedRetries.Load()),
+		ResourceErrors:    int(r.resourceErrors.Load()),
+	}
 }
 
 // isResourceExhaustedError checks if the error is a resource exhaustion error.

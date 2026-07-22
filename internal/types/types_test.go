@@ -156,6 +156,125 @@ func TestParseExcludePorts(t *testing.T) {
 	}
 }
 
+// --- ResolvePorts (Task 3) ---
+//
+// ResolvePorts is the single source of truth for the effective port
+// list at scan start: it parses include + exclude, dedupes, sorts,
+// and returns errors for invalid input. The previous behaviour was
+// that ExcludePorts was stored in cfg but never read by RunScan, so
+// `-exclude-ports 80` had no effect on the scan. ResolvePorts closes
+// that gap and is called before any goroutine starts.
+//
+// / --- ResolvePorts（Task 3）---
+//
+// ResolvePorts 是扫描启动时有效端口列表的唯一真相源：解析 include +
+// exclude、去重、排序，并对非法输入返回 error。旧行为是 ExcludePorts
+// 存在 cfg 但 RunScan 从不读取，导致 `-exclude-ports 80` 对扫描完全
+// 无效。ResolvePorts 修补此缺口，且在任何 goroutine 启动前调用。
+
+// TestResolvePortsExcludesConfiguredPorts — the canonical case: a
+// single include port is excluded; result is the remainder.
+func TestResolvePortsExcludesConfiguredPorts(t *testing.T) {
+	cfg := &Config{Ports: "22,80,443", ExcludePorts: "80"}
+	got, err := cfg.ResolvePorts()
+	if err != nil {
+		t.Fatalf("ResolvePorts: %v", err)
+	}
+	want := []int{22, 443}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResolvePorts(22,80,443 - 80) = %v, want %v", got, want)
+	}
+}
+
+// TestResolvePortsDedupesExclude — if the exclude list repeats a
+// port, ResolvePorts must not error and must still exclude the
+// single canonical entry.
+func TestResolvePortsDedupesExclude(t *testing.T) {
+	cfg := &Config{Ports: "22,80,443", ExcludePorts: "80,80,443"}
+	got, err := cfg.ResolvePorts()
+	if err != nil {
+		t.Fatalf("ResolvePorts: %v", err)
+	}
+	want := []int{22}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResolvePorts(dedup exclude) = %v, want %v", got, want)
+	}
+}
+
+// TestResolvePortsSortedAscending — output is sorted ascending
+// regardless of input order, so downstream iterators and dedup
+// checks behave deterministically.
+func TestResolvePortsSortedAscending(t *testing.T) {
+	cfg := &Config{Ports: "443,22,80"}
+	got, err := cfg.ResolvePorts()
+	if err != nil {
+		t.Fatalf("ResolvePorts: %v", err)
+	}
+	want := []int{22, 80, 443}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResolvePorts(443,22,80) = %v, want %v (ascending)", got, want)
+	}
+}
+
+// TestResolvePortsInvalidInclude — invalid include syntax surfaces
+// as an error so RunScan aborts before starting workers. Scanning
+// with 0 ports is meaningless and previously produced silent
+// "no findings" results.
+func TestResolvePortsInvalidInclude(t *testing.T) {
+	cfg := &Config{Ports: "abc"}
+	_, err := cfg.ResolvePorts()
+	if err == nil {
+		t.Fatal("ResolvePorts(Ports=abc) returned err=nil, want non-nil")
+	}
+}
+
+// TestResolvePortsOutOfRange — out-of-range port surfaces as an
+// error.
+func TestResolvePortsOutOfRange(t *testing.T) {
+	cfg := &Config{Ports: "99999"}
+	_, err := cfg.ResolvePorts()
+	if err == nil {
+		t.Fatal("ResolvePorts(Ports=99999) returned err=nil, want non-nil")
+	}
+}
+
+// TestResolvePortsInvalidExclude — invalid exclude syntax surfaces
+// as an error.
+func TestResolvePortsInvalidExclude(t *testing.T) {
+	cfg := &Config{Ports: "22,80", ExcludePorts: "abc"}
+	_, err := cfg.ResolvePorts()
+	if err == nil {
+		t.Fatal("ResolvePorts(ExcludePorts=abc) returned err=nil, want non-nil")
+	}
+}
+
+// TestResolvePortsAllExcluded — if every port is excluded, the
+// effective list is empty; ResolvePorts must return an error
+// (running with 0 ports is meaningless and would silently produce
+// "no findings").
+func TestResolvePortsAllExcluded(t *testing.T) {
+	cfg := &Config{Ports: "22,80", ExcludePorts: "22,80"}
+	_, err := cfg.ResolvePorts()
+	if err == nil {
+		t.Fatal("ResolvePorts(all excluded) returned err=nil, want non-nil")
+	}
+}
+
+// TestResolvePortsEmptyExclude — empty exclude string is a no-op;
+// ResolvePorts returns the include list (default ports if Ports
+// is also empty).
+func TestResolvePortsEmptyExclude(t *testing.T) {
+	cfg := &Config{Ports: "22,80", ExcludePorts: ""}
+	got, err := cfg.ResolvePorts()
+	if err != nil {
+		t.Fatalf("ResolvePorts: %v", err)
+	}
+	want := []int{22, 80}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResolvePorts(Ports=22,80, no exclude) = %v, want %v", got, want)
+	}
+}
+
 // --- HashKey + State ---
 
 // TestHashKeyDeterminism: same inputs → same hash. The pipeline uses

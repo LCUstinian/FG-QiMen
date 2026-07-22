@@ -146,10 +146,46 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: compute SHA256SUMS
+      # Smoke-test the Linux/amd64 binary before computing checksums.
+      # Catches broken ldflags (wrong version) and a non-functional CLI
+      # surface early, so we never publish a binary that fails `version`
+      # or `--help`. / 在算 SHA256SUMS 之前 smoke-test linux/amd64
+      # binary，提早捕获 ldflags 错（version 不对）和不能跑的 CLI。
+      - name: smoke test linux/amd64 binary
         working-directory: dist
         run: |
-          sha256sum -- *.exe *-* 2>/dev/null | grep -v ".sig$\|.pem$\|.sbom.json$" > SHA256SUMS || true
+          set -euo pipefail
+          version_output="$(./fg-qimen-linux-amd64 version)"
+          printf '%s\n' "$version_output" | head -n1 | grep -F "${GITHUB_REF_NAME}"
+          ./fg-qimen-linux-amd64 --help >/dev/null
+
+      # Fail-closed SHA256SUMS: enumerate the five expected binaries by
+      # exact name (no `*.exe` / `*-*` globs that could silently match
+      # unrelated files), require each to exist and be non-empty, hash
+      # exactly that set, assert the line count matches, then re-verify
+      # via `sha256sum -c`. The previous version used `|| true` and
+      # globs that swallowed missing-artifact errors. / Fail-closed
+      # SHA256SUMS：按精确名枚举五个 binary（不用会误匹配无关文件
+      # 的 `*.exe` / `*-*` glob），逐个要求存在且非空，再 hash 这一
+      # 固定集合，断言行数匹配，再用 `sha256sum -c` 复验。原版本用
+      # `|| true` 和 glob 把 missing-artifact 错误吞掉了。
+      - name: compute and verify SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          expected=(
+            fg-qimen-linux-amd64
+            fg-qimen-linux-arm64
+            fg-qimen-darwin-amd64
+            fg-qimen-darwin-arm64
+            fg-qimen-windows-amd64.exe
+          )
+          for artifact in "${expected[@]}"; do
+            test -s "$artifact"
+          done
+          sha256sum "${expected[@]}" > SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq "${#expected[@]}"
+          sha256sum -c SHA256SUMS
           cat SHA256SUMS
 
       - name: create GitHub Release

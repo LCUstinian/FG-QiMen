@@ -266,3 +266,77 @@ func TestCloseNilSafe(t *testing.T) {
 		t.Errorf("(*Project)(nil).Close() = %v, want nil", err)
 	}
 }
+
+// TestOpenPersistentNoState — when NoState=true is requested for a
+// named (persistent) project, OpenWithOptions must NOT open bbolt
+// and must NOT create the on-disk fg.db. The audit flagged
+// `--no-state` as dead code: the flag was wired through cfg.NoState
+// but cmd/scan.go unconditionally called proj.AsStore() (or its
+// passphrase variant), which forced a bbolt open in workspace.Open.
+//
+// / TestOpenPersistentNoState — 当对命名（persistent）项目请求
+// NoState=true 时，OpenWithOptions 必须不打开 bbolt 且不得在磁盘上
+// 创建 fg.db。审计发现 `--no-state` 是死代码：flag 通过 cfg.NoState
+// 传递，但 cmd/scan.go 无条件调 proj.AsStore()（或其 passphrase 版
+// 本），迫使 workspace.Open 打开 bbolt。
+func TestOpenPersistentNoState(t *testing.T) {
+	dir := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir tempdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+
+	name := "no-state-project"
+	p, err := OpenWithOptions(name, OpenOptions{NoState: true})
+	if err != nil {
+		t.Fatalf("OpenWithOptions(noState): %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.Name != name {
+		t.Errorf("NoState project: Name = %q, want %q", p.Name, name)
+	}
+	if p.DB != nil {
+		t.Errorf("NoState project: DB = %v, want nil (no bbolt open)", p.DB)
+	}
+	if p.DBPath != "" {
+		t.Errorf("NoState project: DBPath = %q, want empty", p.DBPath)
+	}
+	dbPath := filepath.Join(ProjectsRoot(), name, "fg.db")
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Errorf("NoState project: fg.db unexpectedly created at %s; stat err = %v",
+			dbPath, err)
+	}
+}
+
+// TestOpenPersistentNormalStillWorks — sanity check that
+// OpenWithOptions with NoState=false preserves the existing
+// persistent behaviour (bbolt opens, fg.db created). Without this
+// guard the NoState fix could regress the default path.
+//
+// / TestOpenPersistentNormalStillWorks — 健全性检查：NoState=false
+// 的 OpenWithOptions 保持现有持久化行为（打开 bbolt、创建 fg.db）。
+// 没有此保护，NoState 修法可能回退默认路径。
+func TestOpenPersistentNormalStillWorks(t *testing.T) {
+	dir := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir tempdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+
+	name := "normal-project"
+	p, err := OpenWithOptions(name, OpenOptions{NoState: false})
+	if err != nil {
+		t.Fatalf("OpenWithOptions(normal): %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.DB == nil {
+		t.Error("Normal project: DB = nil, want non-nil (bbolt must open)")
+	}
+	if p.DBPath == "" {
+		t.Error("Normal project: DBPath = empty, want path")
+	}
+}
