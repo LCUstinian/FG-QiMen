@@ -33,6 +33,16 @@ func (fc *flushCloser) Close() error {
 		_ = fc.bw.Flush()
 	}
 	if fc.f != nil {
+		// P2-7 (audit): f.Sync() forces the OS to flush the file's
+		// buffers, surviving power-loss / OOM-kill without losing the
+		// last ~200ms of buffered writes. / P2-7（审计）：f.Sync() 强制
+		// OS 把文件 buffer 落盘，避免掉电/OOM 杀进程时丢最后 ~200ms
+		// 写入。
+		// We deliberately ignore the Sync error: Close() below is the
+		// authoritative close, and failing here would mask the close
+		// error which is more actionable. / 这里有意忽略 Sync 错误：
+		// 下面的 Close() 是权威关闭，此处失败会掩盖更可执行的 close 错误。
+		_ = fc.f.Sync()
 		return fc.f.Close()
 	}
 	return nil
