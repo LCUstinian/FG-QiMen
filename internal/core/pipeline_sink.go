@@ -102,8 +102,21 @@ func persistResult(sess *session.Session, r *types.Result) {
 	}
 	if sess.Out != nil {
 		_ = sess.Out.WriteResult(r)
+		// P2-5 (audit): creds.txt is opened with O_APPEND, so without
+		// dedup a re-dispatched (host, port, user, pass) hit would be
+		// appended a second time on --resume or after a retry. We
+		// gate WriteCred on the in-memory State seen-set keyed by
+		// chash (host+port+service+plugin+user+pass); MarkSeen returns
+		// true on first occurrence only. / P2-5（审计）：creds.txt 用
+		// O_APPEND 打开，不去重则重发的 (host, port, user, pass) 命中
+		// 会在 --resume 或重试后追加第二遍。我们用按 chash
+		// （host+port+service+plugin+user+pass）索引的内存 State 去
+		// 重 gate WriteCred；MarkSeen 仅在首次出现时返 true。
 		if r.Cred != nil {
-			_ = sess.Out.WriteCred(r)
+			chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
+			if sess.State.MarkSeen(chash) {
+				_ = sess.Out.WriteCred(r)
+			}
 		}
 		// Typed side-channel: if a plugin stashed a
 		// *output.RDPFingerprint in Extra, dual-write it
