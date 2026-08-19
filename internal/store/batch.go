@@ -47,12 +47,6 @@ type BatchWriter struct {
 
 	mu      sync.Mutex
 	pending []PutOp
-	// pendingBytes tracks the in-memory payload size. Flushing on
-	// a byte threshold (in addition to count) prevents pathological
-	// memory growth if a single PutOp carries a huge payload.
-	// pendingBytes 跟踪内存中负载大小。在字节阈值上（外加数量阈
-	// 值）刷盘，避免单个巨大 PutOp 撑爆内存。
-	pendingBytes int
 
 	stopCh   chan struct{}
 	doneCh   chan struct{}
@@ -82,26 +76,26 @@ func NewBatchWriter(s *Store, size int, interval time.Duration) *BatchWriter {
 	}
 }
 
-// Enqueue adds an op to the pending batch. If the count or byte
-// threshold is reached, the batch is flushed synchronously. / Enqueue
-// 把 op 加入待刷盘批次。若达数量或字节阈值则同步刷盘。
+// Enqueue adds an op to the pending batch. If the count threshold
+// is reached, the batch is flushed synchronously. / Enqueue 把 op
+// 加入待刷盘批次。若达数量阈值则同步刷盘。
+//
+// P3-1 (audit): the previous implementation also tracked a
+// pendingBytes counter with a per-op 64 KiB ceiling, but that ceiling
+// always equalled one op — so the byte threshold fired on the same
+// op as the count threshold (DefaultBatchSize=32) and was dead
+// code. Removed pendingBytes and the byte-path check; count-based
+// flushing is the sole driver. / P3-1（审计）：旧实现还跟踪
+// pendingBytes，每 op 64 KiB 上限——但这上限恒等于一 op，所以字节
+// 阈值与数量阈值（DefaultBatchSize=32）在同一 op 触发，是死代码。
+// 删 pendingBytes 与字节路径检查；刷盘仅由数量驱动。
 func (b *BatchWriter) Enqueue(op PutOp) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	b.pending = append(b.pending, op)
-	// Conservative byte estimate: the marshaled size. PutOp.Value
-	// can be []byte (already-marshaled) or anything (will be
-	// marshaled at flush time). We can't know the marshaled size
-	// without actually marshaling, so we use a per-op ceiling of
-	// 64KiB which fits any single result row in practice.
-	// 保守字节估计：序列化后大小。PutOp.Value 可能是 []byte
-	// （已序列化）或任意（将在刷盘时序列化）。不实际序列化
-	// 没法知道序列化后大小，所以我们用 64KiB 的 per-op 上限，
-	// 实践中能容纳任何单条结果。
-	b.pendingBytes += 64 * 1024
-	full := len(b.pending) >= b.size || b.pendingBytes >= 1<<20
+	full := len(b.pending) >= b.size
 	b.mu.Unlock()
 	if full {
 		b.Flush()
@@ -122,7 +116,6 @@ func (b *BatchWriter) Flush() {
 	}
 	ops := b.pending
 	b.pending = nil
-	b.pendingBytes = 0
 	b.mu.Unlock()
 	if b.s == nil {
 		return
