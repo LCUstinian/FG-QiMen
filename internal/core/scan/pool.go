@@ -339,17 +339,35 @@ func (p *Pool) record(r Result) {
 // concurrency. Exits when stop is closed.
 //
 // adaptiveLoop 周期性检查滑动窗口并调并发。stop 关闭时退出。
+//
+// P3-3 (audit): the previous implementation drove the loop off a
+// single ticker at AdjustInterval (default 500ms). When Pool.Run
+// closes stopAdj on the happy path, the goroutine sat blocked on
+// `<-t.C` for up to 500ms before noticing the close. Now a much
+// shorter wake-up ticker (50ms) drives the loop iteration; the
+// actual adjust() call is still throttled to AdjustInterval via a
+// timestamp guard, so the cost is unchanged but join latency drops
+// to ~50ms. / P3-3（审计）：旧实现用单一 ticker（默认 500ms）驱动
+// 循环。Pool.Run 在 happy path 关闭 stopAdj 时，goroutine 在
+// `<-t.C` 上阻塞最多 500ms 才看到关闭。现在用更短的唤醒 ticker
+// （50ms）驱动循环；adjust() 仍按 AdjustInterval 节流，成本不变
+// 但 join 延迟降至 ~50ms。
 func (p *Pool) adaptiveLoop(ctx context.Context, stop chan struct{}) {
-	t := time.NewTicker(p.opts.AdjustInterval)
-	defer t.Stop()
+	const wakeInterval = 50 * time.Millisecond
+	wakeT := time.NewTicker(wakeInterval)
+	defer wakeT.Stop()
+	var lastAdjust time.Time
 	for {
 		select {
 		case <-stop:
 			return
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			p.adjust()
+		case <-wakeT.C:
+			if time.Since(lastAdjust) >= p.opts.AdjustInterval {
+				p.adjust()
+				lastAdjust = time.Now()
+			}
 		}
 	}
 }
