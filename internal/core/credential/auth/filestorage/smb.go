@@ -83,6 +83,13 @@ func (a *SMBAuthenticator) Authenticate(ctx context.Context, host string, port i
 			// / 连接拒/超时——该 host 中止。
 			return nil, err
 		}
+		// P1-3 (audit): DialTCP sets a single dial-time deadline
+		// which would expire before go-smb2's NTLMv2 Session Setup
+		// completes. Reset it so the entire Session Setup round
+		// honors the per-attempt timeout. / P1-3（审计）：DialTCP 仅
+		// 设拨号 deadline，go-smb2 的 NTLMv2 Session Setup 尚未完成
+		// 就过期。重置以让整个 Session Setup 遵守单次 timeout。
+		_ = tcpConn.SetDeadline(time.Now().Add(timeout))
 
 		// Build a Dialer with NTLMv2 initiator and run Session
 		// Setup. / 构造带 NTLMv2 initiator 的 Dialer 并跑 Session Setup。

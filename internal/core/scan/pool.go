@@ -228,6 +228,23 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 		// shrinks actually take effect.
 		// 取一个 slot，但尊重 ctx 取消。同时等待 inflight < currentThreads，
 		// 让自适应控制器的缩容真正生效。
+		//
+		// P3-7 (audit): the previous backoff was a fixed 1ms
+		// busy-wait. Under saturation (inflight >= currentThreads
+		// for many consecutive iterations) the producer goroutine
+		// pegs CPU at ~1 kHz of Timer resets. Replaced with capped
+		// exponential backoff starting at 1ms and doubling up to
+		// 50ms; CPU usage drops ~50× under saturation while still
+		// waking promptly when a slot opens. / P3-7（审计）：旧版是
+		// 固定 1ms busy-wait。饱和时（inflight >= currentThreads
+		// 连续多次）生产者 goroutine 以 ~1 kHz Timer 重置把 CPU
+		// 占满。改为 1ms 起步、倍增到 50ms 上限的指数退避；饱和
+		// 时 CPU 占用降 ~50×，slot 释放后仍能及时醒来。
+		const (
+			backoffMin = 1 * time.Millisecond
+			backoffMax = 50 * time.Millisecond
+		)
+		backoff := backoffMin
 		for {
 			if ctx.Err() != nil {
 				close(stopAdj)
@@ -247,12 +264,10 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				}
 			}
 			// Phase 2.5 (audit roadmap): use a reused Timer instead of
-			// time.After(1ms), which allocates a new Timer per
-			// busy-wait iteration. At 500 workers × 500Hz that's
-			// 250k Timers/sec. / Phase 2.5（审计路线图）：用复用的
-			// Timer 替代 time.After(1ms)，后者每次 busy-wait 分配新
-			// Timer。500 worker × 500Hz 是 250k Timer/秒。
-			resetTimer(p.busyTimer, 1*time.Millisecond)
+			// time.After, which would allocate a new Timer per
+			// busy-wait iteration. / Phase 2.5（审计路线图）：用复用
+			// 的 Timer 替代 time.After，避免每次 busy-wait 分配新 Timer。
+			resetTimer(p.busyTimer, backoff)
 			select {
 			case <-ctx.Done():
 				p.busyTimer.Stop()
@@ -261,10 +276,20 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				<-adjDone
 				return ctx.Err()
 			case <-p.busyTimer.C:
-				// brief backoff then re-check / 短暂退避后重检
+				// Capped exponential backoff. Reset to backoffMin
+				// after a successful acquire (handled at `acquired`
+				// below via the loop restart). / 上限封顶的指数退避。
+				// 获取成功后在 `acquired` 处重启循环重置为 backoffMin。
+				backoff *= 2
+				if backoff > backoffMax {
+					backoff = backoffMax
+				}
 			}
 		}
 	acquired:
+		// Reset backoff for the next saturated wait. / 重置退避，
+		// 等下一次饱和等待再用。
+		backoff = backoffMin
 		inflight.Add(1)
 		wg.Add(1)
 		go func(item Item) {
@@ -339,17 +364,35 @@ func (p *Pool) record(r Result) {
 // concurrency. Exits when stop is closed.
 //
 // adaptiveLoop 周期性检查滑动窗口并调并发。stop 关闭时退出。
+//
+// P3-3 (audit): the previous implementation drove the loop off a
+// single ticker at AdjustInterval (default 500ms). When Pool.Run
+// closes stopAdj on the happy path, the goroutine sat blocked on
+// `<-t.C` for up to 500ms before noticing the close. Now a much
+// shorter wake-up ticker (50ms) drives the loop iteration; the
+// actual adjust() call is still throttled to AdjustInterval via a
+// timestamp guard, so the cost is unchanged but join latency drops
+// to ~50ms. / P3-3（审计）：旧实现用单一 ticker（默认 500ms）驱动
+// 循环。Pool.Run 在 happy path 关闭 stopAdj 时，goroutine 在
+// `<-t.C` 上阻塞最多 500ms 才看到关闭。现在用更短的唤醒 ticker
+// （50ms）驱动循环；adjust() 仍按 AdjustInterval 节流，成本不变
+// 但 join 延迟降至 ~50ms。
 func (p *Pool) adaptiveLoop(ctx context.Context, stop chan struct{}) {
-	t := time.NewTicker(p.opts.AdjustInterval)
-	defer t.Stop()
+	const wakeInterval = 50 * time.Millisecond
+	wakeT := time.NewTicker(wakeInterval)
+	defer wakeT.Stop()
+	var lastAdjust time.Time
 	for {
 		select {
 		case <-stop:
 			return
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			p.adjust()
+		case <-wakeT.C:
+			if time.Since(lastAdjust) >= p.opts.AdjustInterval {
+				p.adjust()
+				lastAdjust = time.Now()
+			}
 		}
 	}
 }

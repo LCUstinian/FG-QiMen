@@ -104,6 +104,13 @@ func (a *ModbusAuthenticator) Authenticate(ctx context.Context, host string, por
 
 // attempt runs one Modbus TCP probe. / attempt 跑一次 Modbus TCP
 // 探针。
+//
+// P1-3 (audit): per-attempt SetDeadline covers Write of the MBAP
+// request and Read of the response. Without it, a Modbus device that
+// accepts TCP but never replies would block a worker for cfg.Timeout.
+// / P1-3（审计）：单次 SetDeadline 覆盖 MBAP 请求的 Write 和响应的
+// Read。否则 TCP 已建连但永不响应的 Modbus 设备会把 worker 阻塞满
+// cfg.Timeout。
 func (a *ModbusAuthenticator) attempt(ctx context.Context, addr string, timeout time.Duration) (bool, error) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -111,6 +118,9 @@ func (a *ModbusAuthenticator) attempt(ctx context.Context, addr string, timeout 
 		return false, err
 	}
 	defer conn.Close()
+	// Per-attempt deadline for the MBAP request/response round-trip.
+	// / 单次 deadline 覆盖 MBAP 请求/响应往返。
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Build Modbus TCP request: MBAP(7) + PDU. / 构造 Modbus TCP 请求：
 	// MBAP(7) + PDU。
 	// PDU: function code 43 (0x2B), MEI type 14 (0x0E), Read Device

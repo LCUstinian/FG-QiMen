@@ -79,6 +79,13 @@ func (a *NFSAuthenticator) Authenticate(ctx context.Context, host string, port i
 }
 
 // attempt sends an RPC NULL call. / attempt 发 RPC NULL 调用。
+//
+// P1-3 (audit): per-attempt SetDeadline covers the RPC fragment
+// Write and the reply Read. Without it, an NFS server that completes
+// TCP but never replies would block a worker for cfg.Timeout. /
+// P1-3（审计）：单次 SetDeadline 覆盖 RPC fragment 的 Write 与响应的
+// Read。否则 TCP 已建连但永不响应的 NFS 服务会把 worker 卡满
+// cfg.Timeout。
 func (a *NFSAuthenticator) attempt(ctx context.Context, addr string, timeout time.Duration) (bool, error) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -86,6 +93,9 @@ func (a *NFSAuthenticator) attempt(ctx context.Context, addr string, timeout tim
 		return false, err
 	}
 	defer conn.Close()
+	// Per-attempt deadline for the RPC NULL request/response.
+	// / 单次 deadline 覆盖 RPC NULL 请求/响应。
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// Build RPC NULL call:
 	//   Fragment header (4 bytes BE):
 	//     bit 31: 1 = last fragment

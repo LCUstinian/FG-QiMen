@@ -24,6 +24,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database/sqlcache"
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql" // register driver
 )
 
@@ -102,9 +104,19 @@ func (a *MySQLAuthenticator) Authenticate(ctx context.Context, host string, port
 		err = db.PingContext(pingCtx)
 		cancel()
 		if err != nil {
-			// Stale conn — invalidate and try next cred. / 陈
-			// 连接——失效并试下一个凭据。
-			sqlcache.Global.Invalidate(cacheKey)
+			// P3-5 (audit): only invalidate the cache on an auth-
+			// state error (1045 ER_ACCESS_DENIED). Network errors
+			// (connection refused, timeout, server gone) leave the
+			// cached *sql.DB's auth state intact — invalidating on
+			// those tears down a warm pool on every flaky network.
+			// / P3-5（审计）：仅在认证态错误（1045 ER_ACCESS_DENIED）
+			// 时失效缓存。网络错误（连接拒、超时、服务下线）的
+			// 缓存 *sql.DB 认证态不变——对这些错误失效会在每次网
+			// 络抖动时拆掉暖池。
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1045 {
+				sqlcache.Global.Invalidate(cacheKey)
+			}
 		}
 		if err == nil {
 			return &credential.Hit{

@@ -83,6 +83,14 @@ func (a *RabbitMQAuthenticator) Authenticate(ctx context.Context, host string, p
 
 // attempt runs one AMQP PLAIN auth round. / attempt 跑一次 AMQP PLAIN
 // 认证。
+//
+// P1-3 (audit): per-attempt SetDeadline covers the AMQP 0-9-1 frame
+// exchanges (protocol header + Start + Start-Ok + Tune/Close). Without
+// it a slow broker that completes TCP but stalls mid-handshake can
+// wedge a worker for cfg.Timeout. / P1-3（审计）：单次 SetDeadline
+// 覆盖 AMQP 0-9-1 帧交换（协议头 + Start + Start-Ok + Tune/Close）。
+// 否则 TCP 已建连但握手中途卡住的慢 broker 会把 worker 卡满
+// cfg.Timeout。
 func (a *RabbitMQAuthenticator) attempt(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -90,6 +98,9 @@ func (a *RabbitMQAuthenticator) attempt(ctx context.Context, addr, user, pass st
 		return false, err
 	}
 	defer conn.Close()
+	// Per-attempt deadline for the full AMQP auth round.
+	// / 单次 deadline 覆盖完整 AMQP 认证轮次。
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	// 1. Protocol header. / 协议头。
 	if _, err := conn.Write([]byte("AMQP\x00\x00\x09\x01")); err != nil {
 		return false, err
