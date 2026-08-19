@@ -575,6 +575,105 @@ The FG-QiMen source is released under the MIT License. See [LICENSE](LICENSE).
 
 ---
 
+## Verifying releases / 验证发布
+
+Each GitHub Release ships five binary artifacts plus one cryptographic
+checksum file, one keyless signature, one signing certificate, and one
+SBOM per artifact. / 每个 GitHub Release 都会发布 5 个二进制 artifact
+外加 1 个加密校验和文件、1 个 keyless 签名、1 个签名证书、每个 artifact
+一份 SBOM。
+
+| File | Purpose |
+|---|---|
+| `fg-qimen-<platform>`     | The compiled binary / 编译后的可执行文件 |
+| `SHA256SUMS`              | sha256 checksums for every binary / 所有二进制的 sha256 校验和 |
+| `*.sig`                   | cosign keyless signature over the binary (OIDC, Sigstore) / cosign keyless 签名（OIDC、Sigstore） |
+| `*.pem`                   | signing certificate embedding the OIDC identity / 含 OIDC 身份的签名证书 |
+| `*.sbom.json`             | CycloneDX SBOM for the binary (per-platform) / 平台级 CycloneDX SBOM |
+
+### 1. Checksums / 校验和
+
+```bash
+# Download the binary + SHA256SUMS from the release page, then:
+# 下载二进制 + SHA256SUMS 到同目录后：
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+A clean run prints `<binary>: OK` for each line; a mismatch aborts
+with non-zero exit. / 通过打印 `<binary>: OK`；不匹配会以非零退出
+码中止。
+
+### 2. Signature (keyless, OIDC) / 签名（keyless、OIDC）
+
+The release pipeline uses [cosign](https://github.com/sigstore/cosign)
+in keyless mode against Sigstore's public good instance — no secret
+keys are stored in the repository. / 发布流程用 cosign keyless 模式
+对接 Sigstore 公共服务实例——仓库不存任何私钥。
+
+```bash
+# Install cosign (one-time). / 装 cosign（一次性）。
+go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+
+# Verify the signature against the OIDC-signed certificate.
+# The certificate pins the GitHub Actions workflow identity
+# (https://github.com/LCUstinian/FG-QiMen/.github/workflows/release.yml@refs/tags/<TAG>).
+# 用 OIDC 签名证书验签。证书固定了 GitHub Actions workflow 身份。
+COSIGN_EXPERIMENTAL=1 cosign verify-blob \
+  --signature fg-qimen-<platform>.sig \
+  --certificate fg-qimen-<platform>.pem \
+  --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  fg-qimen-<platform>
+```
+
+A successful verify prints the verified SHA256 and the OIDC identity
+that signed it. / 验证成功会打印已验证的 SHA256 与签名身份的 OIDC
+subject。
+
+### 3. SBOM / 软件物料清单
+
+The CycloneDX SBOM lists every direct + transitive dependency that
+the binary links against. / CycloneDX SBOM 列出二进制链接的所有
+直接或间接依赖。
+
+```bash
+# Install cdxgen or cyclonedx-cli (one-time). / 装 cdxgen 或
+# cyclonedx-cli（一次性）。
+# Inspect with jq: / 用 jq 查看：
+jq '.components[] | {name, version, purl}' fg-qimen-<platform>.sbom.json
+```
+
+The SBOM is in CycloneDX 1.5 JSON; it can be ingested directly by
+[Dependency-Track](https://dependencytrack.org/) or any other
+SBOM-aware SCA tool. / SBOM 为 CycloneDX 1.5 JSON；可直接被
+Dependency-Track 或任何支持 SBOM 的 SCA 工具摄取。
+
+### 4. Source reproducibility (optional) / 源码可重现（可选）
+
+To rebuild a binary byte-for-byte from the matching tag: / 从对应 tag
+逐字节重建二进制：
+
+```bash
+git checkout <TAG>
+go build -trimpath -ldflags='-s -w -buildid=' -o fg-qimen-local .
+sha256sum fg-qimen-local
+```
+
+The hash must match the corresponding line in `SHA256SUMS`. / 哈希
+必须匹配 `SHA256SUMS` 中对应行。
+
+### 5. Reporting a discrepancy / 反馈不一致
+
+If any of the above fails, **do not run the binary**. Open a GitHub
+issue at <https://github.com/LCUstinian/FG-QiMen/issues> with the
+output of the failing step and the tag you tried. / 若以上任何步骤
+失败，**请勿运行该二进制**。在
+<https://github.com/LCUstinian/FG-QiMen/issues> 开 issue 并附失败
+步骤的输出与所试 tag。
+
+
+---
+
 ## Disclaimer / 免责声明
 
 This tool is for **authorized security testing and learning only**. Do not
