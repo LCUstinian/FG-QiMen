@@ -1,9 +1,9 @@
 # Security Policy
 
-> GitHub recognises a SECURITY.md at the **repository root** (not
-> under `docs/`) for the security advisory flow. The full
-> security model is in [`docs/SECURITY.md`](docs/SECURITY.md);
-> this file is the **GitHub-required** policy.
+> GitHub recognises a `SECURITY.md` at the **repository root** for the
+> security advisory flow. The full security model is in
+> [`docs/SECURITY.md`](docs/SECURITY.md); this file is the
+> **GitHub-required** policy.
 
 ## Supported Versions
 
@@ -42,8 +42,8 @@ findings.**
 
 ## Security Model (TL;DR)
 
-Full details in [`docs/SECURITY.md`](docs/SECURITY.md). The HARD
-rules:
+Full details in [`docs/SECURITY.md`](docs/SECURITY.md). The three
+HARD rules:
 
 - **No post-auth action.** Credential tests write `user/pass` to
   `creds.txt` and stop. No `ssh.NewSession`, no `Exec`, no shell.
@@ -51,25 +51,18 @@ rules:
   RCE, JDWP, RMI, WebLogic deserialization.
 - **No reverse/bind/SOCKS5 server.** FG-QiMen is a *client*.
 
-These are enforced by:
+Enforced by `// HARD:` comments on every authenticator, a CI lint
+that greps for `ssh.NewSession` / `.Shell(` / `os/exec` in credential
++ plugin paths, and cosign-signed + SBOM-attached releases.
 
-- A `// HARD:` comment block on every authenticator.
-- A CI lint that greps for `ssh.NewSession` / `.Shell(` / `os/exec`
-  in credential + plugin paths (`scripts/lint-hard-rule.sh`).
-- Coverage gate (`internal/` ≥ 50% statement coverage).
-- cosign-signed + SBOM-attached releases.
+## Encryption (TL;DR)
 
-## Encryption
-
-- At-rest bbolt values are AES-256-GCM (post-v0.3.1).
-- Per-value magic-byte AAD binding prevents bit-flip → "plaintext"
-  confusion.
-- Key derivation: v0.3.x used SHA-256(passphrase); v0.4+ uses
-  **Argon2id** with OWASP-2024 parameters (time=3, memory=64 MiB,
-  parallelism=4, salt=16 B). Old SHA-256 KDF stays in `Open()` so
-  v0.3.x DBs remain readable. See `internal/store/crypto.go` for
-  the magic-byte dispatch (`0x01`/`0x02` → SHA-256, `0x03` →
-  Argon2id).
+Project DBs (`runs/projects/<name>/fg.db`) are AES-256-GCM at rest
+when `FG_QIMEN_PROJECT_KEY` is set. Key derivation: v0.3.x used
+SHA-256 (legacy, still readable); v0.4+ uses Argon2id with
+OWASP-2024 parameters. Magic-byte AAD binding prevents bit-flip
+→ "plaintext" confusion. Full on-disk format and KDF dispatch in
+[`docs/SECURITY.md`](docs/SECURITY.md) and `internal/store/crypto.go`.
 
 ## Out-of-Scope
 
@@ -78,10 +71,3 @@ These are enforced by:
 - Binary exploitation of FG-QiMen itself (the project is single-
   static-binary; the attack surface is the bbolt file, the config
   files, and the env vars — all governed by the HARD rule).
-
-## Credits
-
-The HARD no-exploit policy is the project's primary competitive
-moat in the Chinese scanner landscape. It is documented in the
-README under "Hard rule: NO exploit code" and in
-[`docs/SECURITY.md`](docs/SECURITY.md).
