@@ -88,6 +88,14 @@ func (a *RsyncAuthenticator) Authenticate(ctx context.Context, host string, port
 
 // attempt runs one rsync USERNAME + challenge-response attempt.
 // / attempt 跑一次 rsync USERNAME + challenge-response 试连。
+//
+// P1-3 (audit): per-attempt SetDeadline is set right after dial so
+// every subsequent Read/Write honors the caller-supplied timeout.
+// Without it a slow rsyncd accepting TCP but never sending the
+// "@RSYNCD: OK" reply would pin a worker for cfg.Timeout. /
+// P1-3（审计）：拨号后立即设单次 SetDeadline，使后续每次 Read/Write
+// 都遵守调用方 timeout。否则接受 TCP 但永不回 "@RSYNCD: OK" 的慢
+// rsyncd 会把 worker 卡满 cfg.Timeout。
 func (a *RsyncAuthenticator) attempt(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -95,6 +103,9 @@ func (a *RsyncAuthenticator) attempt(ctx context.Context, addr, user, pass strin
 		return false, err
 	}
 	defer conn.Close()
+	// Per-attempt deadline covers all Read/Write below.
+	// / 单次 deadline 覆盖下方所有 Read/Write。
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	// Read server greeting "@RSYNCD: <ver>\n". / 读服务器 greeting。

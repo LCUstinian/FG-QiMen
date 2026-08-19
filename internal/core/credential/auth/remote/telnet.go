@@ -89,6 +89,13 @@ func (a *TelnetAuthenticator) Authenticate(ctx context.Context, host string, por
 //
 // attempt 跑一次 (user, pass) 试连。命中返 (true, nil)，miss 返
 // (false, nil)，网络错返 (false, err)。
+//
+// P1-3 (audit): per-attempt deadline is set from the caller-supplied
+// timeout rather than a hardcoded 2s — a slow/hung telnetd that
+// accepts TCP but never replies can no longer wedge the worker pool
+// for a full cfg.Timeout. / P1-3（审计）：单次 deadline 由调用方传入的
+// timeout 决定，而非硬编码 2s——一个接受 TCP 但永不响应的慢 telnetd
+// 不再能让 worker 池卡满 cfg.Timeout。
 func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int, user, pass string, timeout time.Duration) (bool, error) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
@@ -100,7 +107,7 @@ func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int
 	// Phase 1: read initial banner / negotiate IAC, until we see a
 	// "login:" / "username:" prompt (or timeout). / 阶段 1：读初始
 	// banner / 协商 IAC，直到看到 "login:" / "username:" 提示符（或超时）。
-	if !a.readUntilPrompt(conn) {
+	if !a.readUntilPrompt(conn, timeout) {
 		return false, nil
 	}
 	// Phase 2: send user, read until "password:" prompt. / 阶段 2：
@@ -108,7 +115,7 @@ func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int
 	if _, err := conn.Write([]byte(user + "\r\n")); err != nil {
 		return false, err
 	}
-	if !a.readUntilPassword(conn) {
+	if !a.readUntilPassword(conn, timeout) {
 		return false, nil
 	}
 	// Phase 3: send password, read result. / 阶段 3：发 password，读
@@ -116,16 +123,19 @@ func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int
 	if _, err := conn.Write([]byte(pass + "\r\n")); err != nil {
 		return false, err
 	}
-	return a.readAuthResult(conn), nil
+	return a.readAuthResult(conn, timeout), nil
 }
 
 // readUntilPrompt reads from conn, handling IAC negotiation, until a
 // login-style prompt appears or the deadline expires. / readUntilPrompt
 // 从 conn 读，处理 IAC 协商，直到出现登录类提示符或 deadline 到期。
-func (a *TelnetAuthenticator) readUntilPrompt(conn net.Conn) bool {
+//
+// timeout is the per-attempt deadline (P1-3 audit fix — was hardcoded
+// to 2s). / timeout 是单次 deadline（P1-3 审计修法——原来是硬编码 2s）。
+func (a *TelnetAuthenticator) readUntilPrompt(conn net.Conn, timeout time.Duration) bool {
 	buf := make([]byte, 1024)
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout))
 		n, err := conn.Read(buf)
 		if err != nil {
 			return false
@@ -143,10 +153,13 @@ func (a *TelnetAuthenticator) readUntilPrompt(conn net.Conn) bool {
 
 // readUntilPassword reads until "password:" prompt or timeout.
 // readUntilPassword 读到 "password:" 提示符或超时。
-func (a *TelnetAuthenticator) readUntilPassword(conn net.Conn) bool {
+//
+// timeout is the per-attempt deadline (P1-3 audit fix). / timeout 是
+// 单次 deadline（P1-3 审计修法）。
+func (a *TelnetAuthenticator) readUntilPassword(conn net.Conn, timeout time.Duration) bool {
 	buf := make([]byte, 1024)
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout))
 		n, err := conn.Read(buf)
 		if err != nil {
 			return false
@@ -163,11 +176,14 @@ func (a *TelnetAuthenticator) readUntilPassword(conn net.Conn) bool {
 //
 // readAuthResult 读 post-password 响应。命中（welcome / shell 提示符）
 // 返 true；miss（login incorrect / access denied）返 false。
-func (a *TelnetAuthenticator) readAuthResult(conn net.Conn) bool {
+//
+// timeout is the per-attempt deadline (P1-3 audit fix). / timeout 是
+// 单次 deadline（P1-3 审计修法）。
+func (a *TelnetAuthenticator) readAuthResult(conn net.Conn, timeout time.Duration) bool {
 	buf := make([]byte, 1024)
 	var collected []byte
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout))
 		n, err := conn.Read(buf)
 		if err != nil {
 			break
@@ -193,8 +209,8 @@ func (a *TelnetAuthenticator) readAuthResult(conn net.Conn) bool {
 			return true
 		}
 	}
-	// No clear signal after 2s. Treat as miss. / 2s 后没明确信号。
-	// 视为 miss。
+	// No clear signal after the per-attempt timeout. Treat as miss. /
+	// 单次超时后无明确信号，视为 miss。
 	return false
 }
 

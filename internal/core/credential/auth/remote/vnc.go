@@ -80,6 +80,14 @@ func (a *VNCAuthenticator) Authenticate(ctx context.Context, host string, port i
 		if err != nil {
 			return nil, err
 		}
+		// P1-3 (audit): per-attempt deadline covers go-vnc's full
+		// RFB handshake (version + security negotiation + DES
+		// challenge). Without it, a slow VNC server that completes
+		// TCP but stalls mid-handshake can wedge a worker. / P1-3
+		// （审计）：单次 deadline 覆盖 go-vnc 完整 RFB 握手（版本 +
+		// 安全协商 + DES challenge）。否则 TCP 已建连但握手中途卡住
+		// 的慢 VNC 会把 worker 卡死。
+		_ = conn.SetDeadline(time.Now().Add(timeout))
 		cfg := &vnc.ClientConfig{
 			Auth: []vnc.ClientAuth{
 				&vnc.PasswordAuth{Password: c.Pass},
