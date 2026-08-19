@@ -242,7 +242,18 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 			runPluginWorker(ctx, sess, creds, items, results)
 		}()
 	}
+	// P2-2 (audit): wg.Wait() below must cover the worker pool so a
+	// future drift in the producer's defer-close(items) cannot leave
+	// wg.Wait() hanging on a still-active worker pool. The closer
+	// goroutine is registered with the outer wg, so workersWG.Wait()
+	// → close(results) is part of wg.Wait()'s completion. / P2-2
+	// （审计）：下方 wg.Wait() 必须覆盖 worker 池，否则 producer 的
+	// defer-close(items) 漂移会让 wg.Wait() 在仍活跃的 worker 池上
+	// 挂起。close goroutine 注册到外层 wg，workersWG.Wait() →
+	// close(results) 是 wg.Wait() 完成的一部分。
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		workersWG.Wait()
 		close(results)
 	}()
