@@ -96,12 +96,21 @@ func drainResults(sess *session.Session, in <-chan *types.Result) {
 // 接入了 BatchWriter（项目模式默认，--no-batch 关闭）时，bbolt 写
 // 入队并批量刷盘，摊销每次写的 fsync 开销。per-write 路径保留
 // 给 ephemeral 模式（Store==nil）和 --no-batch 回退。
+//
+// Sink error propagation (audit residual): Output write errors are
+// surfaced via sess.Log.Warn rather than silently discarded, so a
+// failing fsync or permission error no longer masks as "result not
+// visible in creds.txt" without diagnostics. / Sink 错误传播（审计残
+// 项）：Output 写错误通过 sess.Log.Warn 暴露，不再静默丢弃——
+// fsync 失败或权限错误不会再被掩盖成"creds.txt 看不到结果且无诊断"。
 func persistResult(sess *session.Session, r *types.Result) {
 	if r == nil {
 		return
 	}
 	if sess.Out != nil {
-		_ = sess.Out.WriteResult(r)
+		if err := sess.Out.WriteResult(r); err != nil {
+			sess.Log.Warn("output write result failed: %v", err)
+		}
 		// P2-5 (audit): creds.txt is opened with O_APPEND, so without
 		// dedup a re-dispatched (host, port, user, pass) hit would be
 		// appended a second time on --resume or after a retry. We
@@ -115,7 +124,9 @@ func persistResult(sess *session.Session, r *types.Result) {
 		if r.Cred != nil {
 			chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
 			if sess.State.MarkSeen(chash) {
-				_ = sess.Out.WriteCred(r)
+				if err := sess.Out.WriteCred(r); err != nil {
+					sess.Log.Warn("output write cred failed: %v", err)
+				}
 			}
 		}
 		// Typed side-channel: if a plugin stashed a
@@ -124,7 +135,9 @@ func persistResult(sess *session.Session, r *types.Result) {
 		// *output.RDPFingerprint 放在 Extra 里，双写到
 		// rdp.json / rdp.txt。
 		if rdpFP, ok := r.Extra.(*output.RDPFingerprint); ok {
-			_ = sess.Out.WriteRDP(*rdpFP)
+			if err := sess.Out.WriteRDP(*rdpFP); err != nil {
+				sess.Log.Warn("output write rdp failed: %v", err)
+			}
 		}
 	}
 	if sess.Store == nil {
@@ -143,10 +156,14 @@ func persistResult(sess *session.Session, r *types.Result) {
 	}
 	// Per-write path (--no-batch fallback or pre-batch callers).
 	// / Per-write 路径（--no-batch 回退或 pre-batch 调用方）。
-	_ = sess.Store.PutResult(hash, r)
+	if err := sess.Store.PutResult(hash, r); err != nil {
+		sess.Log.Warn("store put result failed: %v", err)
+	}
 	if r.Cred != nil {
 		chash := types.HashKey(r.Host, fmt.Sprintf("%d", r.Port), r.Service, r.Plugin, r.Cred.User, r.Cred.Pass)
-		_ = sess.Store.PutCred(chash, r)
+		if err := sess.Store.PutCred(chash, r); err != nil {
+			sess.Log.Warn("store put cred failed: %v", err)
+		}
 	}
 }
 
