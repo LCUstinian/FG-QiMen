@@ -37,6 +37,63 @@ The project enforces the following invariants via code review and
 3. **No reverse / bind / SOCKS5 server.** FG-QiMen is a *client* of
    services, not a server that gives the operator a foothold.
 
+## What we will never ship / 永远不会包含
+
+The following are explicitly excluded from v0.1 and all future
+versions: / v0.1 及所有未来版本明确排除以下内容：
+
+- ❌ MS17-010 (EternalBlue) detection or exploitation
+  ❌ MS17-010（永恒之蓝）探测与利用
+- ❌ SMBGhost (CVE-2020-0796)
+- ❌ Redis write SSH key / cron / webshell / master-slave RCE
+  ❌ Redis 写公钥 / 写计划任务 / 写 WebShell / 主从复制 RCE
+- ❌ SSH post-auth command execution (no `ssh.NewSession` / `Exec` /
+  `Shell` in code)
+  ❌ SSH 认证后自动执行命令（代码中**不存在** `ssh.NewSession` /
+  `Exec` / `Shell`）
+- ❌ MS17-010 shellcode injection / SMB shellcode
+  ❌ MS17010 ShellCode 注入
+- ❌ JDWP exploitation
+- ❌ RMI / JBoss / WebLogic deserialization RCE
+  ❌ RMI / JBoss / WebLogic 反序列化 RCE
+- ❌ Any CVE-based remote code execution
+  ❌ 任何 CVE-based 的远程代码执行
+- ❌ Reverse / bind shell / SOCKS5 server (post-exploitation)
+  ❌ 反弹 Shell / 正向 Shell / SOCKS5 代理服务端（后渗透）
+- ❌ Any post-credential automation (write files, run commands,
+  plant backdoors)
+  ❌ 凭据成功后的任何自动化操作
+
+### What credential testing means here / 爆破的严格定义
+
+✅ **Allowed / 允许**: try a list of user:pass combinations against
+SSH / RDP / FTP / MySQL / Redis / SMB / etc. via the standard
+authentication handshake.
+
+✅ **允许**：用 user:pass 字典对 SSH / RDP / FTP / MySQL / Redis /
+SMB 等服务做标准认证握手尝试。
+
+✅ **On hit / 命中时**: write `user / pass` to `creds.txt` and stop.
+Nothing else. The plugin function returns a `*Result` with `Cred`
+set; the pipeline writes it to disk; no `Session.Exec` / no webshell
+/ no command runs.
+
+✅ **命中时**：把 `user / pass` 写入 `creds.txt` 然后停止。插件
+函数返回带 `Cred` 字段的 `*Result`；管线写盘后即终止；不调用
+`Session.Exec`、不上 WebShell、不执行任何命令。
+
+❌ **Never / 严禁**: any post-auth action — running remote commands,
+writing remote files, planting persistence, etc.
+
+❌ **严禁**：任何认证后动作——执行远程命令、写远程文件、植入
+持久化等。
+
+**Scanner + credential tester = discovery tool. Exploitation =
+attack tool. FG-QiMen is only the former.**
+
+**扫描器 + 凭据测试器 = 探测面工具。漏洞利用 = 攻击面工具。
+FG-QiMen 只做前者。**
+
 ## Encryption at rest
 
 Project mode persists results to a bbolt DB at
