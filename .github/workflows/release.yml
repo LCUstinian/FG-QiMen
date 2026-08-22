@@ -91,7 +91,7 @@ jobs:
             goos: darwin
             goarch: amd64
             ext: ''
-            runner: macos-13
+            runner: macos-14
             qemu: false
           # macOS Apple Silicon
           - target: darwin-arm64
