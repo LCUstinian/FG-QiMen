@@ -382,7 +382,7 @@ func TestRegistryHasAllAuthenticators(t *testing.T) {
 	for _, name := range got {
 		have[name] = true
 	}
-	const wantCount = 26
+	const wantCount = 29
 	if len(got) != wantCount {
 		t.Errorf("Authenticators() count = %d, want %d; got: %v", len(got), wantCount, got)
 	}
@@ -394,14 +394,15 @@ func TestRegistryHasAllAuthenticators(t *testing.T) {
 		// database / 数据库 (8) — includes the 5 we just wired up
 		"elasticsearch", "memcached", "mongodb", "mssql", "mysql",
 		"oracle", "postgresql", "redis",
-		// email / 邮件 (2)
-		"imap", "pop3",
+		// email / 邮件 (3) — v0.4: +smtp
+		"imap", "pop3", "smtp",
 		// filestorage / 文件存储 (3) — includes smb we just wired up
 		"nfs", "rsync", "smb",
 		// messaging / 消息 (1)
 		"rabbitmq",
-		// network / 网络 (6)
-		"bacnet", "docker", "ldap", "modbus", "snmp", "socks5",
+		// network / 网络 (8) — v0.4: +tomcat +jdwp
+		"bacnet", "docker", "jdwp", "ldap", "modbus", "snmp",
+		"socks5", "tomcat",
 		// remote / 远程 (6) — includes ssh/ftp we just wired up
 		"ipmi", "ssh", "telnet", "vnc", "winrm", "ftp",
 	}
