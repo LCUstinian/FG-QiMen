@@ -230,9 +230,23 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	// 超过 MaxUsers / MaxPasses / MaxCredPairs）必须在任何 worker
 	// goroutine 启动前中止 RunScan——空 cred slice 跑端口扫描会静默
 	// 得零次认证，看起来像"扫描未发现漏洞"而非配置拼错。
-	creds, err := loadCreds(sess)
-	if err != nil {
-		return 0, fmt.Errorf("load credentials: %w", err)
+	//
+	// v0.4: load creds lazily — only when the current mode actually
+	// needs them. ModeScan runs Identify only and never consults
+	// creds, so loading + holding a cred slice wastes memory and
+	// file I/O. The loader's error semantics (abort before workers
+	// start) are preserved because the worker pool is only spawned
+	// below this point. / v0.4：懒加载凭据——仅当当前模式实际要用
+	// 时才加载。ModeScan 只跑 Identify，从不查 creds，加载+持有
+	// cred slice 浪费内存和文件 I/O。loader 的错误语义（worker 启
+	// 动前中止）仍保留，因为 worker 池在此后才生成。
+	var creds []types.Cred
+	if wantCredential(cfg.Mode) {
+		var err error
+		creds, err = loadCreds(sess)
+		if err != nil {
+			return 0, fmt.Errorf("load credentials: %w", err)
+		}
 	}
 	var workersWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {

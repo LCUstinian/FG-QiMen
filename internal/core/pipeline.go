@@ -148,6 +148,28 @@ func nowOrZero(t time.Time) time.Time {
 	return t
 }
 
+// wantIdentify reports whether the current mode runs the Identify
+// stage for plugins. Scan and Linked both run Identify; Crack does
+// not (Crack skips port scan + Identify and goes straight to
+// Credential). / wantIdentify 报告当前模式是否对插件跑 Identify 阶
+// 段。Scan 和 Linked 都跑；Crack 不跑（直接进 Credential）。
+//
+// v0.4: extracted from the previous ModeScan || ModeLinked literal in
+// pipeline_workers.go so the policy lives in one place and the
+// runner is mode-agnostic. / v0.4：从 pipeline_workers.go 的
+// ModeScan || ModeLinked 字面量抽出，策略单点存放，runner 模式无关。
+func wantIdentify(mode types.RunMode) bool {
+	return mode == types.ModeScan || mode == types.ModeLinked
+}
+
+// wantCredential reports whether the current mode runs the Credential
+// stage. Crack and Linked both run Credential; Scan does not.
+// / wantCredential 报告当前模式是否跑 Credential 阶段。Crack 和
+// Linked 都跑；Scan 不跑。
+func wantCredential(mode types.RunMode) bool {
+	return mode == types.ModeCrack || mode == types.ModeLinked
+}
+
 // (pushStats moved to pipeline_sink.go as part of the v0.2.1 god-
 // file split.)
 
