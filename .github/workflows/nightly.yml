@@ -1,0 +1,119 @@
+# FG-QiMen nightly build — dry-run the release pipeline daily.
+# FG-QiMen nightly 构建——每天 dry-run 发布流水线。
+#
+# Goals:
+#   1. Catch breakage of release.yml / container.yml / Dockerfile
+#      / etc. early, before someone tries to cut a real release.
+#   2. Detect upstream Go releases that break our build flags.
+#   3. Detect new security advisories in our dependency closure.
+#
+# / 目标：
+#   1. 提早捕获 release.yml / container.yml / Dockerfile 等的破
+#      坏，避免真发布时才发现。
+#   2. 检测上游 Go 新版本是否破坏我们的 build flags。
+#   3. 检测依赖闭包的新安全公告。
+#
+# Strategy:
+#   - Schedule: 02:30 UTC daily (low GH Actions load).
+#   - Build only linux-amd64 (cheapest matrix entry).
+#   - Run `go test ./...` and `go vet ./...` on the current main.
+#   - Run govulncheck on the dependency closure.
+#   - On failure, open a GitHub issue labelled 'nightly-broken'.
+#   - Close the issue on the next successful nightly.
+#
+# / 策略：
+#   - 调度：02:30 UTC 每天（GH Actions 负载低）。
+#   - 仅编译 linux-amd64（最便宜的 matrix 条目）。
+#   - 在当前 main 上跑 `go test ./...` 和 `go vet ./...`。
+#   - 在依赖闭包上跑 govulncheck。
+#   - 失败时打开一个带 'nightly-broken' 标签的 GitHub issue。
+#   - 下次 nightly 成功时关闭该 issue。
+name: nightly
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write    # open + close issues on failure / recovery
+  id-token: write  # cosign keyless signing
+
+jobs:
+  nightly:
+    name: nightly linux-amd64 + vuln scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      # Step 1: compile + test on linux/amd64 — mirrors release.yml
+      # linux/amd64 build settings. / 第一步：在 linux/amd64 上编译 +
+      # 测试——镜像 release.yml 的 linux/amd64 build 设置。
+      - name: compile linux/amd64
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+          SOURCE_DATE_EPOCH: '1700000000'
+        run: |
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=vnightly-${GITHUB_SHA::7}" \
+            -o fg-qimen-nightly-linux-amd64 \
+            .
+
+      - name: smoke test binary
+        run: |
+          ./fg-qimen-nightly-linux-amd64 version
+          ./fg-qimen-nightly-linux-amd64 --help >/dev/null
+
+      - name: go test
+        run: go test -count=1 ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      # Step 2: dependency vulnerability scan. / 第二步：依赖漏洞扫
+      # 描。
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # Step 3: report failures as a GitHub issue. / 第三步：把失败
+      # 报告为 GitHub issue。
+      - name: report failure (if any)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Re-open or close the existing nightly-broken issue.
+          # / 重新打开或关闭已有的 nightly-broken issue。
+          EXISTING=$(gh issue list --label nightly-broken --state open --json number -q '.[] | "\(.number)"' || echo "")
+          TITLE="nightly: build failed at ${SHA::7}"
+          BODY="Nightly build failed on main @ ${SHA}. See https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [[ -z "${EXISTING}" ]]; then
+            gh issue create --label nightly-broken --title "${TITLE}" --body "${BODY}"
+          else
+            gh issue edit "${EXISTING}" --title "${TITLE}" --body "${BODY}"
+          fi
+
+      - name: close stale nightly-broken
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # If a previous run opened nightly-broken and we now pass,
+          # close it. / 如果上次开了 nightly-broken 且本次通过，关
+          # 闭。
+          STALE=$(gh issue list --label nightly-broken --state open --json number -q '.[] | "\(.number)"' || echo "")
+          if [[ -n "${STALE}" ]]; then
+            gh issue close "${STALE}" --comment "Auto-closed: nightly is green again. ✅"
+          fi
