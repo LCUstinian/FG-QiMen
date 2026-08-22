@@ -59,9 +59,10 @@ var expectedFlagGroups = map[string]string{
 	"user-file": "Credentials",
 	"pass-file": "Credentials",
 	// Output
-	"output-txt":  "Output",
-	"output-json": "Output",
-	"output-csv":  "Output",
+	"output-txt":   "Output",
+	"output-json":  "Output",
+	"output-csv":   "Output",
+	"output-sarif": "Output",
 	// Behavior
 	"silent":   "Behavior",
 	"no-tui":   "Behavior",

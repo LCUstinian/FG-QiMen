@@ -420,13 +420,23 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 			return fmt.Errorf("output path: %w", err)
 		}
 	}
+	// SARIF is opt-in (v0.4): GitHub Code Scanning ingests it natively.
+	// / SARIF 是 opt-in（v0.4）：GitHub Code Scanning 原生摄取。
+	var resultSARIF string
+	if flagOutputSARIF != "" {
+		resultSARIF, err = resolveOutputPath(cfg, flagOutputSARIF, "result.sarif")
+		if err != nil {
+			return fmt.Errorf("output path: %w", err)
+		}
+	}
 	out, err := output.OpenOutput(output.OutputConfig{
-		ResultTXTPath:  resultTXT,
-		ResultJSONPath: resultJSON,
-		ResultCSVPath:  resultCSV,
-		CredsPath:      credsPath,
-		RDPJSONPath:    rdpJSON,
-		RDPTXTPath:     rdpTXT,
+		ResultTXTPath:   resultTXT,
+		ResultJSONPath:  resultJSON,
+		ResultCSVPath:   resultCSV,
+		ResultSARIFPath: resultSARIF,
+		CredsPath:       credsPath,
+		RDPJSONPath:     rdpJSON,
+		RDPTXTPath:      rdpTXT,
 		// P0#2: result.txt gets the redaction gate; creds.txt is
 		// always cleartext (operator's working file).
 		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员
