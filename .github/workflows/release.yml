@@ -131,14 +131,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Set up QEMU for cross-arch Linux + BSD targets. / 为跨架构
-      # Linux + BSD 目标配置 QEMU。
-      - name: set up QEMU
-        if: matrix.qemu
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: all
-
       - name: derive version
         id: ver
         run: |
@@ -187,7 +179,7 @@ jobs:
       # SLSA Build Level 2 provenance attestation. / SLSA Build
       # Level 2 provenance 证明。
       - name: SLSA provenance attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}'
           push-to-registry: false
@@ -197,7 +189,7 @@ jobs:
       - name: install syft
         uses: anchore/sbom-action@v0
         with:
-          syft-version: v1.0.0
+          syft-version: v1.51.0
 
       - name: generate SBOM
         run: |
