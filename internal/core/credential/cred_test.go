@@ -382,7 +382,7 @@ func TestRegistryHasAllAuthenticators(t *testing.T) {
 	for _, name := range got {
 		have[name] = true
 	}
-	const wantCount = 29
+	const wantCount = 30
 	if len(got) != wantCount {
 		t.Errorf("Authenticators() count = %d, want %d; got: %v", len(got), wantCount, got)
 	}
@@ -401,7 +401,7 @@ func TestRegistryHasAllAuthenticators(t *testing.T) {
 		// messaging / 消息 (1)
 		"rabbitmq",
 		// network / 网络 (8) — v0.4: +tomcat +jdwp
-		"bacnet", "docker", "jdwp", "ldap", "modbus", "snmp",
+		"bacnet", "docker", "httpform", "jdwp", "ldap", "modbus", "snmp",
 		"socks5", "tomcat",
 		// remote / 远程 (6) — includes ssh/ftp we just wired up
 		"ipmi", "ssh", "telnet", "vnc", "winrm", "ftp",

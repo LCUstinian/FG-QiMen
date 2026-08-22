@@ -33,6 +33,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/core"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"
@@ -81,6 +82,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// 这里（buildSession、core.RunScan 之前）设置意味着任何 probe
 	// 都不会观察到部分 / 默认状态。
 	applyTransport(cfg)
+	applyHTTPForm()
 
 	// Initialize global proxy manager BEFORE any network operations.
 	// 在任何网络操作前初始化全局代理管理器。
@@ -616,4 +618,17 @@ func applyTransport(cfg *types.Config) {
 		path := cfg.KnownHostsFile
 		transport.KnownHostsFile.Store(&path)
 	}
+}
+
+// applyHTTPForm copies the cmd-line http-form-* flags into the
+// package-level vars in core/credential/auth/network. The
+// HTTPFormAuthenticator reads these on every attempt. / applyHTTPForm
+// 把 cmd 行的 http-form-* flag 拷到 core/credential/auth/network 的
+// 包级变量。HTTPFormAuthenticator 每次 attempt 读取这些。
+func applyHTTPForm() {
+	network.HTTPFormURL = flagHTTPFormURL
+	network.HTTPFormFields = flagHTTPFormFields
+	network.HTTPFormSuccess = flagHTTPFormSuccess
+	network.HTTPFormFailure = flagHTTPFormFailure
+	network.HTTPFormRedirect = flagHTTPFormRedir
 }

@@ -64,6 +64,14 @@ var (
 	flagWebTimeout     time.Duration
 	flagWebFingerprint string
 
+	// HTTP form brute (opt-in; default empty = no-op). / HTTP form 爆破
+	// （opt-in；默认空 = no-op）。
+	flagHTTPFormURL      string
+	flagHTTPFormFields  string
+	flagHTTPFormSuccess string
+	flagHTTPFormFailure string
+	flagHTTPFormRedir   string
+
 	// 5. Concurrency & timing / 并发与超时
 	flagThreads          int
 	flagTimeout          time.Duration
@@ -199,6 +207,19 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
 		"path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written.")
 
+	// HTTP form brute (opt-in; --http-form-url empty = no-op).
+	// / HTTP form 爆破（opt-in；--http-form-url 空 = no-op）。
+	pf.StringVar(&flagHTTPFormURL, "http-form-url", "",
+		"target URL for HTTP form brute (e.g. http://target/login). Empty disables the httpform authenticator.")
+	pf.StringVar(&flagHTTPFormFields, "http-form-fields", "user=$user$,pass=$pass$",
+		"form fields spec for --http-form-url (k1=v1,k2=v2). $user$ / $pass$ placeholders are substituted.")
+	pf.StringVar(&flagHTTPFormSuccess, "http-form-success", "",
+		"substring present in the response body on successful login (e.g. \"Welcome\"). If empty, only redirect-based detection is used.")
+	pf.StringVar(&flagHTTPFormFailure, "http-form-failure", "invalid",
+		"substring present in the response body on failed login (default \"invalid\").")
+	pf.StringVar(&flagHTTPFormRedir, "http-form-redirect", "",
+		"path substring present in 3xx Location header on successful login (e.g. \"/dashboard\").")
+
 	// 8. Behavior / 行为
 	pf.BoolVar(&flagSilent, "silent", false,
 		"suppress info log to console; file output still works")
@@ -235,7 +256,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"ports", "exclude-ports", "alive-only"}, groupPorts)
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
-	annotate(pf, []string{"user", "pass", "user-file", "pass-file"}, groupCreds)
+	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
+		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
