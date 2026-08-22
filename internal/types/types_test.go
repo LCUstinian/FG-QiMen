@@ -636,3 +636,123 @@ func TestCredentialContextCanceled(t *testing.T) {
 		t.Error("canceled ctx should have non-nil Err")
 	}
 }
+
+// --- v0.4 streaming Host Iterator ---
+
+// TestExpandTargetsStreamSingleIP: streaming iterator yields the same
+// single target as ExpandTargets. / 流式迭代器产出与 ExpandTargets 相同的
+// 单目标。
+func TestExpandTargetsStreamSingleIP(t *testing.T) {
+	it, err := ExpandTargetsStream("10.0.0.1", "")
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	t1, ok := it.Next()
+	if !ok || t1.Addr != "10.0.0.1" {
+		t.Errorf("got (%v, %v), want (10.0.0.1, true)", t1, ok)
+	}
+	if _, ok := it.Next(); ok {
+		t.Error("expected exhausted after one target")
+	}
+}
+
+// TestExpandTargetsStreamCIDR: a /30 expands to 4 addrs streamed.
+// / 流式 /30 展开为 4 个地址。
+func TestExpandTargetsStreamCIDR(t *testing.T) {
+	it, err := ExpandTargetsStream("10.0.0.0/30", "")
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	count := 0
+	var first, last Target
+	for t, ok := it.Next(); ok; t, ok = it.Next() {
+		if count == 0 {
+			first = t
+		}
+		last = t
+		count++
+	}
+	if count != 4 {
+		t.Errorf("got %d, want 4", count)
+	}
+	if first.Addr != "10.0.0.0" || last.Addr != "10.0.0.3" {
+		t.Errorf("got first=%v last=%v, want first=10.0.0.0 last=10.0.0.3", first, last)
+	}
+}
+
+// TestExpandTargetsStreamEstimatedCIDR: a CIDR iterator reports an
+// accurate Estimated(). / CIDR 迭代器报告准确的 Estimated()。
+func TestExpandTargetsStreamEstimatedCIDR(t *testing.T) {
+	it, err := ExpandTargetsStream("10.0.0.0/30", "")
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	if e := it.Estimated(); e != 4 {
+		t.Errorf("Estimated() = %d, want 4", e)
+	}
+}
+
+// TestExpandTargetsStreamEstimatedUnknown: an iterator with a hosts
+// file or comma-list reports -1 (unknown). / hosts 文件或逗号列表
+// 迭代器返回 -1（未知）。
+func TestExpandTargetsStreamEstimatedUnknown(t *testing.T) {
+	it, err := ExpandTargetsStream("10.0.0.1,10.0.0.2", "")
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	if e := it.Estimated(); e != -1 {
+		t.Errorf("Estimated() = %d, want -1 (comma-list unknown)", e)
+	}
+}
+
+// TestExpandTargetsStreamDedupe: dedup is honoured during streaming.
+// / 流式过程中遵守去重。
+func TestExpandTargetsStreamDedupe(t *testing.T) {
+	it, err := ExpandTargetsStream("10.0.0.1,10.0.0.1,10.0.0.2", "")
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	seen := map[string]bool{}
+	for t, ok := it.Next(); ok; t, ok = it.Next() {
+		seen[t.Addr] = true
+	}
+	if len(seen) != 2 {
+		t.Errorf("got %d unique, want 2", len(seen))
+	}
+}
+
+// TestExpandTargetsStreamHostsFile: streaming reads from a hosts file.
+// / 流式从 hosts 文件读取。
+func TestExpandTargetsStreamHostsFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hosts.txt")
+	body := "# comment\n10.0.0.5\n10.0.0.6\n10.0.0.7\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write hosts: %v", err)
+	}
+	it, err := ExpandTargetsStream("", path)
+	if err != nil {
+		t.Fatalf("ExpandTargetsStream: %v", err)
+	}
+	count := 0
+	for t, ok := it.Next(); ok; t, ok = it.Next() {
+		count++
+		_ = t
+	}
+	if count != 3 {
+		t.Errorf("got %d, want 3", count)
+	}
+}
+
+// TestExpandTargetsStreamBackCompat: ExpandTargets still works (used as
+// the slice-returning wrapper for callers that need the full list).
+// / ExpandTargets 仍可用（作为返回 slice 的包装给需要全表的调用方）。
+func TestExpandTargetsStreamBackCompat(t *testing.T) {
+	got, err := ExpandTargets("10.0.0.0/30", "")
+	if err != nil {
+		t.Fatalf("ExpandTargets: %v", err)
+	}
+	if len(got) != 4 {
+		t.Errorf("got %d, want 4", len(got))
+	}
+}

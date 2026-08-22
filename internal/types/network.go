@@ -3,10 +3,8 @@
 package types
 
 import (
-	"bufio"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 )
 
@@ -25,10 +23,16 @@ const MaxTargets = 65536
 // M5 audit fix: enforces MaxTargets upper bound to prevent OOM from
 // huge CIDR expansions.
 //
+// v0.4: thin wrapper over ExpandTargetsStream — the streaming iterator
+// does the real work; this function just collects into a slice for
+// callers that want the full list up front.
+//
 // ExpandTargets 接受目标规格字符串（IP / CIDR / 范围 / 逗号列表）和
 // 主机文件路径，返回去重后的 Target 列表。
 //
 // M5 审计修法：强制 MaxTargets 上限，防止巨大 CIDR 展开导致 OOM。
+// v0.4：薄包装，内部走 ExpandTargetsStream；流式迭代器负责实际工作，
+// 本函数只是把结果收集到 slice，给需要全表的调用方用。
 //
 // Supported forms / 支持的格式:
 //   - "192.168.1.1" / "::1" (IPv6 first-class — Phase B of the
@@ -40,63 +44,16 @@ const MaxTargets = 65536
 //   - "192.168.1.1,10.0.0.0/24,::1,fe80::1" (comma list)
 //   - "@/path/to/hosts.txt" (use -hf equivalent by passing via hostsFile)
 func ExpandTargets(spec, hostsFile string) ([]Target, error) {
-	var out []Target
-	seen := make(map[string]struct{})
-
-	add := func(t Target) error {
-		k := t.Key()
-		if k == "" {
-			return nil
-		}
-		if _, dup := seen[k]; dup {
-			return nil
-		}
-		// M5 audit fix: enforce MaxTargets. / M5 审计修法：强制 MaxTargets。
-		if len(out) >= MaxTargets {
-			return fmt.Errorf("too many targets: exceeded MaxTargets=%d (use a smaller CIDR or split the scan)", MaxTargets)
-		}
-		seen[k] = struct{}{}
+	it, err := ExpandTargetsStream(spec, hostsFile)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Target, 0)
+	for t, ok := it.Next(); ok; t, ok = it.Next() {
 		out = append(out, t)
-		return nil
 	}
-
-	if spec != "" {
-		for _, piece := range strings.Split(spec, ",") {
-			piece = strings.TrimSpace(piece)
-			if piece == "" {
-				continue
-			}
-			if err := expandOne(piece, add); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if hostsFile != "" {
-		f, err := os.Open(hostsFile)
-		if err != nil {
-			return nil, fmt.Errorf("open hosts file: %w", err)
-		}
-		defer f.Close()
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			// strip inline comment / 去掉行内注释
-			if i := strings.IndexByte(line, '#'); i >= 0 {
-				line = strings.TrimSpace(line[:i])
-			}
-			if line == "" {
-				continue
-			}
-			if err := expandOne(line, add); err != nil {
-				return nil, err
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			return nil, err
-		}
+	if err := it.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
