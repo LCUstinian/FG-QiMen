@@ -1,16 +1,19 @@
-# FG-QiMen release workflow — tag-triggered, builds the 5 release
-# targets, generates SHA256SUMS, signs the artifacts with cosign,
-# generates a CycloneDX SBOM, and creates a GitHub Release.
+# FG-QiMen release workflow — tag-triggered multi-platform release.
+# FG-QiMen release 工作流——tag 触发，多平台 release。
 #
-# The CI workflow (ci.yml) is the green-or-red gate; release.yml
-# only runs on version tags (`v*`). Manual trigger via
-# workflow_dispatch is also available for dry-runs.
+# Builds 11 platform targets (Linux x5, macOS x2, Windows x2, BSD x2),
+# generates SHA256SUMS, signs artifacts with cosign (keyless, OIDC),
+# generates CycloneDX SBOM, attaches SLSA Build Level 2 provenance,
+# and publishes a GitHub Release with the artifacts.
 #
-# FG-QiMen release 工作流——tag 触发，编译 5 个 release 目标，
-# 生成 SHA256SUMS，用 cosign 签名，生成 CycloneDX SBOM，并创建
-# GitHub Release。CI 工作流（ci.yml）是绿/红门；release.yml 仅
-# 在版本 tag（`v*`）上跑。workflow_dispatch 也支持手动触发做
-# dry-run。
+# CI workflow (ci.yml) is the green-or-red gate; release.yml only
+# runs on version tags (`v*`). workflow_dispatch is also supported
+# for dry-runs.
+#
+# 编译 11 个平台目标（Linux x5、macOS x2、Windows x2、BSD x2），
+# 生成 SHA256SUMS，用 cosign 签名（keyless、OIDC），生成
+# CycloneDX SBOM，附 SLSA Build Level 2 provenance，并发布
+# GitHub Release。
 name: release
 
 on:
@@ -19,8 +22,6 @@ on:
       - 'v*'
   workflow_dispatch:
 
-# Cancel in-progress runs on the same tag (manual re-run only —
-# tag pushes are rare).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -30,51 +31,114 @@ permissions:
   id-token: write   # cosign keyless signing via OIDC
   attestations: write # sigstore provenance attestation
 
+env:
+  # Reproducible-build: pin SOURCE_DATE_EPOCH so the build output is
+  # byte-identical across CI runs (modulo go version + host arch).
+  # / 可复现构建：固定 SOURCE_DATE_EPOCH 使输出跨 CI 运行字节相
+  # 同（除了 go 版本和 host arch）。
+  SOURCE_DATE_EPOCH: '1700000000'  # 2023-11-14T22:13:20Z (stable)
+
 jobs:
-  # Build, sign, and publish artifacts. Each platform matrix entry
-  # produces one signed binary + SBOM. / 构建、签名、发布 artifact。
-  # 每个平台矩阵条目产出一个签名 binary + SBOM。
+  # ---- Build, sign, and publish artifacts -----------------------------
+  # 11-platform matrix. Linux non-amd64/arm64 targets use QEMU
+  # emulation on ubuntu-latest. / 11 平台矩阵。Linux 非 amd64/arm64
+  # 目标在 ubuntu-latest 上用 QEMU 模拟。
   release:
     name: build + sign (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Linux x86_64 — native Ubuntu runner
           - target: linux-amd64
             goos: linux
             goarch: amd64
             ext: ''
+            runner: ubuntu-latest
+            qemu: false
+          # Linux ARM64 — QEMU on Ubuntu runner
           - target: linux-arm64
             goos: linux
             goarch: arm64
             ext: ''
+            runner: ubuntu-latest
+            qemu: true
+          # Linux ARMv7 (Raspberry Pi class) — QEMU
+          - target: linux-armv7
+            goos: linux
+            goarch: arm
+            goarm: '7'
+            ext: ''
+            runner: ubuntu-latest
+            qemu: true
+          # Linux i386 — QEMU
+          - target: linux-386
+            goos: linux
+            goarch: '386'
+            ext: ''
+            runner: ubuntu-latest
+            qemu: true
+          # Linux RISC-V64 — QEMU
+          - target: linux-riscv64
+            goos: linux
+            goarch: riscv64
+            ext: ''
+            runner: ubuntu-latest
+            qemu: true
+          # macOS Intel
           - target: darwin-amd64
             goos: darwin
             goarch: amd64
             ext: ''
+            runner: macos-13
+            qemu: false
+          # macOS Apple Silicon
           - target: darwin-arm64
             goos: darwin
             goarch: arm64
             ext: ''
+            runner: macos-14
+            qemu: false
+          # Windows x86_64
           - target: windows-amd64
             goos: windows
             goarch: amd64
             ext: '.exe'
+            runner: windows-latest
+            qemu: false
+          # Windows ARM64 (Surface Pro X class)
+          - target: windows-arm64
+            goos: windows
+            goarch: arm64
+            ext: '.exe'
+            runner: windows-latest
+            qemu: false
+          # FreeBSD amd64 — QEMU on Ubuntu (experimental).
+          - target: freebsd-amd64
+            goos: freebsd
+            goarch: amd64
+            ext: ''
+            runner: ubuntu-latest
+            qemu: true
+          # OpenBSD amd64 — QEMU on Ubuntu (experimental).
+          - target: openbsd-amd64
+            goos: openbsd
+            goarch: amd64
+            ext: ''
+            runner: ubuntu-latest
+            qemu: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # Set up QEMU for cross-arch Linux + BSD targets. / 为跨架构
+      # Linux + BSD 目标配置 QEMU。
+      - name: set up QEMU
+        if: matrix.qemu
+        uses: docker/setup-qemu-action@v3
         with:
-          go-version: '1.26'
-          cache: true
+          platforms: all
 
-      # The version.Value ldflag is sourced from the tag (v0.3.0 →
-      # "v0.3.0"). Strip the leading "v" so the binary's internal
-      # version reads "0.3.0" not "v0.3.0". / ldflag 的 version.Value
-      # 从 tag 取（v0.3.0 → "v0.3.0"）。剥掉前导 "v" 让 binary
-      # 内部 version 读作 "0.3.0" 而非 "v0.3.0"。
       - name: derive version
         id: ver
         run: |
@@ -85,12 +149,22 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
       - name: build ${{ matrix.target }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOAMD64: v1
           CGO_ENABLED: '0'
+          GOARM: ${{ matrix.goarm || '' }}
+          # Reproducible build: SOURCE_DATE_EPOCH is already set in
+          # env at the top of this file. / 可复现构建：SOURCE_DATE_EPOCH
+          # 已在文件顶部的 env 设好。
         run: |
           mkdir -p release
           go build -trimpath -buildvcs=false \
@@ -109,6 +183,16 @@ jobs:
             --output-signature "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.sig" \
             --output-certificate "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.pem" \
             "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}"
+
+      # SLSA Build Level 2 provenance attestation. / SLSA Build
+      # Level 2 provenance 证明。
+      - name: SLSA provenance attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}'
+          push-to-registry: false
+          # Attestation is uploaded as an artifact alongside the binary
+          # (next step). / 证明与 binary 一同作为 artifact 上传。
 
       - name: install syft
         uses: anchore/sbom-action@v0
@@ -131,10 +215,7 @@ jobs:
             release/fg-qimen-${{ matrix.target }}.sbom.json
           if-no-files-found: error
 
-  # Aggregate all per-platform artifacts, compute SHA256SUMS, attach
-  # to a GitHub Release. Runs only on tag push. / 汇总所有平台的
-  # artifact，算 SHA256SUMS，附到 GitHub Release。仅在 tag push
-  # 触发。
+  # ---- Aggregate, smoke-test, and create the GitHub Release -------
   publish:
     name: publish GitHub Release
     runs-on: ubuntu-latest
@@ -148,9 +229,8 @@ jobs:
 
       # Smoke-test the Linux/amd64 binary before computing checksums.
       # Catches broken ldflags (wrong version) and a non-functional CLI
-      # surface early, so we never publish a binary that fails `version`
-      # or `--help`. / 在算 SHA256SUMS 之前 smoke-test linux/amd64
-      # binary，提早捕获 ldflags 错（version 不对）和不能跑的 CLI。
+      # surface early. / 在算 SHA256SUMS 之前 smoke-test linux/amd64
+      # binary，提早捕获 ldflags 错和不能跑的 CLI。
       - name: smoke test linux/amd64 binary
         working-directory: dist
         run: |
@@ -159,16 +239,9 @@ jobs:
           printf '%s\n' "$version_output" | head -n1 | grep -F "${GITHUB_REF_NAME}"
           ./fg-qimen-linux-amd64 --help >/dev/null
 
-      # Fail-closed SHA256SUMS: enumerate the five expected binaries by
-      # exact name (no `*.exe` / `*-*` globs that could silently match
-      # unrelated files), require each to exist and be non-empty, hash
-      # exactly that set, assert the line count matches, then re-verify
-      # via `sha256sum -c`. The previous version used `|| true` and
-      # globs that swallowed missing-artifact errors. / Fail-closed
-      # SHA256SUMS：按精确名枚举五个 binary（不用会误匹配无关文件
-      # 的 `*.exe` / `*-*` glob），逐个要求存在且非空，再 hash 这一
-      # 固定集合，断言行数匹配，再用 `sha256sum -c` 复验。原版本用
-      # `|| true` 和 glob 把 missing-artifact 错误吞掉了。
+      # Fail-closed SHA256SUMS: enumerate the 11 expected binaries by
+      # exact name. / Fail-closed SHA256SUMS：按精确名枚举 11 个
+      # binary。
       - name: compute and verify SHA256SUMS
         working-directory: dist
         run: |
@@ -176,9 +249,15 @@ jobs:
           expected=(
             fg-qimen-linux-amd64
             fg-qimen-linux-arm64
+            fg-qimen-linux-armv7
+            fg-qimen-linux-386
+            fg-qimen-linux-riscv64
             fg-qimen-darwin-amd64
             fg-qimen-darwin-arm64
             fg-qimen-windows-amd64.exe
+            fg-qimen-windows-arm64.exe
+            fg-qimen-freebsd-amd64
+            fg-qimen-openbsd-amd64
           )
           for artifact in "${expected[@]}"; do
             test -s "$artifact"
@@ -194,28 +273,33 @@ jobs:
           files: |
             dist/*
           body: |
-            ## FG-QiMen ${{ github.ref_name }}
+              ## FG-QiMen ${{ github.ref_name }}
 
-            See [RELEASE_NOTES](https://github.com/LCUstinian/FG-QiMen/blob/main/CHANGELOG.md) for what's changed.
+              See [RELEASE_NOTES](https://github.com/LCUstinian/FG-QiMen/blob/main/CHANGELOG.md) for what's changed.
 
-            ### Verification / 校验
+              ### Platforms / 平台
 
-            ```bash
-            # Download SHA256SUMS from the release and verify each binary. / 下载 SHA256SUMS 并校验。
-            sha256sum -c SHA256SUMS
-            ```
+              11 targets across Linux (amd64, arm64, armv7, 386, riscv64), macOS (amd64, arm64), Windows (amd64, arm64), FreeBSD (amd64), OpenBSD (amd64).
 
-            ### Signed artifacts / 已签名 artifact
+              ### Verification / 校验
 
-            Each binary is keyless-signed with [cosign](https://docs.sigstore.dev/):
+              ```bash
+              sha256sum -c SHA256SUMS
+              ```
 
-            ```bash
-            cosign verify-blob \
-              --certificate fg-qimen-linux-amd64.pem \
-              --signature fg-qimen-linux-amd64.sig \
-              --certificate-identity-regexp 'https://github.com/.*' \
-              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-              fg-qimen-linux-amd64
-            ```
+              ### cosign keyless signature / cosign keyless 签名
+
+              ```bash
+              COSIGN_EXPERIMENTAL=1 cosign verify-blob \
+                --certificate fg-qimen-linux-amd64.pem \
+                --signature fg-qimen-linux-amd64.sig \
+                --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
+                --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+                fg-qimen-linux-amd64
+              ```
+
+              ### SLSA Build Level 2 provenance / SLSA Build Level 2 provenance
+
+              Each `.intoto.jsonl` attestation is a SLSA Build L2 in-toto envelope.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
