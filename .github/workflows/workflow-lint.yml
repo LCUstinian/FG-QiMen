@@ -1,0 +1,46 @@
+# FG-QiMen workflow lint — runs actionlint + shellcheck on every
+# PR touching .github/workflows/. Catches typos, deprecated
+# actions, and shell-script bugs in run blocks.
+# FG-QiMen 工作流 lint——每个改动 .github/workflows/ 的 PR 跑
+# actionlint + shellcheck。捕获拼写、废弃 action、run 块中的
+# shell 脚本 bug。
+name: workflow-lint
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/docker/**'
+      - '.github/actions/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
+  shellcheck:
+    name: shellcheck (run blocks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        # Default behaviour checks all .sh files. We point it at the
+        # inline run blocks via the -x extension. / 默认检查所有
+        # .sh 文件。我们用 -x 扩展指向内联 run 块。

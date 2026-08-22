@@ -1,0 +1,95 @@
+# FG-QiMen OCI image workflow — builds and publishes container images
+# to GitHub Container Registry (ghcr.io) on tag push.
+# FG-QiMen OCI 镜像工作流——tag push 时构建并发布容器镜像到
+# GitHub Container Registry (ghcr.io)。
+#
+# Strategy: minimal scratch-based image with the fg-qimen binary as
+# ENTRYPOINT. Two architectures (amd64, arm64) via buildx matrix.
+# All images are co-signed with cosign (keyless, OIDC) and pushed
+# to ghcr.io.
+#
+# 策略：最小化 scratch 基础镜像，fg-qimen binary 作ENTRYPOINT。两
+# 架构（amd64、arm64）通过 buildx 矩阵。所有镜像都用 cosign 签名
+# （keyless、OIDC）并推送到 ghcr.io。
+name: container
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read   # checkout source
+  packages: write  # push to ghcr.io
+  id-token: write  # cosign keyless signing via OIDC
+
+env:
+  SOURCE_DATE_EPOCH: '1700000000'
+
+jobs:
+  # ---- Build and publish multi-arch OCI images ----------------------
+  image:
+    name: build + push (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: amd64
+            platform: linux/amd64
+          - target: arm64
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: derive version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/fg-qimen:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/fg-qimen:latest
+          labels: |
+            org.opencontainers.image.title=fg-qimen
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true   # SLSA Build Level 2
+          sbom: true        # CycloneDX inline
+
+      - name: cosign sign (keyless, OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/fg-qimen@${{ steps.buildx.outputs.digest }}
