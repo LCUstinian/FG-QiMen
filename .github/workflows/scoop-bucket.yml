@@ -1,0 +1,137 @@
+# FG-QiMen Scoop bucket update — opens a PR to a sibling repo
+# (e.g. LCUstinian/scoop-bucket) with the updated manifest on tag
+# push.
+# FG-QiMen Scoop bucket 更新——tag push 时向同级仓库（如
+# LCUstinian/scoop-bucket）开 PR 更新 manifest。
+#
+# Pre-requisites (one-time):
+#   1. Create the bucket repo at github.com/<owner>/scoop-bucket
+#      with a single bucket/fg-qimen.json manifest (see template
+#      at the bottom of this file).
+#   2. In this repo's settings, create a fine-grained PAT with
+#      `contents: write` on the bucket repo. Save it as the
+#      SCOOP_BUCKET_TOKEN repository secret.
+#
+# / 前置（一次性）：
+#   1. 在 github.com/<owner>/scoop-bucket 创建 bucket 仓库，含一个
+#      bucket/fg-qimen.json manifest（见本文件末尾模板）。
+#   2. 在本仓库设置里创建一个 fine-grained PAT，对 bucket 仓库有
+#      `contents: write` 权限。存为 SCOOP_BUCKET_TOKEN 仓库 secret。
+name: scoop-bucket
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. v0.3.1)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  scoop-pr:
+    name: open Scoop bucket PR
+    runs-on: windows-latest  # sha256sum tool differences — Windows runner matches user install path
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: derive version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: fetch SHA256SUMS + compute windows-amd64 hash
+        shell: bash
+        run: |
+          curl -fsSL \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" \
+            -o SHA256SUMS
+          # Scoop publishes the windows-amd64 .exe binary. / Scoop 发
+          # windows-amd64 .exe binary。
+          WIN_SHA256=$(grep -E '^fg-qimen-windows-amd64\.exe ' SHA256SUMS | awk '{print $1}')
+          # Compute a separate URL hash (Scoop wants a single file hash,
+          # not the .sig / .pem artifact hashes). / 计算单独的 URL 哈
+          # 希（Scoop 要单文件 hash，不要 .sig / .pem 的）。
+          echo "win_sha256=${WIN_SHA256}" >> "$GITHUB_ENV"
+
+      - name: clone bucket repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          BUCKET_REPO: ${{ github.repository_owner }}/scoop-bucket
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${BUCKET_REPO}.git" bucket
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: update bucket/fg-qimen.json
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          WIN_SHA256: ${{ envwin_sha256 }}
+        run: |
+          MANIFEST="bucket/bucket/fg-qimen.json"
+          if [[ ! -f "${MANIFEST}" ]]; then
+            echo "::error::${MANIFEST} not found in bucket repo — bootstrap it first (see template at the bottom of this workflow file)."
+            exit 1
+          fi
+          # jq rewrites url + hash + version in place; preserves the
+          # rest of the manifest (description, license, bin, etc.).
+          # / jq 原地改写 url + hash + version；保留 manifest 其余
+          # 字段（description、license、bin 等）。
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/fg-qimen-windows-amd64.exe"
+          jq --arg v "${VERSION#v}" \
+             --arg u "${URL}" \
+             --arg h "${WIN_SHA256}" \
+             '.version = $v | .url = $u | .hash = $h' \
+             "${MANIFEST}" > "${MANIFEST}.tmp"
+          mv "${MANIFEST}.tmp" "${MANIFEST}"
+
+      - name: open PR via gh CLI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          cd bucket
+          BRANCH="fg-qimen-${VERSION}"
+          git checkout -b "${BRANCH}"
+          git add bucket/fg-qimen.json
+          git diff --cached --quiet || { echo "::notice::No manifest change"; exit 0; }
+          git commit -m "fg-qimen ${VERSION}"
+          git push -u origin "${BRANCH}"
+          gh pr create \
+            --title "fg-qimen ${VERSION}" \
+            --body "Auto-updated by scoop-bucket.yml from FG-QiMen/${VERSION} release." \
+            --base main \
+            --head "${BRANCH}" \
+            --repo "${{ github.repository_owner }}/scoop-bucket"
+
+# Manifest template — drop this in scoop-bucket/bucket/fg-qimen.json
+# once (the workflow only patches version / url / hash).
+# / Manifest 模板——首次把这段放进 scoop-bucket/bucket/fg-qimen.json，
+# workflow 只改 version / url / hash。
+#
+# {
+#   "version": "0.3.1",
+#   "description": "Pipeline scanner with project workspaces",
+#   "homepage": "https://github.com/LCUstinian/FG-QiMen",
+#   "license": "MIT",
+#   "url": "https://github.com/LCUstinian/FG-QiMen/releases/download/v0.3.1/fg-qimen-windows-amd64.exe",
+#   "hash": "<SHA256>",
+#   "bin": "fg-qimen.exe"
+# }
+
+# Prerequisites / 前置：
+#   - jq installed on the windows-latest runner (default since 2019).
+#   - gh CLI installed (default on github actions windows-latest since 2022).

@@ -1,0 +1,132 @@
+# FG-QiMen Homebrew tap update — opens a PR to a sibling repo
+# (e.g. LCUstinian/homebrew-tap) with the updated formula on tag
+# push.
+# FG-QiMen Homebrew tap 更新——tag push 时向同级仓库（如
+# LCUstinian/homebrew-tap）开 PR 更新 formula。
+#
+# Pre-requisites (one-time):
+#   1. Create the tap repo at github.com/<owner>/homebrew-tap with
+#      a single Formula/fg-qimen.rb file (see template at the
+#      bottom of this file).
+#   2. In this repo's settings, create a fine-grained PAT with
+#      `contents: write` on the tap repo. Save it as the
+#      HOMEBREW_TAP_TOKEN repository secret.
+#
+# / 前置（一次性）：
+#   1. 在 github.com/<owner>/homebrew-tap 创建 tap 仓库，含一个
+#      Formula/fg-qimen.rb 文件（见本文件末尾模板）。
+#   2. 在本仓库设置里创建一个 fine-grained PAT，对 tap 仓库有
+#      `contents: write` 权限。存为 HOMEBREW_TAP_TOKEN 仓库 secret。
+name: homebrew-tap
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. v0.3.1)'
+        required: true
+
+permissions:
+  contents: read   # checkout source
+
+jobs:
+  homebrew-pr:
+    name: open Homebrew tap PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: derive version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: fetch SHA256SUMS
+        run: |
+          curl -fsSL \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" \
+            -o SHA256SUMS
+          # linux-amd64 binary is what we publish to Homebrew.
+          # / linux-amd64 binary 是我们发到 Homebrew 的目标。
+          SHA256=$(grep '^fg-qimen-linux-amd64 ' SHA256SUMS | awk '{print $1}')
+          echo "sha256=${SHA256}" >> "$GITHUB_ENV"
+
+      - name: clone tap repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: update Formula/fg-qimen.rb
+        env:
+          VERSION: ${{ env.version }}
+          SHA256: ${{ env.sha256 }}
+        run: |
+          FORMULA="tap/Formula/fg-qimen.rb"
+          if [[ ! -f "${FORMULA}" ]]; then
+            echo "::error::${FORMULA} not found in tap repo — bootstrap it first (see template at the bottom of this workflow file)."
+            exit 1
+          fi
+          # Rewrite the four lines we care about. We deliberately
+          # use sed rather than parsing Ruby because the formula is
+          # a fixed-shape template. / 重写四行关心的内容。我们故意
+          # 用 sed 而非解析 Ruby，因为 formula 是固定形状模板。
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/fg-qimen-linux-amd64"
+          sed -i.bak \
+            -e "s|^  url \".*\"|  url \"${URL}\"|" \
+            -e "s|^  sha256 \".*\"|  sha256 \"${SHA256}\"|" \
+            -e "s|^  version \".*\"|  version \"${VERSION#v}\"|" \
+            "${FORMULA}"
+          rm -f "${FORMULA}.bak"
+
+      - name: open PR via gh CLI
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          cd tap
+          BRANCH="fg-qimen-${VERSION}"
+          git checkout -b "${BRANCH}"
+          git add Formula/fg-qimen.rb
+          git diff --cached --quiet || { echo "::notice::No formula change"; exit 0; }
+          git commit -m "fg-qimen ${VERSION}"
+          git push -u origin "${BRANCH}"
+          gh pr create \
+            --title "fg-qimen ${VERSION}" \
+            --body "Auto-updated by homebrew-tap.yml from FG-QiMen/${VERSION} release." \
+            --base main \
+            --head "${BRANCH}" \
+            --repo "${{ github.repository_owner }}/homebrew-tap"
+
+# Formula template — drop this in homebrew-tap/Formula/fg-qimen.rb
+# once (the workflow only patches url / sha256 / version).
+# / Formula 模板——首次把这段放进 homebrew-tap/Formula/fg-qimen.rb，
+# workflow 只改 url / sha256 / version。
+#
+# class FgQimen < Formula
+#   desc "Pipeline scanner with project workspaces"
+#   homepage "https://github.com/LCUstinian/FG-QiMen"
+#   url "https://github.com/LCUstinian/FG-QiMen/releases/download/v0.3.1/fg-qimen-linux-amd64"
+#   sha256 "<SHA256>"
+#   version "0.3.1"
+#   license "MIT"
+#
+#   def install
+#     bin.install "fg-qimen-linux-amd64" => "fg-qimen"
+#   end
+#
+#   test do
+#     system bin/"fg-qimen", "--version"
+#   end
+# end
