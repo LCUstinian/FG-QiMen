@@ -79,7 +79,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
-          WIN_SHA256: ${{ envwin_sha256 }}
+          WIN_SHA256: ${{ env.WIN_SHA256 }}
         run: |
           MANIFEST="bucket/bucket/fg-qimen.json"
           if [[ ! -f "${MANIFEST}" ]]; then
