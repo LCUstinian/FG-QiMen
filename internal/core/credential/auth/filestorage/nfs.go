@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
@@ -63,8 +62,7 @@ func (a *NFSAuthenticator) Authenticate(ctx context.Context, host string, port i
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	ok, err := a.attempt(ctx, addr, timeout)
+	ok, err := a.attempt(ctx, host, port, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -86,9 +84,12 @@ func (a *NFSAuthenticator) Authenticate(ctx context.Context, host string, port i
 // P1-3（审计）：单次 SetDeadline 覆盖 RPC fragment 的 Write 与响应的
 // Read。否则 TCP 已建连但永不响应的 NFS 服务会把 worker 卡满
 // cfg.Timeout。
-func (a *NFSAuthenticator) attempt(ctx context.Context, addr string, timeout time.Duration) (bool, error) {
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+//
+// v0.4: dial via credential.DialTCP so the global --proxy / --socks5
+// configuration is honoured automatically. / v0.4：通过
+// credential.DialTCP 拨号，让全局 --proxy / --socks5 自动生效。
+func (a *NFSAuthenticator) attempt(ctx context.Context, host string, port int, timeout time.Duration) (bool, error) {
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return false, err
 	}

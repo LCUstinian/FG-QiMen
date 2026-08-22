@@ -18,8 +18,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +52,6 @@ func (a *IMAPAuthenticator) Authenticate(ctx context.Context, host string, port 
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	for i, c := range creds {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -62,7 +59,7 @@ func (a *IMAPAuthenticator) Authenticate(ctx context.Context, host string, port 
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
-		ok, err := a.attempt(ctx, addr, c.User, c.Pass, timeout)
+		ok, err := a.attempt(ctx, host, port, c.User, c.Pass, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -78,9 +75,12 @@ func (a *IMAPAuthenticator) Authenticate(ctx context.Context, host string, port 
 }
 
 // attempt runs one LOGIN try. / attempt 跑一次 LOGIN 试连。
-func (a *IMAPAuthenticator) attempt(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+//
+// v0.4: dial via credential.DialTCP so the global --proxy / --socks5
+// configuration is honoured automatically. / v0.4：通过
+// credential.DialTCP 拨号，让全局 --proxy / --socks5 自动生效。
+func (a *IMAPAuthenticator) attempt(ctx context.Context, host string, port int, user, pass string, timeout time.Duration) (bool, error) {
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return false, err
 	}
@@ -89,7 +89,7 @@ func (a *IMAPAuthenticator) attempt(ctx context.Context, addr, user, pass string
 	// TLS before running the IMAP protocol. Other ports stay plaintext.
 	// / M15：端口 993 是 IMAPS（隐式 TLS）——在跑 IMAP 协议前把 TCP
 	// 连接包成 TLS。其他端口保持明文。
-	if strings.HasSuffix(addr, ":993") {
+	if port == 993 {
 		tlsConn := tls.Client(conn, transport.TLSConfig(false))
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			return false, err

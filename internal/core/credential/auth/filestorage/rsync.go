@@ -30,7 +30,6 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +62,6 @@ func (a *RsyncAuthenticator) Authenticate(ctx context.Context, host string, port
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	for i, c := range creds {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -71,7 +69,7 @@ func (a *RsyncAuthenticator) Authenticate(ctx context.Context, host string, port
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
-		ok, err := a.attempt(ctx, addr, c.User, c.Pass, timeout)
+		ok, err := a.attempt(ctx, host, port, c.User, c.Pass, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -96,9 +94,12 @@ func (a *RsyncAuthenticator) Authenticate(ctx context.Context, host string, port
 // P1-3（审计）：拨号后立即设单次 SetDeadline，使后续每次 Read/Write
 // 都遵守调用方 timeout。否则接受 TCP 但永不回 "@RSYNCD: OK" 的慢
 // rsyncd 会把 worker 卡满 cfg.Timeout。
-func (a *RsyncAuthenticator) attempt(ctx context.Context, addr, user, pass string, timeout time.Duration) (bool, error) {
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+//
+// v0.4: dial via credential.DialTCP so the global --proxy / --socks5
+// configuration is honoured automatically. / v0.4：通过
+// credential.DialTCP 拨号，让全局 --proxy / --socks5 自动生效。
+func (a *RsyncAuthenticator) attempt(ctx context.Context, host string, port int, user, pass string, timeout time.Duration) (bool, error) {
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return false, err
 	}
