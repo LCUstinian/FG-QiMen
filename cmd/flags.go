@@ -77,9 +77,10 @@ var (
 	flagPassFile string
 
 	// 7. Output files / 输出文件
-	flagOutputTXT  string
-	flagOutputJSON string
-	flagOutputCSV  string
+	flagOutputTXT   string
+	flagOutputJSON  string
+	flagOutputCSV   string
+	flagOutputSARIF string // v0.4: SARIF for GitHub Code Scanning
 
 	// 8. Behaviour / 行为
 	flagSilent        bool
@@ -195,6 +196,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"path to NDJSON result file (default: <project>/result.json or ./result.json)")
 	pf.StringVar(&flagOutputCSV, "output-csv", "",
 		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written.")
+	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
+		"path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written.")
 
 	// 8. Behavior / 行为
 	pf.BoolVar(&flagSilent, "silent", false,
@@ -233,7 +236,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file"}, groupCreds)
-	annotate(pf, []string{"output-txt", "output-json", "output-csv"}, groupOutput)
+	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

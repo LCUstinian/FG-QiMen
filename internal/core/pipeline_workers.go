@@ -121,7 +121,7 @@ func runPluginWorker(
 			// 使用端口索引实现 O(1) 查找，而非遍历所有插件
 			for _, p := range portIndex[item.Port] {
 				// Identify / 识别
-				if sess.Config.Mode == types.ModeScan || sess.Config.Mode == types.ModeLinked {
+				if wantIdentify(sess.Config.Mode) {
 					hash := types.HashKey(item.Host, fmt.Sprintf("%d", item.Port), p.Name(), "identify")
 					if sess.State.Seen(hash) {
 						continue
@@ -152,7 +152,7 @@ func runPluginWorker(
 					}
 				}
 				// Credential / 凭据测试
-				if (sess.Config.Mode == types.ModeCrack || sess.Config.Mode == types.ModeLinked) &&
+				if wantCredential(sess.Config.Mode) &&
 					p.Modes()&plugins.ModeCredential != 0 && len(creds) > 0 {
 					// Defer credential testing to the central credential.Scheduler
 					// via dispatchCred (sync, one-target inline call). The

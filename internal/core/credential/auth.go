@@ -25,6 +25,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/network/proxy"
 )
 
 // DialTCP opens a TCP connection to host:port and sets a single
@@ -42,8 +44,27 @@ import (
 // promptly with ctx.Err() if cancelled. / host 可以是 IP 字面量或
 // DNS 名；net.Dialer 处理解析。ctx 用于取消；取消时 dial 立即返回
 // ctx.Err()。
+//
+// v0.4: when the global proxy manager has been initialised (by the
+// CLI via initProxyManager), DialTCP routes through it so every
+// authenticator picks up --proxy / --socks5 without per-protocol
+// wiring. When the manager is not initialised (tests, library
+// use), DialTCP falls back to a direct dial. / v0.4：当全局代理管
+// 理器已初始化（CLI 通过 initProxyManager）时，DialTCP 走它，让每
+// 个 authenticator 无需 per-protocol 布线即获得 --proxy / --socks5。
+// 管理器未初始化时（测试、库用法），DialTCP 回退到直连。
 func DialTCP(ctx context.Context, host string, port int, timeout time.Duration) (net.Conn, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	if d, err := proxy.GetGlobalDialer(); err == nil {
+		// Proxy dialers honour ctx via DialContext. / 代理拨号器
+		// 通过 DialContext 尊重 ctx。
+		conn, err := d.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+		return conn, nil
+	}
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {

@@ -91,6 +91,14 @@ type Output struct {
 	// bool 一定是 0。
 	csvHeaderWritten bool
 
+	// v0.4: SARIF buffer. SARIF is a single JSON document, not a
+	// stream — we accumulate results and emit at Close(). / v0.4：
+	// SARIF buffer。SARIF 是单 JSON 文档，不是流——累积结果并在
+	// Close() 一次性输出。
+	sarif     *flushCloser
+	sarifMu   sync.Mutex
+	sarifBuf  []*types.Result
+
 	// showCleartext gates whether result.txt, result.json, and result.csv
 	// embed the cleartext password (default: redacted fingerprint).
 	// creds.txt is ALWAYS cleartext — the operator's working file.
@@ -113,6 +121,13 @@ type OutputConfig struct {
 	CredsPath      string // empty = no creds output
 	RDPJSONPath    string // empty = no rdp.json output
 	RDPTXTPath     string // empty = no rdp.txt output
+
+	// v0.4: SARIF (Static Analysis Results Interchange Format) output.
+	// When set, the SARIF JSON document is assembled and written at
+	// Close() time (SARIF is a single document, not a stream).
+	// / v0.4：SARIF（静态分析结果交换格式）输出。设置时，SARIF JSON
+	// 文档在 Close() 时组装并写入（SARIF 是单文档，不是流）。
+	ResultSARIFPath string // empty = no sarif output
 
 	// ShowCleartext controls whether result.txt's "[cred] user / pass"
 	// suffix renders cleartext or the redacted fingerprint (see
@@ -152,6 +167,7 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 			// / 一次性分配 csv.Writer；WriteResult 复用。
 			o.csvWriter = csv.NewWriter(w.bw)
 		}},
+		{cfg.ResultSARIFPath, 0o644, func(w *flushCloser) { o.sarif = w }},
 	}
 	for _, op := range openers {
 		if op.path == "" {
@@ -192,6 +208,10 @@ func (o *Output) Close() error {
 		{o.rdpjson, &o.rdpjsonMu, "rdp.json"},
 		{o.rdptxt, &o.rdptxtMu, "rdp.txt"},
 		{o.csv, &o.csvMu, "csv"},
+		// SARIF goes last: assemble the document from o.sarifBuf,
+		// write it, then close. / SARIF 放最后：从 o.sarifBuf 组装
+		// 文档、写入、再关闭。
+		{o.sarif, &o.sarifMu, "sarif"},
 	}
 	var firstErr error
 	for _, c := range closers {
@@ -199,7 +219,19 @@ func (o *Output) Close() error {
 			continue
 		}
 		c.mu.Lock()
-		err := c.w.Close()
+		var err error
+		if c.label == "sarif" {
+			// Emit the assembled SARIF document before close.
+			// / 关闭前先发出组装好的 SARIF 文档。
+			err = writeSARIFDocument(c.w, o.sarifBuf)
+			if err != nil {
+				err = fmt.Errorf("write sarif: %w", err)
+			} else {
+				err = c.w.Close()
+			}
+		} else {
+			err = c.w.Close()
+		}
 		c.mu.Unlock()
 		if err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close %s: %w", c.label, err)
@@ -246,6 +278,13 @@ func (o *Output) Flush() error {
 // TXT、NDJSON、CSV 文件。每个 sink 的锁独立获取，一个慢 sink
 // 不会 head-of-line 阻塞其他。
 func (o *Output) WriteResult(r *types.Result) error {
+	// v0.4: SARIF buffer (single-doc emission at Close). / v0.4：SARIF
+	// buffer（在 Close 一次性发出文档）。
+	if o.sarif != nil {
+		o.sarifMu.Lock()
+		o.sarifBuf = append(o.sarifBuf, r)
+		o.sarifMu.Unlock()
+	}
 	// TXT — own mutex. / TXT —— 独立 mutex。
 	if o.txt != nil {
 		o.txtMu.Lock()
