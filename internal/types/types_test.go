@@ -600,6 +600,87 @@ func TestExpandTargetsCIDRInvalid(t *testing.T) {
 	}
 }
 
+// TestExpandTargetsRangeEndBeforeStart: a range whose end precedes
+// the start (e.g. "0.0.0.1-0" — the bare-octet end expands below the
+// start's last octet) must return an error rather than iterating
+// through ~2^32 addresses before incIP wraps around. This is the
+// regression for the FuzzExpandTargets hang the daily fuzz run hit.
+// / TestExpandTargetsRangeEndBeforeStart：end 小于 start 的范围
+// （如 "0.0.0.1-0" 单段 end 展开后小于 start）必须返回 error，
+// 而不是遍历 ~2³² 个地址再让 incIP 绕回。这是对 FuzzExpandTargets
+// 每日挂起的回归测试。
+func TestExpandTargetsRangeEndBeforeStart(t *testing.T) {
+	cases := []struct {
+		name string
+		spec string
+	}{
+		{"bare-octet-end-lower", "0.0.0.1-0"},
+		{"bare-octet-end-lower-mid", "10.0.0.5-1"},
+		{"full-form-end-lower", "10.0.0.5-10.0.0.1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Guard with a short deadline so a regression still
+			// fails fast. / 配以短截止时间，回归时仍能快速失败。
+			done := make(chan struct{})
+			var err error
+			go func() {
+				_, err = ExpandTargets(tc.spec, "")
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("ExpandTargets(%q) did not return within 2s — infinite range expansion", tc.spec)
+			}
+			if err == nil {
+				t.Errorf("ExpandTargets(%q) = nil err, want error (end precedes start)", tc.spec)
+			}
+		})
+	}
+}
+
+// TestExpandTargetsRangeTooLarge: a syntactically valid range whose
+// size exceeds MaxTargets must return an error rather than letting
+// the expansion loop iterate an astronomical number of times before
+// the streaming cap in tryEmit ever fires. Examples:
+//   - "::-8::"                     → 2^123 addresses
+//   - "0.0.0.0-255.255.255.255"    → ~2^32 addresses
+//
+// Regression for the second FuzzExpandTargets hang discovered during
+// the first fix's regression sweep.
+// / TestExpandTargetsRangeTooLarge：合法但超过 MaxTargets 的范围
+// 必须返回 error，而不是在天文级数迭代后才触发 tryEmit 的流式上限。
+// 例如 "::-8::"（2^123）、"0.0.0.0-255.255.255.255"（~2^32）。
+// 这是首次修复回归扫描中发现的第二个 FuzzExpandTargets 挂起的回归。
+func TestExpandTargetsRangeTooLarge(t *testing.T) {
+	cases := []struct {
+		name string
+		spec string
+	}{
+		{"ipv6-mega-range", "::-8::"},
+		{"ipv4-full-space", "0.0.0.0-255.255.255.255"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan struct{})
+			var err error
+			go func() {
+				_, err = ExpandTargets(tc.spec, "")
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("ExpandTargets(%q) did not return within 2s — range size not bounded", tc.spec)
+			}
+			if err == nil {
+				t.Errorf("ExpandTargets(%q) = nil err, want error (range too large)", tc.spec)
+			}
+		})
+	}
+}
+
 // --- RunMode constants ---
 
 // TestRunModeValues: the three documented run modes are scan / crack /
