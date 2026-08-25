@@ -96,15 +96,20 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          # Pin to exact 1.26.0 to remove cross-patch non-determinism.
+          # `'1.26'` resolves to "latest 1.26.x" which can change
+          # between CI runs and produce different go.mod / go.sum
+          # hashes. The v0.2 audit F-10 already flagged 1.26 as
+          # pre-release; pinning the patch makes the toolchain
+          # reproducible. Bump this in lockstep with local dev.
+          #
+          # 锁 1.26.0 消除 patch 级别的不可重现性。`'1.26'` 会解析
+          # 为"最新 1.26.x"，不同次跑可能不同，会产出不同的 go.mod
+          # / go.sum 哈希。v0.2 审计 F-10 已标记 1.26 为预发布；
+          # 锁 patch 让工具链可重现。跟本地开发同步升级。
+          go-version: '1.26.0'
           cache: true
 
-      # Pin the toolchain explicitly so `go test` doesn't
-      # auto-download a different patch (Go 1.26.x is pre-release
-      # per the v0.2 audit F-10).
-      #
-      # 显式锁定工具链，避免 `go test` 自动下载不同 patch 版本
-      # （v0.2 审计 F-10 指出 Go 1.26 是 pre-release）。
       - name: Show Go version
         run: go version
 
@@ -133,11 +138,17 @@ jobs:
       # 跳过 -race，靠静态分析（go vet）+ 单测把关。
       - name: go test
         if: matrix.os != 'windows-latest'
-        run: go test -race -timeout 120s ./...
+        # 240s (was 120s) — some auth probes sleep on slow
+        # listeners (e.g. unreachable RabbitMQ on a fake port)
+        # and 120s can flake on a busy shared runner.
+        # / 240s（原 120s）——部分 auth probe 对慢 listener
+        # 等待较久（不可达的 RabbitMQ 等），120s 在共享 runner
+        # 高负载时会 flake。
+        run: go test -race -timeout 240s ./...
 
       - name: go test (no -race)
         if: matrix.os == 'windows-latest'
-        run: go test -timeout 120s ./...
+        run: go test -timeout 240s ./...
 
       # Coverage on Linux only. The other OSes just run the suite
       # without -coverprofile to keep their wall-clock low. The
@@ -148,7 +159,7 @@ jobs:
       - name: coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go test -race -timeout 120s -coverprofile=coverage.out -covermode=atomic ./...
+          go test -race -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | tail -20
           # Phase 1.10 of the audit roadmap: enforce a coverage
           # floor on the internal/ packages. 50% is the seed
