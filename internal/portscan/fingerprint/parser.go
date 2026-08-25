@@ -121,8 +121,9 @@ func (p *Probe) parseFallback(line string) { p.Fallback = line[len("fallback")+1
 // content into Probes. / parseProbesFromContent 把整个 nmap-service-probes.txt
 // 内容解析为 Probes。
 func (v *VScan) parseProbesFromContent(content string) error {
-	var lines []string
-	for _, line := range strings.Split(content, "\n") {
+	allLines := strings.Split(content, "\n")
+	lines := make([]string, 0, len(allLines))
+	for _, line := range allLines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -156,7 +157,7 @@ func (v *VScan) parseProbesFromContent(content string) error {
 	content = "\n" + strings.Join(lines, "\n")
 	parts := strings.Split(content, "\nProbe")[1:]
 
-	var probes []Probe
+	probes := make([]Probe, 0, len(parts))
 	for _, p := range parts {
 		probe := Probe{}
 		if err := probe.fromString(p); err != nil {

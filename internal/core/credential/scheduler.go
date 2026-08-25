@@ -98,7 +98,6 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 // throttleFor returns the per-target last-attempt tracker. We keep a
 // goroutine-local guard keyed by "host:port". / throttleFor 是按目标的
 // 上次尝试时间记录。key 为 "host:port"。
-type throttleKey struct{}
 
 // throttleState is stashed in ctx via context.WithValue. / throttleState
 // 通过 context.WithValue 暂存在 ctx 中。

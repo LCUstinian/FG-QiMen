@@ -58,46 +58,6 @@ func ExpandTargets(spec, hostsFile string) ([]Target, error) {
 	return out, nil
 }
 
-// expandOne dispatches a single token to the right expander based on
-// whether it contains '-' (range) or '/' (CIDR) or is a bare IP/host.
-// expandOne 把单个 token 根据 '-'（范围）/'/'（CIDR）/裸 IP/主机 分派到对应扩展器。
-func expandOne(s string, add func(Target) error) error {
-	// Bare IP literal? / 裸 IP 字面量？
-	if ip := net.ParseIP(s); ip != nil {
-		return add(Target{Addr: s})
-	}
-	// CIDR? / CIDR？
-	if strings.Contains(s, "/") {
-		ip, ipnet, err := net.ParseCIDR(s)
-		if err != nil {
-			return fmt.Errorf("invalid CIDR %q: %w", s, err)
-		}
-		for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
-			if err := add(Target{Addr: ip.String()}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	// Range? "a.b.c.x-y" or "a.b.c.x-a.b.c.y"
-	// 范围：单段范围 "a.b.c.x-y" 或全段范围 "a.b.c.x-a.b.c.y"
-	if strings.Contains(s, "-") {
-		start, end, err := parseRange(s)
-		if err != nil {
-			return err
-		}
-		for cur := start; !cur.Equal(end); incIP(cur) {
-			if err := add(Target{Addr: cur.String()}); err != nil {
-				return err
-			}
-		}
-		return add(Target{Addr: end.String()})
-	}
-	// Fallback: treat as hostname.
-	// 回退：视为主机名。
-	return add(Target{Addr: s})
-}
-
 // parseRange parses "a.b.c.x-y" or "a.b.c.x-a.b.c.y" and returns the
 // start and end IPs.
 // parseRange 解析 "a.b.c.x-y" 或 "a.b.c.x-a.b.c.y" 并返回起止 IP。
