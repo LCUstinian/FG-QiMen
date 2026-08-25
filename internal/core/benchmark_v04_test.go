@@ -3,7 +3,7 @@
 // This file collects the user-visible throughput benchmarks whose
 // results the README Performance section quotes. Run with:
 //
-//   go test -bench=. -benchmem -benchtime=3s ./internal/core/
+//	go test -bench=. -benchmem -benchtime=3s ./internal/core/
 //
 // Targets (commodity Linux 2026 hardware, Go 1.26):
 //   - BenchmarkPortScanClosedPort (TCP connect to 127.0.0.1:1)
@@ -144,9 +144,9 @@ type mockPluginBV04 struct {
 	ports []int
 }
 
-func (m *mockPluginBV04) Name() string               { return m.name }
-func (m *mockPluginBV04) Ports() []int              { return m.ports }
-func (m *mockPluginBV04) Modes() plugins.Mode       { return plugins.ModeIdentify }
+func (m *mockPluginBV04) Name() string        { return m.name }
+func (m *mockPluginBV04) Ports() []int        { return m.ports }
+func (m *mockPluginBV04) Modes() plugins.Mode { return plugins.ModeIdentify }
 func (m *mockPluginBV04) Identify(ctx context.Context, host string, port int) *types.Result {
 	return nil
 }
