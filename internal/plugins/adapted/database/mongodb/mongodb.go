@@ -115,8 +115,20 @@ func bsonDoc(m map[string]any) []byte {
 			binary.LittleEndian.PutUint32(tmp, uint32(x))
 			body = append(body, tmp...)
 		case string:
-			body = append(body, bsonCString(x)...)
-			body = append(body, 0)
+			// BSON string encoding (per spec): 4-byte LE length
+			// prefix (excluding the length itself but including
+			// the bytes that follow) + raw UTF-8 bytes. There is
+			// NO trailing NUL — the length is the only delimiter.
+			// The previous code wrote a NUL-terminated cstring,
+			// which real MongoDB servers reject.
+			// / BSON string 编码（按规范）：4 字节 LE 长度前缀
+			// （不含前缀本身但含后续字节）+ 原 UTF-8 字节。没有尾
+			// 部 NUL——长度是唯一分隔符。旧代码写 NUL 终止的
+			// cstring，真实 MongoDB 服务器会拒收。
+			tmp := make([]byte, 4)
+			binary.LittleEndian.PutUint32(tmp, uint32(len(x)))
+			body = append(body, tmp...)
+			body = append(body, x...)
 		}
 	}
 	body = append(body, 0) // null terminator

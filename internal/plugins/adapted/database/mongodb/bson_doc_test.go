@@ -30,21 +30,13 @@ func TestBsonDocTypeBytePresent(t *testing.T) {
 	pairs := doc[4 : len(doc)-1] // drop trailing 0x00 doc terminator
 
 	type kv struct {
-		wantType byte
-		wantKey  string
-		// wantValueBytes is the byte-length of the value payload
-		// (excluding the 1-byte type tag and the key+NUL). For int32
-		// this is 4; for strings this is len(value)+1 (current code
-		// writes strings as cstrings, not length-prefixed strings —
-		// see TestBsonDocStringIsCString). / wantValueBytes 是 value
-		// payload 的字节数（不含 type byte 和 key+NUL）。int32 是 4；
-		// string 是 len(value)+1（旧代码把 string 当 cstring 写——
-		// 见 TestBsonDocStringIsCString）。
-		wantValueBytes int
+		wantType     byte
+		wantKey      string
+		wantValBytes int // length of the value's raw bytes (excluding any length prefix or NUL)
 	}
 	wants := []kv{
-		{0x10, "hello", 4}, // 0x10 = int32
-		{0x02, "$db", 6},   // 0x02 = string "admin\0"
+		{0x10, "hello", 4}, // 0x10 = int32, value is 4-byte LE int32
+		{0x02, "$db", 5},   // 0x02 = string, value is "admin" (5 bytes)
 	}
 
 	i := 0
@@ -69,7 +61,20 @@ func TestBsonDocTypeBytePresent(t *testing.T) {
 			t.Errorf("element %d key = %q, want %q", ei, gotKey, w.wantKey)
 		}
 		i++ // consume the 0x00 terminator
-		i += w.wantValueBytes
+
+		// Skip the value payload. The length of the payload
+		// depends on the type:
+		//   - int32 (0x10): 4 bytes (LE)
+		//   - string (0x02): 4-byte LE length prefix + N bytes
+		switch w.wantType {
+		case 0x10:
+			i += 4
+		case 0x02:
+			strLen := int(binary.LittleEndian.Uint32(pairs[i : i+4]))
+			i += 4 + strLen // length-prefix + bytes (no trailing NUL)
+		default:
+			t.Fatalf("element %d: unhandled type 0x%02x in test setup", ei, w.wantType)
+		}
 	}
 
 	if i != len(pairs) {
@@ -119,38 +124,27 @@ func TestBsonDocInt32ValueRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBsonDocStringIsCString — documents the (currently
-// non-conforming) string encoding: bsonDoc writes strings as
-// NUL-terminated cstrings instead of the BSON-spec length-prefixed
-// form (4-byte LE length + bytes + NO trailing NUL). This is a
-// separate BSON-spec violation that the type-byte fix did not
-// address; it's tracked separately because real MongoDB servers
-// reject cstring-encoded strings in BSON documents. The smoke
-// test that exists today (mongodb_test.go) only checks the SCRAM
-// payload string and would not catch this.
+// TestBsonDocStringLengthPrefixed — for a single string entry,
+// verify the wire format includes the BSON-spec 4-byte LE length
+// prefix followed by the raw UTF-8 bytes (no trailing NUL). The
+// previous bug wrote a NUL-terminated cstring, which real MongoDB
+// servers reject. This test pins the corrected encoding.
 //
-// This test pins the current behavior so future fixes don't
-// silently regress it.
-//
-// / TestBsonDocStringIsCString — 记录当前（不符合规范的）string
-// 编码方式：bsonDoc 把 string 当 NUL 终止的 cstring 写，而不是 BSON
-// 规范要求的长度前缀形式（4 字节 LE 长度 + 字节 + 没有尾部 NUL）。
-// 这是跟 type-byte 修复不同的另一个 BSON 规范违反；分开追踪，
-// 因为真实 MongoDB 服务器会拒绝 BSON 文档里的 cstring-encoded
-// string。当前的 smoke test（mongodb_test.go）只查 SCRAM payload
-// 字符串，抓不到这个。
-//
-// 本测试固定当前行为，让未来修复不会悄悄退步。
-func TestBsonDocStringIsCString(t *testing.T) {
+// / TestBsonDocStringLengthPrefixed — 单个 string 条目，验证 wire
+// format 含 BSON 规范的 4 字节 LE 长度前缀 + 原 UTF-8 字节（无尾部
+// NUL）。旧 bug 写 NUL 终止的 cstring，真实 MongoDB 服务器会拒收。
+// 本测试固定修正后的编码。
+func TestBsonDocStringLengthPrefixed(t *testing.T) {
 	doc := bsonDoc(map[string]any{"k": "v"})
 
-	// Current layout (LE):
-	//   offset 0-3:   length = 10 (4 + 1 + 2 + 1 + 1 + 1 = 10)
+	// Layout (LE):
+	//   offset 0-3:   doc length (uint32 LE) = 13 (4+1+2+4+1+1)
 	//   offset 4:     type 0x02 (string)
 	//   offset 5-6:   key "k\0"
-	//   offset 7-8:   value "v\0" (cstring, NOT length-prefixed)
-	//   offset 9:     0x00 doc terminator
-	wantLen := 10
+	//   offset 7-10:  string length 1 (uint32 LE)
+	//   offset 11:    'v'  (no trailing NUL)
+	//   offset 12:    0x00 doc terminator
+	wantLen := 13
 	if len(doc) != wantLen {
 		t.Fatalf("len(doc) = %d, want %d", len(doc), wantLen)
 	}
@@ -160,15 +154,44 @@ func TestBsonDocStringIsCString(t *testing.T) {
 	if doc[5] != 'k' || doc[6] != 0x00 {
 		t.Errorf("key bytes = [0x%02x, 0x%02x], want ['k', 0x00]", doc[5], doc[6])
 	}
-	// Pin the cstring behaviour ( no 4-byte length prefix ): the
-	// string content "v" appears immediately after the key.
-	if doc[7] != 'v' {
-		t.Errorf("value byte at offset 7 = 0x%02x, want 'v'", doc[7])
+	if got := binary.LittleEndian.Uint32(doc[7:11]); got != 1 {
+		t.Errorf("string length = %d, want 1", got)
 	}
-	if doc[8] != 0x00 {
-		t.Errorf("cstring terminator at offset 8 = 0x%02x, want 0x00", doc[8])
+	if doc[11] != 'v' {
+		t.Errorf("string content = 0x%02x, want 'v'", doc[11])
 	}
-	if doc[9] != 0x00 {
-		t.Errorf("doc terminator at offset 9 = 0x%02x, want 0x00", doc[9])
+	// Crucially, no trailing NUL after 'v' — the byte at offset 12
+	// must be the doc terminator (0x00), not a string NUL.
+	if doc[12] != 0x00 {
+		t.Errorf("doc terminator = 0x%02x, want 0x00", doc[12])
+	}
+}
+
+// TestBsonDocStringEmptyLen — a zero-length string value must be
+// encoded as 4 zero bytes (length=0) followed immediately by the
+// doc terminator, NOT as a single 0x00 (which an old buggy
+// implementation might write as "length prefix + empty cstring").
+//
+// / TestBsonDocStringEmptyLen — 空字符串值必须编码为 4 字节 0（长度
+// = 0），后跟 doc 终止符；不能写成单个 0x00（旧 buggy 实现可能写成
+// "长度前缀 + 空 cstring"）。
+func TestBsonDocStringEmptyLen(t *testing.T) {
+	doc := bsonDoc(map[string]any{"k": ""})
+
+	// Layout (LE):
+	//   offset 0-3:   doc length = 12 (4+1+2+4+0+1)
+	//   offset 4:     type 0x02
+	//   offset 5-6:   key "k\0"
+	//   offset 7-10:  string length 0 (uint32 LE)
+	//   offset 11:    doc terminator (NO string bytes — length was 0)
+	wantLen := 12
+	if len(doc) != wantLen {
+		t.Fatalf("len(doc) = %d, want %d", len(doc), wantLen)
+	}
+	if got := binary.LittleEndian.Uint32(doc[7:11]); got != 0 {
+		t.Errorf("string length = %d, want 0", got)
+	}
+	if doc[11] != 0x00 {
+		t.Errorf("doc terminator = 0x%02x, want 0x00", doc[11])
 	}
 }
