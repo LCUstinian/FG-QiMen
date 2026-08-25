@@ -10,7 +10,8 @@
 // 字节，JDWP 就暴露在该端口。
 //
 // Reference: https://docs.oracle.com/javase/8/docs/platform/jpda/
-//             JDWP-Transport.html
+//
+//	JDWP-Transport.html
 //
 // fscan v2.2.0-rc added JDWP as a new probe; this authenticator
 // mirrors it. / fscan v2.2.0-rc 加了 JDWP；本认证器复刻。
