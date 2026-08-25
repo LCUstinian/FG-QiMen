@@ -101,11 +101,14 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 // bsonDoc encodes a simple BSON document. Keys must be strings. / bsonDoc 编码简单 BSON 文档。
 // Supports int32 and string values only. / 只支持 int32 和 string 值。
 func bsonDoc(m map[string]any) []byte {
-	// Compute total body size. / 计算 body 总大小。
+	// Each element is encoded as: type_byte + key_cstring + value_bytes.
+	// Each doc ends with a single 0x00 terminator. / 每个元素编码为
+	// type_byte + key_cstring + value_bytes。整个 doc 以单个 0x00 结尾。
 	body := make([]byte, 0, 128)
 	for k, v := range m {
 		body = append(body, bsonType(v))
-		body = append(bsonCString(k), 0)
+		body = append(body, bsonCString(k)...)
+		body = append(body, 0)
 		switch x := v.(type) {
 		case int32:
 			tmp := make([]byte, 4)

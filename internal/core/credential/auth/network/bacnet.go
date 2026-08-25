@@ -114,14 +114,11 @@ func (a *BACnetAuthenticator) attempt(ctx context.Context, addr string, timeout 
 	// For v0.1 we use a simpler "I-Am probe" — send the APDU and
 	// see if we get any I-Am back. / v0.1 用更简"I-Am 探针"——发 APDU
 	// 看是否回 I-Am。
-	apdu := []byte{
-		0x10, 0x00, // pdu type (0x10 = Confirmed Request)
-		0x00, // service choice = 0x00 (I-Am — but for Unconfirmed, it's 0x10; we use 0x10)
-	}
-	// Real Who-Is is Unconfirmed Request (PDU type 0x10), service
-	// choice 0x10, no body. / 真 Who-Is 是 Unconfirmed Request（PDU
+	//
+	// Who-Is is an Unconfirmed Request (PDU type 0x10), service
+	// choice 0x10, no body. / Who-Is 是 Unconfirmed Request（PDU
 	// type 0x10），service choice 0x10，无 body。
-	apdu = []byte{0x10, 0x10}
+	apdu := []byte{0x10, 0x10}
 	// Build NPDU: 1 byte (version 0x01, no DNET/ADR). / 构造 NPDU：
 	// 1 字节（version 0x01，无 DNET/ADR）。
 	npdu := []byte{0x01}
