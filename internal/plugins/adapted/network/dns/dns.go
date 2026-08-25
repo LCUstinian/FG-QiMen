@@ -81,7 +81,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		if r := queryAndCheckAt(conn, buildRootAQuery(), host, port); r != nil {
 			// If AA (Authoritative Answer) bit is set, try AXFR.
 			// / 如果 AA（权威应答）位被置，试 AXFR。
-			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 			if axfrResult := tryAXFR(conn, host, port); axfrResult != nil {
 				return axfrResult
 			}

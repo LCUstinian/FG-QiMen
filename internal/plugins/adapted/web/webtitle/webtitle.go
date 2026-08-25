@@ -57,6 +57,11 @@ import (
 
 // WebTitlePlugin is the HTTP fingerprinting plugin.
 // WebTitlePlugin 是 HTTP 指纹识别插件。
+//
+// matches the plugin naming convention across the adapted/* plugins
+// (e.g. plugins.NmapPlugin, plugins.MongodbPlugin).
+//
+//nolint:revive // stuttering (webtitle.WebTitlePlugin) is intentional —
 type WebTitlePlugin struct{}
 
 // NewWebTitlePlugin returns a new plugin instance. / NewWebTitlePlugin 返回新实例。

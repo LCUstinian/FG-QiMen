@@ -108,6 +108,9 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	// Cheap banner: search for sysDescr string after the OID.
 	// / 简单 banner：在 OID 后搜 sysDescr 字符串。
 	for i := 0; i < n-20; i++ {
+		//nolint:gocritic // nestingReduce: inverting the OID-prefix check
+		// splits the if-body across a `continue` + `end := i + 4` and
+		// makes the OID-banner extraction harder to read.
 		if string(resp[i:i+4]) == string([]byte{0x06, 0x0a, 0x2b, 0x06}) { // 1.3 prefix
 			end := i + 4
 			for end < n && resp[end] != 0x04 && resp[end] != 0x06 {
@@ -123,8 +126,11 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 			banner := string(resp[end+2 : end+2+sl])
 			if len(banner) > 0 && isSNMPPrintable(banner) {
 				return &types.Result{
-					Host: host, Port: port, Service: "snmp",
-					Banner: "SNMP: " + trimASCII(banner), Time: time.Now(),
+					Host:    host,
+					Port:    port,
+					Service: "snmp",
+					Banner:  "SNMP: " + trimASCII(banner),
+					Time:    time.Now(),
 				}
 			}
 		}

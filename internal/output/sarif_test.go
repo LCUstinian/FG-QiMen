@@ -168,7 +168,7 @@ func TestSARIFConcurrentWrites(t *testing.T) {
 	for i := 0; i < n; i++ {
 		i := i
 		go func() {
-			out.WriteResult(&types.Result{
+			_ = out.WriteResult(&types.Result{
 				Host: "10.0.0.1", Port: 22 + i, Service: "ssh", Plugin: "ssh",
 			})
 			done <- struct{}{}

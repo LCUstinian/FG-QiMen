@@ -118,7 +118,7 @@ func handleFakeMongoSCRAM(c net.Conn, expectedPass string) {
 	// Just return ok=1 + a synthetic "v=" if the password matches.
 	// / v0.1 测试不验 proof——只信客户端。密码对就返 ok=1 + 合成的 "v="。
 	ok := expectedPass != "" && contPayload != "" && strings.Contains(contPayload, "p=")
-	doneDoc := []byte{}
+	var doneDoc []byte
 	if ok {
 		// Synthetic server signature. / 合成的服务器签名。
 		doneDoc = buildMongoSaslReply(1, 1, true, "v="+base64.StdEncoding.EncodeToString(make([]byte, 32)))

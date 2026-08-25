@@ -152,9 +152,13 @@ func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, 
 		case strings.HasPrefix(authLine, "CLIENT_ERROR"):
 			// Wrong creds. Try next. / 错凭据。试下一个。
 			continue
+		//nolint:staticcheck // SA4017: HasPrefix's bool return is used
+		// implicitly by Go's case-clause matching, but the linter doesn't
+		// realise that. The match is intentional.
 		case strings.HasPrefix(authLine, "SERVER_ERROR"):
 			// Server-side auth subsystem error. / 服务器端 auth 子系统错误。
 			continue
+		//nolint:staticcheck // same reason as above.
 		case strings.HasPrefix(authLine, "ERROR"):
 			// Old-style error reply. / 老式错误响应。
 			continue

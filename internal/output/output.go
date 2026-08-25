@@ -114,6 +114,10 @@ type Output struct {
 
 // OutputConfig configures which files Output should open.
 // OutputConfig 配置 Output 应打开的文件。
+//
+// stable across the v0.x API; rename deferred to v1.0.
+//
+//nolint:revive // stuttering (output.OutputConfig) is intentional — kept
 type OutputConfig struct {
 	ResultTXTPath  string // empty = no txt output
 	ResultJSONPath string // empty = no json output

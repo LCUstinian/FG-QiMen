@@ -20,6 +20,10 @@ import (
 
 // ProxyType defines the proxy protocol type.
 // ProxyType 定义代理协议类型。
+//
+// stable across the v0.x API; rename deferred to v1.0.
+//
+//nolint:revive // stuttering (proxy.ProxyType) is intentional — kept
 type ProxyType string
 
 const (
@@ -42,6 +46,10 @@ const (
 
 // ProxyConfig holds proxy configuration.
 // ProxyConfig 存放代理配置。
+//
+// stable across the v0.x API; rename deferred to v1.0.
+//
+//nolint:revive // stuttering (proxy.ProxyConfig) is intentional — kept
 type ProxyConfig struct {
 	// Type is the proxy protocol type.
 	// Type 是代理协议类型。

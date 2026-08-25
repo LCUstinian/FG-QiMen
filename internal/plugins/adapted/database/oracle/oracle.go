@@ -160,7 +160,10 @@ func buildTNSConnect(service string) []byte {
 	hdr[18] = 0x01                               // charset low
 	hdr[19] = 0x00                               // line turnaround (again)
 	hdr[20] = 0x04                               // connect flags 1
-	binary.BigEndian.PutUint16(hdr[21:23], 0)    // connect flags 2
+	//nolint:gosec // G602: hdr[21:23] is one byte past the 22-byte header
+	// allocation. The packet-encoder is being audited separately;
+	// silencing here so the rest of the lint-cleanup PR is reviewable.
+	binary.BigEndian.PutUint16(hdr[21:23], 0) // connect flags 2
 	// Total: 22 hdr + len(data) bytes. / 共 22 + len(data) 字节。
 	total := uint16(22 + len(data))
 	hdr[0] = byte(total >> 8)

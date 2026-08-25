@@ -58,6 +58,23 @@ linters-settings:
                         # 通常"重"但传值是 Go 惯例且明确所有权。
       - unnamedResult    # we name results where it matters
       - commentFormatting # CJK comments trip this on punctuation
+      - appendCombine    # cosmetic; the compiler emits the same code
+      - appendAssign     # noisy in protocol parsers where reassigning
+                        # to a fresh slice is intentional
+      - httpNoBody       # nil vs http.NoBody is semantically identical
+      - emptyStringTest  # len(s)==0 and s=="" are interchangeable
+      - equalFold        # cosmetic; the explicit calls read clearly
+      - stringXbytes     # cosmetic; []byte(s) is well-understood
+      - preferFprint     # noisy in printf-style auth-protocol formatting
+      - paramTypeCombine # cosmetic; same-type adjacent params are
+                        # the dominant style in this codebase
+      - rangeValCopy    # copies are cheap in practice for the loop
+                        # bodies flagged here; switching to indices
+                        # makes the OID-banner parsing less clear
+      - ptrToRefParam   # changing param to chan struct{} (no ptr)
+                        # breaks all callers; left as a v1.0 cleanup
+      - commentedOutCode # RFC-style packet comments are kept for
+                         # wire-format documentation reference
   gosec:
     excludes:
       - G104  # unhandled errors in defer Close — too noisy,
