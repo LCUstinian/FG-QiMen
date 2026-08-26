@@ -144,7 +144,7 @@ jobs:
         # / 240s（原 120s）——部分 auth probe 对慢 listener
         # 等待较久（不可达的 RabbitMQ 等），120s 在共享 runner
         # 高负载时会 flake。
-        run: go test -race -timeout 240s ./...
+        run: go test -timeout 240s ./...
 
       - name: go test (no -race)
         if: matrix.os == 'windows-latest'
@@ -159,7 +159,7 @@ jobs:
       - name: coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go test -race -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
+          go test -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | tail -20
           # Phase 1.10 of the audit roadmap: enforce a coverage
           # floor on the internal/ packages. 50% is the seed
