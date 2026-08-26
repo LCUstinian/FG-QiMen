@@ -49,7 +49,7 @@ jobs:
       - name: Run shellcheck
         uses: ludeeus/action-shellcheck@master
         with:
-          scandot: ./scripts/**/*.sh
+          scandir: ./scripts
       # Note: ludeeus/action-shellcheck only checks .sh files in the
       # repo, not inline `run:` blocks. For inline-block linting we
       # rely on actionlint's own shellcheck integration (--shellcheck
