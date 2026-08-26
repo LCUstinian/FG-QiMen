@@ -97,7 +97,7 @@ show_size() {
     if [[ -n "$label" ]]; then
         echo "    $label: $(numfmt --to=iec-i --suffix=B "$size" 2>/dev/null || echo "${size} bytes")"
     else
-        echo "$(numfmt --to=iec-i --suffix=B "$size" 2>/dev/null || echo "${size} bytes")"
+        numfmt --to=iec-i --suffix=B "$size" 2>/dev/null || echo "${size} bytes"
     fi
 }
 
@@ -185,7 +185,7 @@ else
     check_tool upx "winget install upx (Windows) | apt install upx-ucl (Linux) | brew install upx (macOS)"
 
     log "Compressing with UPX $UPX_ARGS ..."
-    if ! upx $UPX_ARGS "$BINARY" 2>&1; then
+    if ! upx "$UPX_ARGS" "$BINARY" 2>&1; then
         warn "UPX compression failed (exit code $?). Binary may be incompatible. Continuing without compression."
     else
         log "Compressed: $(show_size "$BINARY")"
