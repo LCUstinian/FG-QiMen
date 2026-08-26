@@ -29,24 +29,28 @@ func TestBsonDocTypeBytePresent(t *testing.T) {
 	// offset 4. / 跳过 4 字节长度前缀；第一个元素从 offset 4 开始。
 	pairs := doc[4 : len(doc)-1] // drop trailing 0x00 doc terminator
 
+	// Build expected entries indexed by key. Iteration order over a
+	// Go map is randomized, so this test must be order-independent
+	// (the previous version iterated expecting a specific order and
+	// flaked on macOS CI). / 按 key 索引期望条目。Go map 迭代是
+	// 随机的，测试必须顺序无关（上一版假设固定顺序，在 macOS CI
+	// 上 flake）。
 	type kv struct {
-		wantType     byte
-		wantKey      string
-		wantValBytes int // length of the value's raw bytes (excluding any length prefix or NUL)
+		wantType byte
 	}
-	wants := []kv{
-		{0x10, "hello", 4}, // 0x10 = int32, value is 4-byte LE int32
-		{0x02, "$db", 5},   // 0x02 = string, value is "admin" (5 bytes)
+	wantsByKey := map[string]kv{
+		"hello": {0x10}, // 0x10 = int32
+		"$db":   {0x02}, // 0x02 = string
 	}
+	seen := map[string]bool{}
 
 	i := 0
-	for ei, w := range wants {
-		if i >= len(pairs) {
-			t.Fatalf("element %d: ran out of bytes", ei)
+	for i < len(pairs) {
+		if pairs[i] != 0x10 && pairs[i] != 0x02 {
+			t.Errorf("unknown type byte 0x%02x at offset %d", pairs[i], i)
+			return
 		}
-		if pairs[i] != w.wantType {
-			t.Errorf("element %d type byte = 0x%02x, want 0x%02x (for key %q)", ei, pairs[i], w.wantType, w.wantKey)
-		}
+		elemType := pairs[i]
 		i++
 		// Read NUL-terminated key.
 		keyStart := i
@@ -54,31 +58,40 @@ func TestBsonDocTypeBytePresent(t *testing.T) {
 			i++
 		}
 		if i >= len(pairs) {
-			t.Fatalf("element %d: unterminated key", ei)
+			t.Fatalf("unterminated key at offset %d", keyStart)
 		}
-		gotKey := string(pairs[keyStart:i])
-		if gotKey != w.wantKey {
-			t.Errorf("element %d key = %q, want %q", ei, gotKey, w.wantKey)
-		}
+		key := string(pairs[keyStart:i])
 		i++ // consume the 0x00 terminator
 
-		// Skip the value payload. The length of the payload
-		// depends on the type:
-		//   - int32 (0x10): 4 bytes (LE)
-		//   - string (0x02): 4-byte LE length prefix + N bytes
-		switch w.wantType {
+		w, ok := wantsByKey[key]
+		if !ok {
+			t.Errorf("unexpected key %q in BSON doc", key)
+			return
+		}
+		if seen[key] {
+			t.Errorf("duplicate key %q in BSON doc", key)
+		}
+		seen[key] = true
+
+		if elemType != w.wantType {
+			t.Errorf("key %q type byte = 0x%02x, want 0x%02x", key, elemType, w.wantType)
+		}
+		// Skip value payload per type:
+		//   - int32 (0x10): 4 bytes LE
+		//   - string (0x02): 4-byte LE length + N bytes
+		switch elemType {
 		case 0x10:
 			i += 4
 		case 0x02:
 			strLen := int(binary.LittleEndian.Uint32(pairs[i : i+4]))
-			i += 4 + strLen // length-prefix + bytes (no trailing NUL)
-		default:
-			t.Fatalf("element %d: unhandled type 0x%02x in test setup", ei, w.wantType)
+			i += 4 + strLen
 		}
 	}
 
-	if i != len(pairs) {
-		t.Errorf("walked past end: i=%d, len(pairs)=%d", i, len(pairs))
+	for k := range wantsByKey {
+		if !seen[k] {
+			t.Errorf("key %q not found in BSON doc", k)
+		}
 	}
 	// The byte just before EOF must be 0x00 (doc terminator).
 	if doc[len(doc)-1] != 0x00 {
