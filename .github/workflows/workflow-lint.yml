@@ -28,19 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run actionlint
-        uses: docker://rhysd/actionlint:latest
-        with:
-          args: -color
+      - name: Download actionlint
+        id: get_actionlint
+        run: |
+          bash <(curl --fail -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          echo "executable=${PWD}/actionlint" >> "$GITHUB_OUTPUT"
+
+      - name: Check workflow files
+        run: ${{ steps.get_actionlint.outputs.executable }} -color
 
   shellcheck:
-    name: shellcheck (run blocks)
+    name: shellcheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Run shellcheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        # Default behaviour checks all .sh files. We point it at the
-        # inline run blocks via the -x extension. / 默认检查所有
-        # .sh 文件。我们用 -x 扩展指向内联 run 块。
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts
