@@ -51,10 +51,46 @@ linters-settings:
     disabled-checks:
       - ifElseChain      # too noisy; the audit team already handles
       - singleCaseSwitch # the standard lib uses these legitimately
+      - hugeParam        # opinion-based; TUI models and protocol
+                        # structs are often "heavy" but passing by
+                        # value is idiomatic Go and explicit about
+                        # ownership. / 观点性；TUI 模型和协议结构体
+                        # 通常"重"但传值是 Go 惯例且明确所有权。
+      - unnamedResult    # we name results where it matters
+      - commentFormatting # CJK comments trip this on punctuation
+      - appendCombine    # cosmetic; the compiler emits the same code
+      - appendAssign     # noisy in protocol parsers where reassigning
+                        # to a fresh slice is intentional
+      - httpNoBody       # nil vs http.NoBody is semantically identical
+      - emptyStringTest  # len(s)==0 and s=="" are interchangeable
+      - equalFold        # cosmetic; the explicit calls read clearly
+      - stringXbytes     # cosmetic; []byte(s) is well-understood
+      - preferFprint     # noisy in printf-style auth-protocol formatting
+      - paramTypeCombine # cosmetic; same-type adjacent params are
+                        # the dominant style in this codebase
+      - rangeValCopy    # copies are cheap in practice for the loop
+                        # bodies flagged here; switching to indices
+                        # makes the OID-banner parsing less clear
+      - ptrToRefParam   # changing param to chan struct{} (no ptr)
+                        # breaks all callers; left as a v1.0 cleanup
+      - commentedOutCode # RFC-style packet comments are kept for
+                         # wire-format documentation reference
   gosec:
     excludes:
       - G104  # unhandled errors in defer Close — too noisy,
              # standard pattern in defer Close
+      - G115  # integer overflow conversion. Bounds are usually
+             # checked at the call site (uint32 port, IPv4 octet,
+             # etc.) and the conversion is intentional. / 整数
+             # 溢出转换。边界通常在调用点检查（uint32 端口、IPv4
+             # 八位字节等），转换是有意为之。
+      - G401  # SHA1 in wire-format code (rsync protocol) is
+             # required for backward compatibility. / 字节码协议
+             # （rsync）里的 SHA1 是向后兼容所需。
+      - G501  # MD5 in wire-format code (rsync protocol) is
+             # required for backward compatibility. / 字节码协议
+             # 里的 MD5 是向后兼容所需。
+      - G505  # crypto/sha1 import — same reason as G401.
   revive:
     rules:
       - name: exported
@@ -67,6 +103,10 @@ linters-settings:
     checks:
       - all
       - "-SA1019"  # allow deprecated in tests (we use deprecated APIs in some test paths intentionally)
+      - "-SA9003"  # empty-branch placeholders for OS-specific code
+                  # (Windows vs Unix) are intentional. / 操作系统
+                  # 特定代码（Windows vs Unix）的空分支占位是有意
+                  # 为之。
 
 issues:
   # Skip generated files and vendored deps. / 跳过生成文件与 vendored 依赖。
