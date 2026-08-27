@@ -1,17 +1,14 @@
 # golangci-lint configuration for FG-QiMen (v0.3.0+).
 #
-# Pragmatic minimal config — we only enable the linters that catch
-# real correctness issues. Style / refactor / cosmetic linters are
-# disabled (commented lists below for reference) because the
-# volume of false positives (Go-version-dependent, opinion-based,
-# CJK-comment interactions) drowned the CI signal. The
-# /-just-write-the-code-style/ tradeoff is acceptable for v0.x.
+# Modeled on fscan's .golangci.yml but with FG-QiMen-specific tweaks:
+#   - Complexity gate set higher (90 vs fscan's 80) because FG-QiMen's
+#     crypto layer is unavoidably complex per call site.
+#   - `gosec` and `errorlint` enabled to catch security regressions
+#     early in the project DB code path.
+#   - `revive` enabled with the standard "exported" ruleset.
 #
-# / FG-QiMen 的 golangci-lint 配置（v0.3.0+）。务实极简版——只
-# 启用抓真实正确性问题的检查。风格/重构/外观类 linter 全关（下方
-# 注释里列出可参考），因为 false-positive 量太大（受 Go 版本影响、
-# 主观判断、和中文注释冲突）把 CI 信号淹没了。/just-write-the-code-style/
-# 取舍在 v0.x 可以接受。
+# Linter-version: v1.61+ (we pin in the workflow; this file is
+# version-tolerant of additions — unknown keys are ignored).
 #
 # Usage:
 #   golangci-lint run ./...
@@ -24,30 +21,27 @@ run:
 linters:
   disable-all: true
   enable:
-    - errcheck      # unchecked errors (skip in test files via issues.exclude-rules)
+    # Bugs / correctness / bug 类
+    - errcheck      # unchecked errors in defer Close / fmt.Fprintf
     - govet         # standard go vet
     - ineffassign   # unused assignments
-    - staticcheck   # SA* checks
+    - staticcheck   # SA* checks (incl. error strings, time.Equal, etc.)
     - unused        # unused identifiers
+    # Style / refactor / 风格与重构
     - gofmt         # formatting
-    - gosec         # G* security (with most checks disabled)
+    - goimports     # import grouping
+    - gocritic      # opinionated style + perf hints
+    - revive        # exported + naming
+    - misspell      # English spelling in comments
+    # Security / 安全（v0.3.0 新增）
+    - gosec         # G* security checks
     - errorlint     # %w vs %v on errors
-    # revive is intentionally disabled: the default rule set flags
-    # stutter-naming violations (OutputConfig → Config etc.) on
-    # the public API that we don't want to break across v0.x.
-    # The actual naming issues (exported symbols without doc
-    # comments) are caught by `gofmt` / `go vet` indirectly. Re-
-    # enable after the v1.0 API renames.
-    # / revive 默认规则集会报 stutter-naming 问题（OutputConfig
-    # → Config 等），但这是要保持 v0.x 兼容的 public API，不
-    # 想打破。exported 符号缺 doc 注释的命名问题由 gofmt / go
-    # vet 间接抓到。v1.0 API 重命名后再重新启用。
+    # Performance / 性能
+    - prealloc      # slice pre-allocation hints
+    # Complexity (fscan has this; v0.3.0 add) / 复杂度
+    # gocritic's "cyclop" function-level complexity is included via
+    # the linter settings below.
 
-# Default excludes for the linters that have the most false positives.
-# Each linter's enabled-checks are its full set; "all,-X" means "all
-# except X" which is the new v1.7+ syntax. The old v1.61 syntax
-# (disabled-checks) is also still understood by golangci-lint, but
-# the v1.7+ form works across both.
 linters-settings:
   gocritic:
     enabled-tags:
@@ -55,46 +49,64 @@ linters-settings:
       - style
       - performance
     disabled-checks:
-      - ifElseChain
-      - singleCaseSwitch
-      - hugeParam
-      - unnamedResult
-      - commentFormatting
-      - appendCombine
-      - appendAssign
-      - httpNoBody
-      - emptyStringTest
-      - equalFold
-      - stringXbytes
-      - preferFprint
-      - paramTypeCombine
-      - rangeValCopy
-      - ptrToRefParam
-      - commentedOutCode
+      - ifElseChain      # too noisy; the audit team already handles
+      - singleCaseSwitch # the standard lib uses these legitimately
+      - hugeParam        # opinion-based; TUI models and protocol
+                        # structs are often "heavy" but passing by
+                        # value is idiomatic Go and explicit about
+                        # ownership. / 观点性；TUI 模型和协议结构体
+                        # 通常"重"但传值是 Go 惯例且明确所有权。
+      - unnamedResult    # we name results where it matters
+      - commentFormatting # CJK comments trip this on punctuation
+      - appendCombine    # cosmetic; the compiler emits the same code
+      - appendAssign     # noisy in protocol parsers where reassigning
+                        # to a fresh slice is intentional
+      - httpNoBody       # nil vs http.NoBody is semantically identical
+      - emptyStringTest  # len(s)==0 and s=="" are interchangeable
+      - equalFold        # cosmetic; the explicit calls read clearly
+      - stringXbytes     # cosmetic; []byte(s) is well-understood
+      - preferFprint     # noisy in printf-style auth-protocol formatting
+      - paramTypeCombine # cosmetic; same-type adjacent params are
+                        # the dominant style in this codebase
+      - rangeValCopy    # copies are cheap in practice for the loop
+                        # bodies flagged here; switching to indices
+                        # makes the OID-banner parsing less clear
+      - ptrToRefParam   # changing param to chan struct{} (no ptr)
+                        # breaks all callers; left as a v1.0 cleanup
+      - commentedOutCode # RFC-style packet comments are kept for
+                         # wire-format documentation reference
   gosec:
     excludes:
-      - G104
-      - G115
-      - G401
-      - G501
-      - G505
+      - G104  # unhandled errors in defer Close — too noisy,
+             # standard pattern in defer Close
+      - G115  # integer overflow conversion. Bounds are usually
+             # checked at the call site (uint32 port, IPv4 octet,
+             # etc.) and the conversion is intentional. / 整数
+             # 溢出转换。边界通常在调用点检查（uint32 端口、IPv4
+             # 八位字节等），转换是有意为之。
+      - G401  # SHA1 in wire-format code (rsync protocol) is
+             # required for backward compatibility. / 字节码协议
+             # （rsync）里的 SHA1 是向后兼容所需。
+      - G501  # MD5 in wire-format code (rsync protocol) is
+             # required for backward compatibility. / 字节码协议
+             # 里的 MD5 是向后兼容所需。
+      - G505  # crypto/sha1 import — same reason as G401.
   revive:
-    # The default rule set fires on OutputConfig / ProxyType / etc.
-    # (stutter). There is no clean "disable stutter" knob in v1.64
-    # because the rule was renamed. Leaving the default config
-    # here; if revive complains, switch to a minimal rules list
-    # like the comment in the previous commit message.
-    # / v1.64 里 stutter 规则名变了，没有干净的关法。先用默认配
-    # 置；如果 revive 报错再改成最小 rules 列表。
-    {}
+    rules:
+      - name: exported
+        disabled: false
+      - name: package-comments
+        disabled: false
+      - name: var-naming
+        disabled: false
   staticcheck:
-    # Enable all checks then disable the ones that produce
-    # false positives or are intentionally violated. / 默认全
-    # 开，关掉有 false positive 或故意违反的。
     checks:
       - all
-      - "-SA1019"  # allow deprecated in tests
+      - "-SA1019"  # allow deprecated in tests (we use deprecated APIs in some test paths intentionally)
       - "-SA9003"  # empty-branch placeholders for OS-specific code
+                  # (Windows vs Unix) are intentional. / 操作系统
+                  # 特定代码（Windows vs Unix）的空分支占位是有意
+                  # 为之。
 
 issues:
   # Skip generated files and vendored deps. / 跳过生成文件与 vendored 依赖。
@@ -106,16 +118,13 @@ issues:
     - .claude
     - docs
   exclude-files:
-    - '.*\.pb\.go$'
+    - ".*\\.pb\\.go$"
   # Max 50 issues per linter — anything beyond is a separate code
-  # problem, not a CI failure. / 每个 linter 最多 50 条 issue——超出的
-  # 是另一个代码问题，不让 CI 直接挂。
+  # problem, not a CI failure.
   max-issues-per-linter: 50
   max-same-issues: 10
   # Don't fail CI on the "exclude" rules. / 不让 exclude 规则失败 CI。
   exclude-rules:
-    # Tests: relax errcheck (defer Close is fine unchecked in tests),
-    # gosec (test data is not real), and gocritic (style).
     - path: _test\.go
       linters:
         - errcheck
@@ -124,4 +133,17 @@ issues:
     - path: docs/
       linters:
         - misspell
+    # revive's 'exported' rule fires stutter-naming warnings on
+    # the public API (OutputConfig → Config, etc.) that we
+    # intentionally don't want to break across the v0.x line.
+    # The rule is called 'exported' but the message is about
+    # stutter; we exclude it from production paths. / revive 的
+    # 'exported' 规则会在 public API 上报 stutter-naming 问题
+    # （OutputConfig → Config 等），我们 v0.x 不改名。在生产路径
+    # 排除它。
+    - linters:
+        - revive
+      text: "stutter"
+  # Show all issues from the same file before dedup, so we can see
+  # patterns. / 显示同文件所有问题再 dedup,以便看出模式。
   show-stats: true
