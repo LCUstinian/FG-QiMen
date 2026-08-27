@@ -12,6 +12,7 @@ package alive
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -305,9 +306,19 @@ func TestDiscovery_MissAll(t *testing.T) {
 	closed := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
+	// Use only the TCP probe against a closed port. The previous
+	// version also ran NewSystemPingProbe(), which always succeeds
+	// against 127.0.0.1 (the loopback) and made the test environment-
+	// dependent — it passed on systems where /bin/ping was missing
+	// or blocked (most CI sandboxes) but failed on developer
+	// machines and on CI runners where ping works. / 只用 TCP probe
+	// 探测关闭的端口。旧版本还跑 NewSystemPingProbe()，对 127.0.0.1
+	// （loopback）总是成功——让测试依赖环境：在 /bin/ping 缺失或被
+	// 阻止的 CI 沙箱（多数情况）下过，在开发者机器和 CI runner 上
+	// （ping 可用）挂。
 	probe := NewTCPProbeWithPorts([]int{closed})
 	d := New(Options{
-		Probes:    []Probe{NewSystemPingProbe(), probe},
+		Probes:    []Probe{probe},
 		Timeout:   500 * time.Millisecond,
 		Threads:   4,
 		FirstOnly: true,
@@ -330,6 +341,6 @@ func errIsUnreachable(err error) bool {
 	if err == nil {
 		return false
 	}
-	return err == ErrUnreachable ||
+	return errors.Is(err, ErrUnreachable) ||
 		strings.Contains(err.Error(), ErrUnreachable.Error())
 }

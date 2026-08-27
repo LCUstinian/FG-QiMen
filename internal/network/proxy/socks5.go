@@ -227,15 +227,15 @@ func (d *SOCKS5Dialer) connect(conn net.Conn, address string) error {
 	addrType := resp[3]
 	switch addrType {
 	case socks5AddrIPv4:
-		io.CopyN(io.Discard, conn, 4+2) // IP + port
+		_, _ = io.CopyN(io.Discard, conn, 4+2) // IP + port
 	case socks5AddrIPv6:
-		io.CopyN(io.Discard, conn, 16+2) // IP + port
+		_, _ = io.CopyN(io.Discard, conn, 16+2) // IP + port
 	case socks5AddrDomain:
 		lenBuf := make([]byte, 1)
 		if _, err := io.ReadFull(conn, lenBuf); err != nil {
 			return err
 		}
-		io.CopyN(io.Discard, conn, int64(lenBuf[0])+2) // domain + port
+		_, _ = io.CopyN(io.Discard, conn, int64(lenBuf[0])+2) // domain + port
 	default:
 		return fmt.Errorf("unknown address type: %d", addrType)
 	}

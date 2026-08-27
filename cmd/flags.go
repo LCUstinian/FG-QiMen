@@ -66,7 +66,7 @@ var (
 
 	// HTTP form brute (opt-in; default empty = no-op). / HTTP form 爆破
 	// （opt-in；默认空 = no-op）。
-	flagHTTPFormURL      string
+	flagHTTPFormURL     string
 	flagHTTPFormFields  string
 	flagHTTPFormSuccess string
 	flagHTTPFormFailure string

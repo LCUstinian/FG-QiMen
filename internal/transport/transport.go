@@ -90,7 +90,7 @@ var KnownHostsFile atomic.Pointer[string]
 // override=true 是 OK 的；flag 设了但 override=false 会被静默降级到
 // insecure（不允许调用者"opt out"操作员的显式决定）。
 func TLSConfig(override bool) *tls.Config {
-	cfg := &tls.Config{}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if override || InsecureTLS.Load() {
 		cfg.InsecureSkipVerify = true //nolint:gosec // operator-opt-in
 	}

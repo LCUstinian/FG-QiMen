@@ -33,10 +33,10 @@ var Global = NewCache(256)
 // Safe for concurrent use. / Cache 是以 string 为 key 的 *sql.DB
 // LRU 缓存。并发安全。
 type Cache struct {
-	mu  sync.Mutex
-	cap int
-	ll  *list.List               // front = most recent, back = oldest
-	m   map[string]*list.Element // key → *list.Element holding *entry
+	mu       sync.Mutex
+	capacity int
+	ll       *list.List               // front = most recent, back = oldest
+	m        map[string]*list.Element // key → *list.Element holding *entry
 }
 
 type entry struct {
@@ -45,17 +45,17 @@ type entry struct {
 	hits int
 }
 
-// NewCache returns a Cache that holds at most cap entries; older
-// entries are evicted when the cache is full. / NewCache 返回容
-// 量 cap 的 Cache；满了就淘汰最老。
-func NewCache(cap int) *Cache {
-	if cap <= 0 {
-		cap = 64
+// NewCache returns a Cache that holds at most maxEntries entries;
+// older entries are evicted when the cache is full. / NewCache 返回容
+// 量 maxEntries 的 Cache；满了就淘汰最老。
+func NewCache(maxEntries int) *Cache {
+	if maxEntries <= 0 {
+		maxEntries = 64
 	}
 	return &Cache{
-		cap: cap,
-		ll:  list.New(),
-		m:   make(map[string]*list.Element, cap),
+		capacity: maxEntries,
+		ll:       list.New(),
+		m:        make(map[string]*list.Element, maxEntries),
 	}
 }
 
@@ -93,7 +93,7 @@ func (c *Cache) GetOrCreate(key string, open func() (*sql.DB, error)) (*sql.DB, 
 		c.ll.MoveToFront(e)
 		return e.Value.(*entry).db, false, nil
 	}
-	if c.ll.Len() >= c.cap {
+	if c.ll.Len() >= c.capacity {
 		// Evict oldest. / 淘汰最老。
 		oldest := c.ll.Back()
 		if oldest != nil {
@@ -131,7 +131,7 @@ func (c *Cache) Close() {
 		_ = e.Value.(*entry).db.Close()
 	}
 	c.ll.Init()
-	c.m = make(map[string]*list.Element, c.cap)
+	c.m = make(map[string]*list.Element, c.capacity)
 }
 
 // Len returns the current entry count. / Len 返当前条目数。

@@ -186,7 +186,7 @@ func TestHTTPProxy_BadStatus(t *testing.T) {
 		defer c.Close()
 		_ = c.SetDeadline(time.Now().Add(3 * time.Second))
 		br := bufio.NewReader(c)
-		br.ReadString('\n')
+		_, _ = br.ReadString('\n')
 		for {
 			line, _ := br.ReadString('\n')
 			if strings.TrimRight(line, "\r\n") == "" {

@@ -32,8 +32,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database/sqlcache"
-	"github.com/go-sql-driver/mysql"
-	_ "github.com/go-sql-driver/mysql" // register driver
+	"github.com/go-sql-driver/mysql" // imported for its side effects (driver registration)
 )
 
 // MySQLAuthenticator authenticates against MySQL servers.

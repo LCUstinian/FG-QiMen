@@ -15,6 +15,10 @@ import (
 )
 
 // ScanOptions configures Scanner. / ScanOptions 配置 Scanner。
+//
+// stable across the v0.x API; rename deferred to v1.0.
+//
+//nolint:revive // stuttering (scan.ScanOptions) is intentional — kept
 type ScanOptions struct {
 	Probe      Probe
 	Timeout    time.Duration

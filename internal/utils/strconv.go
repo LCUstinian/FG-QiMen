@@ -57,7 +57,7 @@ func ContainsFold(s, substr string) bool {
 			c2 := substrLower[j]
 			// Compare case-insensitively / 忽略大小写比较
 			if c1 >= 'A' && c1 <= 'Z' {
-				c1 = c1 + ('a' - 'A')
+				c1 += 'a' - 'A'
 			}
 			if c1 != c2 {
 				match = false

@@ -60,7 +60,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	if err != nil {
 		// Read greeting manually. / 手动读问候。
 		buf := make([]byte, 256)
-		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		n, _ := conn.Read(buf)
 		if n < 4 || buf[0] != '2' || buf[1] != '2' || buf[2] != '0' {
 			return nil

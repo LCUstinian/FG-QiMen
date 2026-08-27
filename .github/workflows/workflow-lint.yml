@@ -28,19 +28,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run actionlint
-        uses: docker://rhysd/actionlint:latest
-        with:
-          args: -color
+      # Use the official download script (no Docker required, works on
+      # every GitHub-hosted runner). / 用官方下载脚本（不需 Docker，
+      # 任何 GH-hosted runner 可用）。
+      - name: Download actionlint
+        id: get_actionlint
+        run: |
+          bash <(curl --fail -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          echo "executable=${PWD}/actionlint" >> "$GITHUB_OUTPUT"
+
+      - name: Check workflow files
+        run: ${{ steps.get_actionlint.outputs.executable }} -color
 
   shellcheck:
-    name: shellcheck (run blocks)
+    name: shellcheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Run shellcheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        # Default behaviour checks all .sh files. We point it at the
-        # inline run blocks via the -x extension. / 默认检查所有
-        # .sh 文件。我们用 -x 扩展指向内联 run 块。
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts
+      # Note: ludeeus/action-shellcheck only checks .sh files in the
+      # repo, not inline `run:` blocks. For inline-block linting we
+      # rely on actionlint's own shellcheck integration (--shellcheck
+      # flag, which auto-detects the shellcheck binary on PATH).
+      # / 注：ludeeus/action-shellcheck 只检查 .sh 文件，不检查
+      # 内联 run 块。inline 块靠 actionlint 的 --shellcheck 集成
+      # （自动从 PATH 找 shellcheck 二进制）。

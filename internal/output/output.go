@@ -95,9 +95,9 @@ type Output struct {
 	// stream — we accumulate results and emit at Close(). / v0.4：
 	// SARIF buffer。SARIF 是单 JSON 文档，不是流——累积结果并在
 	// Close() 一次性输出。
-	sarif     *flushCloser
-	sarifMu   sync.Mutex
-	sarifBuf  []*types.Result
+	sarif    *flushCloser
+	sarifMu  sync.Mutex
+	sarifBuf []*types.Result
 
 	// showCleartext gates whether result.txt, result.json, and result.csv
 	// embed the cleartext password (default: redacted fingerprint).
@@ -114,6 +114,10 @@ type Output struct {
 
 // OutputConfig configures which files Output should open.
 // OutputConfig 配置 Output 应打开的文件。
+//
+// stable across the v0.x API; rename deferred to v1.0.
+//
+//nolint:revive // stuttering (output.OutputConfig) is intentional — kept
 type OutputConfig struct {
 	ResultTXTPath  string // empty = no txt output
 	ResultJSONPath string // empty = no json output

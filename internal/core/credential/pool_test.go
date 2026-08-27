@@ -34,6 +34,8 @@ import (
 // it's a dup.
 func TestDedupKeyStable(t *testing.T) {
 	c := Cred{User: "root", Pass: "hunter2", Method: AuthPassword}
+	//nolint:staticcheck // SA4000 intentional: asserts dedupKey is deterministic
+	// by comparing a call against itself.
 	if dedupKey(c) != dedupKey(c) {
 		t.Error("dedupKey(c) ≠ dedupKey(c); dedup is non-deterministic")
 	}

@@ -25,26 +25,11 @@ import (
 // RetryableProbe 走完重试路径而不触网。
 type resourceErrProbe struct{}
 
-func (p *resourceErrProbe) Name() string                 { return "fake-res-exh" }
-func (p *resourceErrProbe) Method() Method               { return MethodTCPConnect }
-func (p *resourceErrProbe) Available() error             { return nil }
+func (p *resourceErrProbe) Name() string     { return "fake-res-exh" }
+func (p *resourceErrProbe) Method() Method   { return MethodTCPConnect }
+func (p *resourceErrProbe) Available() error { return nil }
 func (p *resourceErrProbe) Probe(_ context.Context, _ string, _ int, _ time.Duration) (Result, error) {
 	return Result{}, errors.New("too many open files")
-}
-
-// successProbe is a fake Probe that always returns a clean
-// success — used to verify the "first attempt succeeds" path doesn't
-// increment any retry counters.
-//
-// successProbe 是始终返回干净成功的 fake Probe——用于验证"首次尝试
-// 即成功"路径不增加任何重试计数。
-type successProbe struct{}
-
-func (p *successProbe) Name() string                    { return "fake-success" }
-func (p *successProbe) Method() Method                  { return MethodTCPConnect }
-func (p *successProbe) Available() error                { return nil }
-func (p *successProbe) Probe(_ context.Context, _ string, _ int, _ time.Duration) (Result, error) {
-	return Result{State: StateOpen, Method: MethodTCPConnect}, nil
 }
 
 // TestRetryableProbeStatsConcurrent — Task 5 (first-batch fixes).

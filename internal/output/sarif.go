@@ -53,10 +53,10 @@ type sarifDriver struct {
 
 // sarifResult is one finding. / sarifResult 是单个发现。
 type sarifResult struct {
-	RuleID  string          `json:"ruleId"`
-	Level   string          `json:"level"`
+	RuleID    string          `json:"ruleId"`
+	Level     string          `json:"level"`
 	Locations []sarifLocation `json:"locations"`
-	Message  sarifMessage    `json:"message"`
+	Message   sarifMessage    `json:"message"`
 }
 
 // sarifLocation pins a finding to a host:port. / sarifLocation 把发

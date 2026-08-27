@@ -62,12 +62,7 @@ func (p *cmdProbe) Method() Method { return MethodSystem }
 // Available reports whether the platform `ping` binary is on PATH.
 // Available 报告平台 `ping` 二进制是否在 PATH 上。
 func (p *cmdProbe) Available() error {
-	var name string
-	if runtime.GOOS == "windows" {
-		name = "ping"
-	} else {
-		name = "ping"
-	}
+	name := "ping"
 	if _, err := exec.LookPath(name); err != nil {
 		return fmt.Errorf("system-ping: %s not on PATH: %w", name, err)
 	}

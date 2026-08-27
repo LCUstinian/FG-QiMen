@@ -81,7 +81,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		if r := queryAndCheckAt(conn, buildRootAQuery(), host, port); r != nil {
 			// If AA (Authoritative Answer) bit is set, try AXFR.
 			// / 如果 AA（权威应答）位被置，试 AXFR。
-			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 			if axfrResult := tryAXFR(conn, host, port); axfrResult != nil {
 				return axfrResult
 			}
@@ -141,15 +141,11 @@ func tryAXFR(conn net.Conn, host string, port int) *types.Result {
 	return nil
 }
 
-// queryAndCheck sends q, reads the response, and returns a *Result
-// on success or nil on failure. / queryAndCheck 发 q、读响应，
-// 成功返回 *Result，失败返回 nil。
-func queryAndCheck(conn net.Conn, q []byte) *types.Result {
-	return queryAndCheckAt(conn, q, "", 0)
-}
-
-// queryAndCheckAt is the (host, port)-aware variant. /
-// queryAndCheckAt 是带 (host, port) 的变体。
+// queryAndCheckAt sends q, reads the response, and returns a *Result
+// on success or nil on failure. The (host, port) args are reserved
+// for logging context in error paths. / queryAndCheckAt 发 q、读响应，
+// 成功返回 *Result，失败返回 nil。(host, port) 保留给错误路径的日志
+// 上下文用。
 func queryAndCheckAt(conn net.Conn, q []byte, host string, port int) *types.Result {
 	if _, err := conn.Write(q); err != nil {
 		return nil

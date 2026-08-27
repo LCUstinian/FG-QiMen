@@ -31,9 +31,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core"
+	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
-	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/tui"

@@ -11,10 +11,10 @@
 // minimal set of configuration knobs:
 // / 设计目标是用最少的配置项复刻 fscan 的 -http form 爆破 flag：
 //
-//   --http-form-url <URL>          target URL (full), e.g. http://x/login
-//   --http-form-fields <a=b,c=d>    form fields; $user$ / $pass$ placeholders
-//   --http-form-success <substr>    substring present on success
-//   --http-form-failure <substr>    substring present on failure (default "invalid")
+//	--http-form-url <URL>          target URL (full), e.g. http://x/login
+//	--http-form-fields <a=b,c=d>    form fields; $user$ / $pass$ placeholders
+//	--http-form-success <substr>    substring present on success
+//	--http-form-failure <substr>    substring present on failure (default "invalid")
 //
 // All flags are optional. When --http-form-url is empty the
 // authenticator is a no-op (every cred returns miss).
@@ -49,9 +49,9 @@ import (
 // types.Config。
 var (
 	HTTPFormURL      string // full URL, e.g. "http://10.0.0.1/login"
-	HTTPFormFields  string // "user=$user$,pass=$pass$,csrf=$(none)"
-	HTTPFormSuccess string // substring present in success body (may be empty)
-	HTTPFormFailure string // substring present in failure body (default "invalid")
+	HTTPFormFields   string // "user=$user$,pass=$pass$,csrf=$(none)"
+	HTTPFormSuccess  string // substring present in success body (may be empty)
+	HTTPFormFailure  string // substring present in failure body (default "invalid")
 	HTTPFormRedirect string // path substring of success redirect Location (optional)
 )
 

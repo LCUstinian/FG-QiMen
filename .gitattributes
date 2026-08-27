@@ -1,0 +1,26 @@
+# Force LF line endings for Go source, scripts, and config.
+# Windows users with core.autocrlf=true would otherwise check files
+# out as CRLF, which then fails the gofmt linter locally even when
+# CI sees LF. / 强制 Go 源码、脚本、配置用 LF 行尾。Windows 用户若
+# core.autocrlf=true，check out 会变成 CRLF，本地 gofmt linter 会失败，
+# 但 CI 看到的是 LF。
+
+*.go         text eol=lf
+*.mod        text eol=lf
+*.sum        text eol=lf
+*.sh         text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.md         text eol=lf
+*.json       text eol=lf
+*.toml       text eol=lf
+*.txt        text eol=lf
+
+# Generated / binary — leave as-is.
+*.png        binary
+*.jpg        binary
+*.gif        binary
+*.ico        binary
+*.zip        binary
+*.gz         binary
+*.tar        binary

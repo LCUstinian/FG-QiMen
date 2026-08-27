@@ -72,7 +72,6 @@ var (
 	stBox         lipgloss.Style
 	stPanelHeader lipgloss.Style
 	stKeyHint     lipgloss.Style
-	stCounter     lipgloss.Style
 	stHelp        lipgloss.Style
 	stRunning     lipgloss.Style
 	stIdle        lipgloss.Style
@@ -129,10 +128,6 @@ func init() {
 		Background(lipgloss.Color(accent)).
 		Bold(true).
 		Padding(0, 1)
-
-	stCounter = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBright)).
-		Bold(true)
 
 	// Help overlay: dark panel, cyan border
 	stHelp = lipgloss.NewStyle().

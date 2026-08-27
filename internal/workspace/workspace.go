@@ -66,7 +66,7 @@ func Open(name string) (*Project, error) {
 // legacy Open(name) behaviour (persistent mode, bbolt opened).
 //
 // OpenOptions 配置 OpenWithOptions。零值保留旧 Open(name) 行为
-//（持久化模式，打开 bbolt）。
+// （持久化模式，打开 bbolt）。
 type OpenOptions struct {
 	// NoState disables bbolt persistence even for named projects.
 	// Task 4 (first-batch fixes): `--no-state` was previously dead

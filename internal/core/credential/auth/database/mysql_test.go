@@ -188,7 +188,7 @@ func (s *fakeMySQLServer) writeHandshake(c net.Conn) error {
 	b.WriteString("5.7.0-fake") // version string / 版本串
 	b.WriteByte(0x00)           // null terminator
 	// thread id (4 bytes LE) / thread id（4 字节 LE）
-	binary.Write(&b, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&b, binary.LittleEndian, uint32(1))
 	// auth-plugin-data part 1 (8 bytes) — first 8 of our 20-byte salt
 	// / auth-plugin-data 第 1 部分（8 字节）——20 字节 salt 的前 8
 	b.Write(s.salt[:8])
@@ -199,7 +199,7 @@ func (s *fakeMySQLServer) writeHandshake(c net.Conn) error {
 	// / capability flags 低 2 字节（声明基本 4.1 客户端兼容，
 	// 无压缩、无 SSL、无 plugin auth）
 	capLower := uint16(0xf7ff)
-	binary.Write(&b, binary.LittleEndian, capLower)
+	_ = binary.Write(&b, binary.LittleEndian, capLower)
 	// charset (1 byte) utf8 / charset（1 字节）utf8
 	b.WriteByte(0x21)
 	// status flags (2 bytes LE) / status flags（2 字节 LE）
