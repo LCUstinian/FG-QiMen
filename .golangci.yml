@@ -133,6 +133,17 @@ issues:
     - path: docs/
       linters:
         - misspell
+    # revive's 'exported' rule fires stutter-naming warnings on
+    # the public API (OutputConfig → Config, etc.) that we
+    # intentionally don't want to break across the v0.x line.
+    # The rule is called 'exported' but the message is about
+    # stutter; we exclude it from production paths. / revive 的
+    # 'exported' 规则会在 public API 上报 stutter-naming 问题
+    # （OutputConfig → Config 等），我们 v0.x 不改名。在生产路径
+    # 排除它。
+    - linters:
+        - revive
+      text: "stutter"
   # Show all issues from the same file before dedup, so we can see
   # patterns. / 显示同文件所有问题再 dedup,以便看出模式。
   show-stats: true
