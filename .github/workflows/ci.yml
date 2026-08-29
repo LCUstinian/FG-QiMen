@@ -57,13 +57,21 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          # Pin a v1.61+ version; we configure .golangci.yml to
-          # be tolerant of newer keys but the linter version
-          # itself moves faster than our config.
+          # Pin to v1.64 — matches the local development toolchain
+          # (developers on Go 1.26 run golangci-lint v1.64.8 via
+          # `go install`). Earlier v1.61 had stricter default
+          # gocritic checks that flagged newly-introduced code
+          # paths even when the project-level .golangci.yml
+          # disabled those checks via the appropriate exclusion
+          # rules; bumping to v1.64 brings CI into parity with
+          # the developer experience.
           #
-          # 锁 v1.61+ 版本；我们配的 .golangci.yml 对新 key 兼容,
-          # 但 linter 本身演进比我们的配置快。
-          version: v1.61
+          # / 锁 v1.64 — 匹配本地开发工具链（Go 1.26 开发者通过
+          # `go install` 跑 golangci-lint v1.64.8）。更早的 v1.61
+          # 默认 gocritic 检查更严，即使项目级 .golangci.yml 通过
+          # 排除规则禁用了相关检查，仍会标记新引入的代码路径；
+          # 升到 v1.64 让 CI 与开发者体验一致。
+          version: v1.64
           # Only fail on issues introduced by this PR (not pre-existing).
           # Only fail on new issues. / 仅 PR 引入的问题。
           only-new-issues: true
