@@ -55,34 +55,24 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          # Pin to v1.64.8 — matches the local development toolchain
-          # (developers on Go 1.26 run golangci-lint v1.64.8 via
-          # `go install`). Earlier v1.61 had stricter default
-          # gocritic checks that flagged newly-introduced code
-          # paths even when the project-level .golangci.yml
-          # disabled those checks via the appropriate exclusion
-          # rules; bumping to v1.64.8 brings CI into parity with
-          # the developer experience. v1.64.0 (without the patch)
-          # is NOT a real release — golangci-lint only ships .8
-          # patches on the v1.64 branch; passing just 'v1.64' makes
-          # the action's binary-download step fail with an opaque
-          # 'exit code 3' that doesn't show the actual download
-          # error in the annotations.
-          #
-          # / 锁 v1.64.8 — 匹配本地开发工具链（Go 1.26 开发者通过
-          # `go install` 跑 golangci-lint v1.64.8）。更早的 v1.61
-          # 默认 gocritic 检查更严，即使项目级 .golangci.yml 通过
-          # 排除规则禁用了相关检查，仍会标记新引入的代码路径；
-          # 升到 v1.64.8 让 CI 与开发者体验一致。v1.64.0（不带
-          # patch）不是真实 release——v1.64 分支只发了 .8 patch；
-          # 只传 'v1.64' 会让 action 的二进制下载步骤失败并报模
-          # 糊的 'exit code 3'，annotation 里看不到真实下载错误。
-          version: v1.64.8
-          # Only fail on issues introduced by this PR (not pre-existing).
-          # Only fail on new issues. / 仅 PR 引入的问题。
-          only-new-issues: true
+        # Bypass the golangci/golangci-lint-action wrapper and
+        # run golangci-lint directly. The action's binary-download
+        # step was producing an opaque 'golangci-lint exit with
+        # code 3' annotation that didn't surface the actual cause
+        # (likely a download or PATH issue specific to v1.64.x on
+        # the Ubuntu runner). A direct `go install` + `run` shows
+        # the full lint output in the step log so failures are
+        # debuggable.
+        #
+        # / 绕过 golangci/golangci-lint-action 包装器直接跑
+        # golangci-lint。该 action 的二进制下载步骤产生了模糊的
+        # 'golangci-lint exit with code 3' annotation，看不到真实
+        # 原因（可能是 v1.64.x 在 Ubuntu runner 上的下载或 PATH
+        # 问题）。直接 `go install` + `run` 在 step log 里展示完
+        # 整 lint 输出，便于调试失败。
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          ~/go/bin/golangci-lint run --timeout 5m
 
   # HARD-rule enforcement: forbid ssh.NewSession / os/exec inside
   # credential code paths. A.2 of the audit roadmap. Cheap
