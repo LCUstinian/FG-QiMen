@@ -287,9 +287,14 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 			}
 		}
 	acquired:
-		// Reset backoff for the next saturated wait. / 重置退避，
-		// 等下一次饱和等待再用。
-		backoff = backoffMin
+		// Note: backoff is not reset here. The inner for-loop
+		// re-initialises via `backoff *= 2; if backoff > backoffMax {
+		// backoff = backoffMax }` from `backoffMin` on the next
+		// iteration, and the value of `backoff` is not read after
+		// this label. / 注：此处不重置 backoff。内层 for 循环在
+		// 下一次迭代通过 `backoff *= 2; if backoff > backoffMax {
+		// backoff = backoffMax }` 从 backoffMin 重新开始；本标签
+		// 之后 `backoff` 不会被读取。
 		inflight.Add(1)
 		wg.Add(1)
 		go func(item Item) {
