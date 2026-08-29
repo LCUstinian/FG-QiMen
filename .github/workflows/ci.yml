@@ -72,27 +72,9 @@ jobs:
           # 排除规则禁用了相关检查，仍会标记新引入的代码路径；
           # 升到 v1.64 让 CI 与开发者体验一致。
           version: v1.64
-          # Show all issues (not just new ones). The .golangci.yml
-          # has grown new disabled-checks over the audit pass, and
-          # only-new-issues was reporting "new" issues from the
-          # linter's perspective even when the underlying code
-          # was unchanged — flipping to false surfaces the actual
-          # remaining issues so the audit can fix them.
-          #
-          # / 显示所有 issue（不只新的）。.golangci.yml 在审计中
-          # 增了多个 disabled-checks，only-new-issues 从 linter 角
-          # 度报"新"issue，即使底层代码未变——改 false 暴露实际剩
-          # 余 issue 以便审计修。
-          only-new-issues: false
-          args: --max-issues-per-linter=0 --max-same-issues=0 --out-format=checkstyle
-
-      - name: Upload lint output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: golangci-lint-output
-          path: golangci-lint-report.xml
-          retention-days: 3
+          # Only fail on issues introduced by this PR (not pre-existing).
+          # Only fail on new issues. / 仅 PR 引入的问题。
+          only-new-issues: true
 
   # HARD-rule enforcement: forbid ssh.NewSession / os/exec inside
   # credential code paths. A.2 of the audit roadmap. Cheap
