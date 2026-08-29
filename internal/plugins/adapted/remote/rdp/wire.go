@@ -44,8 +44,8 @@ package rdp
 // Protocol identifiers for the X.224 requestedProtocols field.
 // / X.224 requestedProtocols 字段的协议标识符。
 const (
-	ProtocolRDP       uint32 = 0x00000000 // legacy RDP security
-	ProtocolSSL       uint32 = 0x00000001 // TLS upgrade (v0.2+)
-	ProtocolHYBRID    uint32 = 0x00000002 // NLA (CredSSP)
-	ProtocolHYBRID_EX uint32 = 0x00000008 // NLA extended
+	ProtocolRDP      uint32 = 0x00000000 // legacy RDP security
+	ProtocolSSL      uint32 = 0x00000001 // TLS upgrade (v0.2+)
+	ProtocolHYBRID   uint32 = 0x00000002 // NLA (CredSSP)
+	ProtocolHYBRIDEX uint32 = 0x00000008 // NLA extended
 )

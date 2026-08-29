@@ -32,8 +32,18 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/database/sqlcache"
-	"github.com/go-sql-driver/mysql"
-	_ "github.com/go-sql-driver/mysql" // register driver
+
+	// The _ import is a blank import for the driver's init() side
+	// effect (registers the driver). The non-blank import below
+	// is what the authenticator actually uses (mysql.MySQLError
+	// type assertion). Go permits the same package under both
+	// forms; gocritic flags this as dupImport but the behaviour
+	// is intentional. / _ 导入是为了触发驱动 init()（注册驱动）的
+	// 空白导入；下方非空导入是认证器实际使用的（mysql.MySQLError
+	// 类型断言）。Go 允许同包两种形式；gocritic 标记为 dupImport
+	// 但行为是有意的。
+	"github.com/go-sql-driver/mysql"   //nolint:gocritic // used at mysql.MySQLError assertion below
+	_ "github.com/go-sql-driver/mysql" //nolint:gocritic // register driver (blank for init side effect)
 )
 
 // MySQLAuthenticator authenticates against MySQL servers.

@@ -7,6 +7,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestARPProbe_NotInTable(t *testing.T) {
 	// probe may succeed. We accept nil or ErrUnreachable.
 	// / 如果 192.0.2.99 恰好在 ARP 表中（极不可能——192.0.2.0/24 是
 	// TEST-NET-1），探测可能成功。我们接受 nil 或 ErrUnreachable。
-	if err != nil && err != alive.ErrUnreachable {
+	if err != nil && !errors.Is(err, alive.ErrUnreachable) {
 		t.Errorf("expected nil or alive.ErrUnreachable, got %v", err)
 	}
 }
@@ -69,7 +70,7 @@ func TestNBNSProbe_NameAndMethod(t *testing.T) {
 func TestNBNSProbe_UDPNoResponse(t *testing.T) {
 	p := NewNBNSProbe()
 	_, err := p.Probe(context.Background(), "127.0.0.1", 1*time.Second)
-	if err != nil && err != alive.ErrUnreachable {
+	if err != nil && !errors.Is(err, alive.ErrUnreachable) {
 		t.Errorf("expected nil or alive.ErrUnreachable, got %v", err)
 	}
 }

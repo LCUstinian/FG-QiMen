@@ -139,8 +139,8 @@ func buildTNSConnect(service string) []byte {
 	//   2 SDU + 2 MTU + 1 NT char + 1 line turnaround + 1 charset high
 	//   + 1 charset low (0x01) + 1 line turnaround + 1 connect flags 1
 	//   + 2 connect flags 2 + 1 connect flags 3
-	// = 22 bytes header. / 头共 22 字节。
-	hdr := make([]byte, 22)
+	// = 23 bytes header. / 头共 23 字节。
+	hdr := make([]byte, 23)
 	hdr[0] = 0 // length placeholder
 	hdr[1] = 0
 	hdr[2] = 0 // checksum placeholder
@@ -161,7 +161,7 @@ func buildTNSConnect(service string) []byte {
 	hdr[19] = 0x00                               // line turnaround (again)
 	hdr[20] = 0x04                               // connect flags 1
 	binary.BigEndian.PutUint16(hdr[21:23], 0)    // connect flags 2
-	// Total: 22 hdr + len(data) bytes. / 共 22 + len(data) 字节。
+	// Total: 23 hdr + len(data) bytes. / 共 23 + len(data) 字节。
 	total := uint16(22 + len(data))
 	hdr[0] = byte(total >> 8)
 	hdr[1] = byte(total)

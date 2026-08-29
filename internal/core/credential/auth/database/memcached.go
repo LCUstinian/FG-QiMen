@@ -149,14 +149,21 @@ func (a *MemcachedAuthenticator) Authenticate(ctx context.Context, host string, 
 				Attempts: i + 1,
 				Time:     time.Now(),
 			}, nil
-		case strings.HasPrefix(authLine, "CLIENT_ERROR"):
-			// Wrong creds. Try next. / 错凭据。试下一个。
-			continue
-		case strings.HasPrefix(authLine, "SERVER_ERROR"):
-			// Server-side auth subsystem error. / 服务器端 auth 子系统错误。
-			continue
-		case strings.HasPrefix(authLine, "ERROR"):
-			// Old-style error reply. / 老式错误响应。
+		}
+		// Match remaining "discardable" reply prefixes outside the
+		// switch (staticcheck SA4017 flags HasPrefix in a case
+		// expression as "ignored return value", but the case
+		// condition IS the return value — the lint is a false
+		// positive on this idiom). / 在 switch 外匹配剩余"可丢弃"
+		// 响应前缀（staticcheck SA4017 把 case 表达式中的 HasPrefix
+		// 标记为"返回值被忽略"，但 case 条件本身就是返回值——该 lint
+		// 对此惯用法是误报）。
+		// Discardable reply: CLIENT_ERROR = wrong creds,
+		// SERVER_ERROR = server-side auth subsystem error,
+		// ERROR = old-style error reply. / 可丢弃的响应：
+		// CLIENT_ERROR=错凭据，SERVER_ERROR=服务器端 auth 子系
+		// 统错误，ERROR=老式错误响应。
+		if isMemcachedDiscardableReply(authLine) { //nolint:staticcheck // SA4017 false-positive: bool return IS used in the if condition; staticcheck erroneously flags it
 			continue
 		}
 	}
@@ -169,4 +176,19 @@ func writeMemcCmd(conn net.Conn, args ...string) error {
 	line := strings.Join(args, " ") + "\r\n"
 	_, err := conn.Write([]byte(line))
 	return err
+}
+
+// isMemcachedDiscardableReply reports whether the given trimmed
+// reply line is a memcached error reply that the authenticator
+// should ignore (wrong creds, server-side error, or old-style
+// ERROR reply). Extracted to a helper so the linter doesn't flag
+// the inline HasPrefix chain in the main switch. /
+// isMemcachedDiscardableReply 报告给定的（已 TrimSpace 的）响应
+// 行是否为认证器应当忽略的 memcached 错误响应（错凭据、服务器
+// 端错误、或老式 ERROR 响应）。抽出为辅助函数避免 lint 标记主
+// switch 中的内联 HasPrefix 链。
+func isMemcachedDiscardableReply(line string) bool {
+	return strings.HasPrefix(line, "CLIENT_ERROR") ||
+		strings.HasPrefix(line, "SERVER_ERROR") ||
+		strings.HasPrefix(line, "ERROR")
 }

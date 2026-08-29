@@ -45,17 +45,17 @@ type entry struct {
 	hits int
 }
 
-// NewCache returns a Cache that holds at most cap entries; older
-// entries are evicted when the cache is full. / NewCache 返回容
-// 量 cap 的 Cache；满了就淘汰最老。
-func NewCache(cap int) *Cache {
-	if cap <= 0 {
-		cap = 64
+// NewCache returns a Cache that holds at most capacity entries;
+// older entries are evicted when the cache is full. / NewCache
+// 返回容量 capacity 的 Cache；满了就淘汰最老。
+func NewCache(capacity int) *Cache {
+	if capacity <= 0 {
+		capacity = 64
 	}
 	return &Cache{
-		cap: cap,
+		cap: capacity,
 		ll:  list.New(),
-		m:   make(map[string]*list.Element, cap),
+		m:   make(map[string]*list.Element, capacity),
 	}
 }
 

@@ -45,12 +45,12 @@ type X224Confirm struct {
 	// SelectedProtocol is the 32-bit little-endian protocol
 	// identifier the server picked from the requestedProtocols
 	// field of our CR (one of ProtocolRDP / ProtocolSSL /
-	// ProtocolHYBRID / ProtocolHYBRID_EX). rdp.go uses this to
+	// ProtocolHYBRID / ProtocolHYBRIDEX). rdp.go uses this to
 	// decide whether to bail for TLS / NLA.
 	//
 	// / SelectedProtocol 是服务器从我们 CR 的 requestedProtocols
 	// 字段里挑的 32 位小端协议标识（ProtocolRDP / ProtocolSSL /
-	// ProtocolHYBRID / ProtocolHYBRID_EX 之一）。rdp.go 据此决定
+	// ProtocolHYBRID / ProtocolHYBRIDEX 之一）。rdp.go 据此决定
 	// 是否因 TLS / NLA 退出。
 	SelectedProtocol uint32
 }

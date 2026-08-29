@@ -12,6 +12,7 @@ package alive
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -340,6 +341,6 @@ func errIsUnreachable(err error) bool {
 	if err == nil {
 		return false
 	}
-	return err == ErrUnreachable ||
+	return errors.Is(err, ErrUnreachable) ||
 		strings.Contains(err.Error(), ErrUnreachable.Error())
 }

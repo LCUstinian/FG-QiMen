@@ -96,7 +96,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	}
 	fp.ProtocolVersion = cc.SelectedProtocol
 	fp.NLASupported = cc.SelectedProtocol == ProtocolHYBRID ||
-		cc.SelectedProtocol == ProtocolHYBRID_EX
+		cc.SelectedProtocol == ProtocolHYBRIDEX
 	// PROTOCOL_SSL means the server wants a TLS upgrade before
 	// anything else. v0.1 returns nil — TLS path is v0.2+.
 	// / PROTOCOL_SSL 意味着服务器要先 TLS 升级。v0.1 返 nil——TLS

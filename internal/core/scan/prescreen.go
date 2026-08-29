@@ -177,7 +177,7 @@ func (p *Prescreener) probSegments(ctx context.Context, segments map[string][]st
 		network string
 		gateway string
 	}
-	var tasks []task
+	tasks := make([]task, 0, 2*len(segments))
 	for network := range segments {
 		if network == "" {
 			continue

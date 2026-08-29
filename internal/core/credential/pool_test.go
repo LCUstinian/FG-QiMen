@@ -34,8 +34,9 @@ import (
 // it's a dup.
 func TestDedupKeyStable(t *testing.T) {
 	c := Cred{User: "root", Pass: "hunter2", Method: AuthPassword}
-	if dedupKey(c) != dedupKey(c) {
-		t.Error("dedupKey(c) ≠ dedupKey(c); dedup is non-deterministic")
+	other := c // value copy, equivalent in all fields
+	if dedupKey(c) != dedupKey(other) {
+		t.Error("dedupKey(c) ≠ dedupKey(other); dedup is non-deterministic")
 	}
 }
 
