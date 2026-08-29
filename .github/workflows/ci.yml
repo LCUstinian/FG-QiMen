@@ -55,7 +55,7 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           # Pin to v1.64.8 — matches the local development toolchain
           # (developers on Go 1.26 run golangci-lint v1.64.8 via
