@@ -84,6 +84,15 @@ jobs:
           # 度报"新"issue，即使底层代码未变——改 false 暴露实际剩
           # 余 issue 以便审计修。
           only-new-issues: false
+          args: --max-issues-per-linter=0 --max-same-issues=0 --out-format=checkstyle
+
+      - name: Upload lint output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golangci-lint-output
+          path: golangci-lint-report.xml
+          retention-days: 3
 
   # HARD-rule enforcement: forbid ssh.NewSession / os/exec inside
   # credential code paths. A.2 of the audit roadmap. Cheap
