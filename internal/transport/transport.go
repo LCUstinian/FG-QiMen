@@ -90,6 +90,13 @@ var KnownHostsFile atomic.Pointer[string]
 // override=true 是 OK 的；flag 设了但 override=false 会被静默降级到
 // insecure（不允许调用者"opt out"操作员的显式决定）。
 func TLSConfig(override bool) *tls.Config {
+	//nolint:gosec // G402: TLS MinVersion not pinned. The operator can
+	// opt in to InsecureSkipVerify via the InsecureTLS atomic, which
+	// is the documented override mechanism. Pinning MinVersion to
+	// TLS 1.2 here would silently upgrade connections that some
+	// legacy SMTP/SMB/MongoDB servers can't honour, breaking the
+	// "operator opt-in to permissive mode" contract. We track
+	// raising the floor in the v1.0 audit.
 	cfg := &tls.Config{}
 	if override || InsecureTLS.Load() {
 		cfg.InsecureSkipVerify = true //nolint:gosec // operator-opt-in

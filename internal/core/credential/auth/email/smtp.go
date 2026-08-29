@@ -91,6 +91,9 @@ func (a *SMTPAuthenticator) attempt(ctx context.Context, host string, port int, 
 	defer conn.Close()
 	// Port 465 is implicit TLS. / 端口 465 是隐式 TLS。
 	if port == 465 {
+		//nolint:gosec // G402: TLS MinVersion not pinned. Implicit TLS
+		// on port 465 historically supports down to TLS 1.0; some
+		// legacy servers reject 1.2-only. Tracked for v1.0.
 		tlsConn := tls.Client(conn, &tls.Config{ServerName: host})
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			return false, err

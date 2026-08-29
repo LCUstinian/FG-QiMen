@@ -3,7 +3,7 @@
 // This file collects the user-visible throughput benchmarks whose
 // results the README Performance section quotes. Run with:
 //
-//   go test -bench=. -benchmem -benchtime=3s ./internal/core/
+//	go test -bench=. -benchmem -benchtime=3s ./internal/core/
 //
 // Targets (commodity Linux 2026 hardware, Go 1.26):
 //   - BenchmarkPortScanClosedPort (TCP connect to 127.0.0.1:1)
@@ -21,7 +21,6 @@
 package core
 
 import (
-	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -135,21 +134,9 @@ func BenchmarkCrossIterator(b *testing.B) {
 	}
 }
 
-// mockPluginBV04 is a tiny plugins.Plugin for the benchmark suite.
-// (Renamed to avoid collision with scanner_test.go's mockPlugin.)
-// / mockPluginBV04 是基准测试套件用的小型 plugins.Plugin。
-// (重命名以避免与 scanner_test.go 的 mockPlugin 冲突。)
-type mockPluginBV04 struct {
-	name  string
-	ports []int
-}
+// mockPluginBV04 was removed — the benchmark suite exercises
+// real plugins, not mocks. / mockPluginBV04 已删除——基准测试
+// 套件测真实 plugins，不用 mock。
 
-func (m *mockPluginBV04) Name() string               { return m.name }
-func (m *mockPluginBV04) Ports() []int              { return m.ports }
-func (m *mockPluginBV04) Modes() plugins.Mode       { return plugins.ModeIdentify }
-func (m *mockPluginBV04) Identify(ctx context.Context, host string, port int) *types.Result {
-	return nil
-}
-
-// suppress unused warning for testing.TB / mockPlugin. / 抑制 unused。
+// suppress unused warning for testing.TB. / 抑制 unused。
 var _ = time.Now

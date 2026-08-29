@@ -81,7 +81,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		if r := queryAndCheckAt(conn, buildRootAQuery(), host, port); r != nil {
 			// If AA (Authoritative Answer) bit is set, try AXFR.
 			// / 如果 AA（权威应答）位被置，试 AXFR。
-			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 			if axfrResult := tryAXFR(conn, host, port); axfrResult != nil {
 				return axfrResult
 			}
@@ -141,12 +141,10 @@ func tryAXFR(conn net.Conn, host string, port int) *types.Result {
 	return nil
 }
 
-// queryAndCheck sends q, reads the response, and returns a *Result
-// on success or nil on failure. / queryAndCheck 发 q、读响应，
-// 成功返回 *Result，失败返回 nil。
-func queryAndCheck(conn net.Conn, q []byte) *types.Result {
-	return queryAndCheckAt(conn, q, "", 0)
-}
+// queryAndCheck folded into queryAndCheckAt — the at-form takes
+// the (host, port) args explicitly so this alias is no longer
+// needed. / queryAndCheck 已折叠进 queryAndCheckAt——at 形式显式
+// 接收 (host, port) 参数，不再需要这个 alias。
 
 // queryAndCheckAt is the (host, port)-aware variant. /
 // queryAndCheckAt 是带 (host, port) 的变体。

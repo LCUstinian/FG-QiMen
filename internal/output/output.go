@@ -95,9 +95,9 @@ type Output struct {
 	// stream — we accumulate results and emit at Close(). / v0.4：
 	// SARIF buffer。SARIF 是单 JSON 文档，不是流——累积结果并在
 	// Close() 一次性输出。
-	sarif     *flushCloser
-	sarifMu   sync.Mutex
-	sarifBuf  []*types.Result
+	sarif    *flushCloser
+	sarifMu  sync.Mutex
+	sarifBuf []*types.Result
 
 	// showCleartext gates whether result.txt, result.json, and result.csv
 	// embed the cleartext password (default: redacted fingerprint).

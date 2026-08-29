@@ -105,8 +105,8 @@ func (v *Validator) Validate(ctx context.Context, targetHost string, targetPort 
 // sendHTTPProbe sends a simple HTTP GET request.
 // sendHTTPProbe 发送简单的 HTTP GET 请求。
 func (v *Validator) sendHTTPProbe(conn net.Conn) error {
-	conn.SetWriteDeadline(time.Now().Add(v.timeout))
-	defer conn.SetWriteDeadline(time.Time{})
+	_ = conn.SetWriteDeadline(time.Now().Add(v.timeout))
+	defer func() { _ = conn.SetWriteDeadline(time.Time{}) }()
 
 	probe := "GET / HTTP/1.1\r\nHost: test\r\nUser-Agent: FG-QiMen-Validator\r\n\r\n"
 	_, err := conn.Write([]byte(probe))
@@ -121,8 +121,8 @@ func (v *Validator) sendHTTPProbe(conn net.Conn) error {
 //
 // 全回显代理把请求原样返回，表明它不是真正的代理而是透明反射器（TUN 模式等）。
 func (v *Validator) analyzeResponse(conn net.Conn) (bool, error) {
-	conn.SetReadDeadline(time.Now().Add(v.timeout))
-	defer conn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Now().Add(v.timeout))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
 
 	reader := bufio.NewReader(conn)
 
