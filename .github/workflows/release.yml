@@ -247,6 +247,16 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
+          # actions/download-artifact@v4 doesn't always preserve
+          # the +x bit when the source archive is created on
+          # windows-latest runners (where the original +x came
+          # from `go build`'s umask-077 file mode). chmod +x is
+          # idempotent and safe even when the bit is already set.
+          # / actions/download-artifact@v4 不总保留 +x 位——特别
+          # 是当源 archive 在 windows-latest runner 上创建时（原
+          # 始 +x 来自 `go build` 的 umask-077 模式）。chmod +x
+          # 是幂等的，即使位已设也安全。
+          chmod +x ./fg-qimen-linux-amd64
           version_output="$(./fg-qimen-linux-amd64 version)"
           printf '%s\n' "$version_output" | head -n1 | grep -F "${GITHUB_REF_NAME}"
           ./fg-qimen-linux-amd64 --help >/dev/null
