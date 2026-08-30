@@ -128,7 +128,7 @@ func TestIdentify_FakeServer_NonMQTTReply(t *testing.T) {
 // code (≥6 per spec §3.2.2.3). The plugin must return nil
 // (NOT report a non-MQTT broker as MQTT). / server 返 CONNACK 但
 // 是保留/非法返回码（按规范 §3.2.2.3 ≥6）。插件必须返 nil
-//（不能把非 MQTT broker 报成 MQTT）。
+// （不能把非 MQTT broker 报成 MQTT）。
 func TestIdentify_FakeServer_ProtocolError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -222,11 +222,11 @@ func TestIdentify_ConnectFrameFormat(t *testing.T) {
 	want := []byte{
 		0x10, 0x11, // CONNECT, remaining=17
 		'M', 'Q', 'T', 'T', // protocol name
-		0x04,                  // protocol level 4 (MQTT 3.1.1)
-		0x02,                  // connect flags (clean session)
-		0x00, 0x3C,            // keep alive 60s
-		0x00, 0x00,            // unused tail of [10]byte varHeader
-		0x00, 0x05,            // payload length = 5
+		0x04,       // protocol level 4 (MQTT 3.1.1)
+		0x02,       // connect flags (clean session)
+		0x00, 0x3C, // keep alive 60s
+		0x00, 0x00, // unused tail of [10]byte varHeader
+		0x00, 0x05, // payload length = 5
 		'f', 'g', '-', 'q', 'm', // client ID "fg-qm" (5B)
 	}
 	if len(fr.frame) != len(want) {

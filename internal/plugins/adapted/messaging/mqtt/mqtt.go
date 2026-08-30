@@ -95,8 +95,8 @@ func identifyMQTT(conn net.Conn) *types.Result {
 	// Alive 60s）。
 	var varHeader [10]byte
 	copy(varHeader[0:4], "MQTT")
-	varHeader[4] = 0x04 // protocol level
-	varHeader[5] = 0x02 // connect flags (clean session)
+	varHeader[4] = 0x04                            // protocol level
+	varHeader[5] = 0x02                            // connect flags (clean session)
 	binary.BigEndian.PutUint16(varHeader[6:8], 60) // keep alive
 
 	// Payload: 2-byte length + UTF-8 client ID. / 负载: 2 字节
@@ -125,8 +125,8 @@ func identifyMQTT(conn net.Conn) *types.Result {
 		return nil
 	}
 	frame := make([]byte, 2+remaining)
-	frame[0] = 0x10             // CONNECT (type 1, flags 0)
-	frame[1] = byte(remaining)  // remaining length
+	frame[0] = 0x10            // CONNECT (type 1, flags 0)
+	frame[1] = byte(remaining) // remaining length
 	copy(frame[2:], varHeader[:])
 	copy(frame[2+len(varHeader):], payload)
 

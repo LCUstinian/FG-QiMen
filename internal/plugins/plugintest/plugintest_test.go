@@ -22,9 +22,9 @@ import (
 // 返非空名、1 个端口、Identify 模式，所有网络调用都返 nil。
 type minimalPlugin struct{}
 
-func (minimalPlugin) Name() string            { return "minimal" }
-func (minimalPlugin) Ports() []int            { return []int{1} }
-func (minimalPlugin) Modes() plugins.Mode     { return plugins.ModeIdentify }
+func (minimalPlugin) Name() string        { return "minimal" }
+func (minimalPlugin) Ports() []int        { return []int{1} }
+func (minimalPlugin) Modes() plugins.Mode { return plugins.ModeIdentify }
 func (minimalPlugin) Identify(context.Context, string, int) *types.Result {
 	return nil
 }

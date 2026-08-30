@@ -33,12 +33,12 @@ func TestNormalizeSocks5Address(t *testing.T) {
 
 func TestExtractSocks5Auth(t *testing.T) {
 	cases := []struct {
-		name      string
-		addr      string
-		envUser   string
-		envPass   string
-		wantUser  string
-		wantPass  string
+		name     string
+		addr     string
+		envUser  string
+		envPass  string
+		wantUser string
+		wantPass string
 	}{
 		{
 			name:     "from url",
@@ -121,9 +121,9 @@ func TestNormalizeHTTPAddress(t *testing.T) {
 
 func TestExtractHTTPAuth(t *testing.T) {
 	cases := []struct {
-		name                       string
-		addr                       string
-		wantUser, wantPass         string
+		name               string
+		addr               string
+		wantUser, wantPass string
 	}{
 		{"http with creds", "http://alice:secret@127.0.0.1:8080", "alice", "secret"},
 		{"https with creds", "https://alice:secret@127.0.0.1:8443", "alice", "secret"},
