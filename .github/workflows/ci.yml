@@ -171,40 +171,19 @@ jobs:
       - name: coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          # Use bash explicitly. GHA's default on ubuntu-latest is
-          # bash, but pin it for clarity and so the pipefail +
-          # set -euo behavior is guaranteed. / 显式 bash。
-          # ubuntu-latest GHA 默认是 bash，但显式 pin 让 pipefail
-          # + set -euo 行为有保证。
           shell: bash
           set -euo pipefail
           go test -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
-          # Pinpoint the exit-126 source: the old `tail -20` was
-          # triggering SIGPIPE on the producer (go tool cover)
-          # when its output was <20 lines. We `head -1` to print
-          # just the header so the consumer never closes the pipe
-          # early. / 把 exit 126 源点固定：旧 `tail -20` 在
-          # go tool cover 输出 <20 行时给生产者发 SIGPIPE。
-          # 用 `head -1` 只打印 header，消费者不会提前关管道。
-          go tool cover -func=coverage.out | head -1
-          # Extract the total-coverage percentage. The "total:"
-          # line is always present in go tool cover -func output
-          # and is the last line. We use `tail -1` here, but only
-          # after the head -1 above consumed the header, so go
-          # tool cover has already finished writing by the time
-          # this tail reads — no SIGPIPE race. / 抽总覆盖率
-          # 百分比。"total:" 行在 go tool cover -func 输出里总是
-          # 存在且是最后一行。这儿用 `tail -1`，但 head -1 先消费
-          # 完 header，go tool cover 写完才会被 tail 读——没有
-          # SIGPIPE 竞态。
-          PCT=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          # Extract the total-coverage percentage from the last line
+          # of go tool cover -func output. The line is always
+          # `total:\t...\tNN.N%` so $NF gives the percentage. We
+          # discard the trailing % with sed so awk comparison is
+          # numeric. / 从 go tool cover -func 最后一行抽总覆盖率
+          # 百分比。行格式固定是 `total:\t...\tNN.N%`，$NF 即百
+          # 分比。sed 去尾部 % 让 awk 比较是数字。
+          PCT=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | sed 's/%//')
           echo "Total coverage: ${PCT}%"
-          # Phase 1.10 → Phase 2.x: bump the coverage floor 50% → 60%
-          # after the v0.4 quality-pass added unit tests for
-          # cmd/proxy_init, internal/types/ValidateTimeout,
-          # internal/plugins/plugintest, and
-          # internal/core/scan/iterator.
-          # / 覆盖率门槛 50% → 60%。
+          # Phase 1.10 → Phase 2.x: bump the coverage floor 50% → 60%.
           awk -v p="$PCT" 'BEGIN { if (p+0 < 60) { print "FAIL: coverage " p "% < 60% threshold"; exit 1 } else { print "PASS: coverage " p "% >= 60% threshold" } }'
 
       - name: upload coverage artifact
