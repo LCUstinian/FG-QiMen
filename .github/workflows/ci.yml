@@ -171,8 +171,19 @@ jobs:
       - name: coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
+          set -euo pipefail
           go test -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
-          go tool cover -func=coverage.out | tail -20
+          # Use `head` not `tail` so the producer (go tool cover)
+          # doesn't get SIGPIPE if its output is <20 lines. (The
+          # old `tail -20` would mask the SIGPIPE as exit 126
+          # "command found but cannot execute" when the test
+          # suite's coverage.out was small enough — that's
+          # why this step was flaky in CI.) / 用 `head` 不用
+          # `tail`，避免 go tool cover 在输出 <20 行时收到
+          # SIGPIPE。旧 `tail -20` 会把 SIGPIPE 掩盖成 exit
+          # 126 "command found but cannot execute"——这就是这
+          # 步在 CI 上偶发的原因。
+          go tool cover -func=coverage.out | head -20
           # Phase 1.10 of the audit roadmap: enforce a coverage
           # floor on the internal/ packages. 50% is the seed
           # threshold; bump as we add tests (target: 70%+ by

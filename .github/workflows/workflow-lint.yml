@@ -29,12 +29,24 @@ jobs:
       - uses: actions/checkout@v4
 
       # Use the official download script (no Docker required, works on
-      # every GitHub-hosted runner). / 用官方下载脚本（不需 Docker，
-      # 任何 GH-hosted runner 可用）。
+      # every GitHub-hosted runner). Download the script to a file
+      # first rather than `bash <(curl ...)` — the process-substitution
+      # form was returning exit 126 on the Ubuntu runner ("command
+      # found but cannot execute" on the implicit /dev/fd/<n>
+      # path that bash creates for the curl stdin), which is
+      # intermittent but very hard to debug from the GitHub UI.
+      # / 用官方下载脚本（不需 Docker，任何 GH-hosted runner 可用）。
+      # 先把脚本下载到文件再执行——`bash <(curl ...)` 的进程替换
+      # 形式在 Ubuntu runner 上偶发返 exit 126（bash 给 curl stdin
+      # 创建的隐式 /dev/fd/<n> 路径报"命令找到但无法执行"），从
+      # GitHub UI 很难排查。文件形式更稳定。
       - name: Download actionlint
         id: get_actionlint
         run: |
-          bash <(curl --fail -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          curl --fail -sSL -o /tmp/actionlint-install.bash \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash
+          bash /tmp/actionlint-install.bash
+          chmod +x ./actionlint
           echo "executable=${PWD}/actionlint" >> "$GITHUB_OUTPUT"
 
       - name: Check workflow files
