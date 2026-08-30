@@ -133,6 +133,13 @@ jobs:
 
       - name: derive version
         id: ver
+        # Force bash on Windows runners too — the default Windows
+        # shell is PowerShell, which doesn't understand the
+        # `[[ ]]` and `${var#prefix}` bash idioms below.
+        # / 在 Windows runner 上也强制 bash——Windows 默认 shell
+        # 是 PowerShell，不识别下面的 `[[ ]]` 和 `${var#prefix}`
+        # bash 惯用法。
+        shell: bash
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
@@ -148,6 +155,12 @@ jobs:
           cache: true
 
       - name: build ${{ matrix.target }}
+        # Force bash on Windows (mkdir -p, the ${var} ldflags
+        # expansion, and the heredoc-style multi-line run all
+        # require bash; PowerShell would need different syntax).
+        # / 在 Windows 上强制 bash（mkdir -p、${var} ldflags 展开
+        # 和多行 run 都需要 bash；PowerShell 语法不同）。
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -168,6 +181,10 @@ jobs:
         uses: sigstore/cosign-installer@v3
 
       - name: sign binary (keyless, OIDC)
+        # Force bash on Windows (multi-line `\` continuation syntax
+        # is bash-specific). / 在 Windows 上强制 bash（多行 `\`
+        # 续行语法是 bash 专用）。
+        shell: bash
         env:
           COSIGN_EXPERIMENTAL: '1'
         run: |
@@ -192,6 +209,9 @@ jobs:
           syft-version: v1.51.0
 
       - name: generate SBOM
+        # Force bash on Windows (multi-line `\` continuation).
+        # / 在 Windows 上强制 bash（多行 `\` 续行）。
+        shell: bash
         run: |
           syft "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}" \
             --output cyclonedx-json="release/fg-qimen-${{ matrix.target }}.sbom.json"
