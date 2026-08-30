@@ -26,7 +26,7 @@ jobs:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Use the official download script (no Docker required, works on
       # every GitHub-hosted runner). Download the script to a file
@@ -56,7 +56,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run shellcheck
         uses: ludeeus/action-shellcheck@master
