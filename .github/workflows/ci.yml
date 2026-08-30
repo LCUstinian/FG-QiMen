@@ -181,7 +181,18 @@ jobs:
           # （v0.4 目标 70%+）。
           PCT=$(go tool cover -func=coverage.out | awk '/^total/ {gsub("%","",$3); print $3}')
           echo "Total coverage: ${PCT}%"
-          awk -v p="$PCT" 'BEGIN { if (p+0 < 50) { print "FAIL: coverage " p "% < 50% threshold"; exit 1 } }'
+          # Phase 1.10 → Phase 2.x: bump the coverage floor 50% → 60%
+          # after the v0.4 quality-pass added unit tests for
+          # cmd/proxy_init, internal/types/ValidateTimeout,
+          # internal/plugins/plugintest, and
+          # internal/core/scan/iterator. The new floor matches the
+          # v0.4.0 actual coverage and gives the next iteration
+          # (~5pp headroom) a target to defend.
+          # / 覆盖率门槛 50% → 60%（v0.4 质量阶段为 cmd/proxy_init、
+          // internal/types/ValidateTimeout、
+          // internal/plugins/plugintest、
+          // internal/core/scan/iterator 加了单测后达到）。
+          awk -v p="$PCT" 'BEGIN { if (p+0 < 60) { print "FAIL: coverage " p "% < 60% threshold"; exit 1 } }'
 
       - name: upload coverage artifact
         if: matrix.os == 'ubuntu-latest'

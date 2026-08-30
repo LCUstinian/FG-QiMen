@@ -427,19 +427,13 @@ func (p *Pool) adjust() {
 	cur := p.currentThreads.Load()
 	if filtRatio > p.opts.FilteredShrinkRatio {
 		// Shrink by 25%. / 降 25%。
-		newThreads := int32(float64(cur) * 0.75)
-		if newThreads < int32(p.opts.MinThreads) {
-			newThreads = int32(p.opts.MinThreads)
-		}
+		newThreads := int32(max(float64(int32(p.opts.MinThreads)), float64(cur)*0.75))
 		if newThreads != cur {
 			p.currentThreads.Store(newThreads)
 		}
 	} else if openRatio > p.opts.OpenGrowRatio {
 		// Grow by 25%. / 升 25%。
-		newThreads := int32(float64(cur) * 1.25)
-		if newThreads > int32(p.opts.MaxThreads) {
-			newThreads = int32(p.opts.MaxThreads)
-		}
+		newThreads := int32(min(float64(int32(p.opts.MaxThreads)), float64(cur)*1.25))
 		if newThreads != cur {
 			p.currentThreads.Store(newThreads)
 		}

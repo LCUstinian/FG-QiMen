@@ -378,3 +378,51 @@ func namesOf(ps []plugins.Plugin) []string {
 	}
 	return out
 }
+
+// TestWantIdentify_ModeMatrix pins the per-mode Identify-stage
+// decision table. Future mode additions (e.g. a "recon-only" mode)
+// should be added here. / 固定每模式 Identify 阶段决策表。将来新增
+// 模式（如纯 recon 模式）应在这里加。
+func TestWantIdentify_ModeMatrix(t *testing.T) {
+	cases := []struct {
+		mode types.RunMode
+		want bool
+	}{
+		{types.ModeScan, true},
+		{types.ModeCrack, false},
+		{types.ModeLinked, true},
+	}
+	for _, c := range cases {
+		if got := wantIdentify(c.mode); got != c.want {
+			t.Errorf("wantIdentify(%v) = %v, want %v", c.mode, got, c.want)
+		}
+	}
+}
+
+// TestWantCredential_ModeMatrix pins the per-mode Credential-stage
+// decision table. / 固定每模式 Credential 阶段决策表。
+func TestWantCredential_ModeMatrix(t *testing.T) {
+	cases := []struct {
+		mode types.RunMode
+		want bool
+	}{
+		{types.ModeScan, false},
+		{types.ModeCrack, true},
+		{types.ModeLinked, true},
+	}
+	for _, c := range cases {
+		if got := wantCredential(c.mode); got != c.want {
+			t.Errorf("wantCredential(%v) = %v, want %v", c.mode, got, c.want)
+		}
+	}
+}
+
+// TestFormatPortfinger covers the three branches of the banner
+// formatter: empty version, normal version, empty service. /
+// 覆盖 banner 格式化器的三个分支：空 version、正常 version、
+// 空 service。
+// (The existing TestFormatPortfinger above already exercises
+// these branches with the correct expectations; this stub
+// remains as a structural marker for future expansion.)
+// / （上方已存在的 TestFormatPortfinger 用正确的期望值覆盖了这些
+// 分支；此 stub 保留作为未来扩展的结构标记。）

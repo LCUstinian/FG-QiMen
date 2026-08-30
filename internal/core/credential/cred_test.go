@@ -412,3 +412,71 @@ func TestRegistryHasAllAuthenticators(t *testing.T) {
 		}
 	}
 }
+
+// TestCredEqual covers the cred.Equal method used by Pool dedup
+// and by the seen-set tracking. All four fields (User, Pass,
+// KeyPath, Method) must compare equal for the creds to dedup
+// into a single hit. / 覆盖 Pool 去重和 seen-set 用的 cred.Equal
+// 方法。四个字段（User、Pass、KeyPath、Method）都必须相等才能
+// 去重为单次命中。
+func TestCredEqual(t *testing.T) {
+	a := credential.Cred{User: "root", Pass: "hunter2", Method: credential.AuthPassword}
+	b := credential.Cred{User: "root", Pass: "hunter2", Method: credential.AuthPassword}
+	if !a.Equal(b) {
+		t.Error("identical creds not Equal")
+	}
+	c := credential.Cred{User: "root", Pass: "different", Method: credential.AuthPassword}
+	if a.Equal(c) {
+		t.Error("creds with different Pass should not be Equal")
+	}
+	d := credential.Cred{User: "root", Pass: "hunter2", Method: credential.AuthKey}
+	if a.Equal(d) {
+		t.Error("creds with different Method should not be Equal")
+	}
+	e := credential.Cred{User: "root", Pass: "hunter2", KeyPath: "/id_rsa", Method: credential.AuthKey}
+	f := credential.Cred{User: "root", Pass: "hunter2", KeyPath: "/id_rsa", Method: credential.AuthKey}
+	if !e.Equal(f) {
+		t.Error("key-auth creds with same KeyPath should be Equal")
+	}
+}
+
+// TestCredString covers all four Method branches of cred.String.
+// The output is what ends up in creds.txt and log lines, so a
+// regression here would silently change the on-disk format. /
+// 覆盖 cred.String 的四个 Method 分支。输出会落到 creds.txt 和
+// 日志行里，这里的回归会静默改磁盘格式。
+func TestCredString(t *testing.T) {
+	cases := []struct {
+		name string
+		c    credential.Cred
+		want string
+	}{
+		{
+			name: "password",
+			c:    credential.Cred{User: "alice", Pass: "hunter2", Method: credential.AuthPassword},
+			want: "alice / hunter2",
+		},
+		{
+			name: "key",
+			c:    credential.Cred{User: "alice", KeyPath: "/id_rsa", Method: credential.AuthKey},
+			want: "alice (key:/id_rsa)",
+		},
+		{
+			name: "none",
+			c:    credential.Cred{User: "ftp", Method: credential.AuthNone},
+			want: "(no-auth-required)",
+		},
+		{
+			name: "empty",
+			c:    credential.Cred{},
+			want: " / ",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.c.String(); got != tc.want {
+				t.Errorf("Cred.String() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

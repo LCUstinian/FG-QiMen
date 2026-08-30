@@ -112,10 +112,7 @@ func (p *cmdProbe) Probe(ctx context.Context, host string, timeout time.Duration
 		// -c 1: send 1 echo
 		// -W N: timeout N seconds for each reply
 		name = "ping"
-		secs := int(effective.Seconds())
-		if secs < 1 {
-			secs = 1
-		}
+		secs := max(1, int(effective.Seconds()))
 		args = []string{"-c", "1", "-W", fmt.Sprintf("%d", secs), host}
 	}
 	// SECURITY: refuse hosts that look like command-line flags. Otherwise

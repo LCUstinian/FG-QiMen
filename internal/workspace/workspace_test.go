@@ -15,6 +15,57 @@ import (
 	"testing"
 )
 
+// TestAsStore_NilProject returns nil for nil receiver / unopened
+// project. AsStore is on the hot path of every credential test
+// so a nil-safe no-op is the right default. / TestAsStore_NilProject：
+// nil 接收者 / 未打开项目返 nil。AsStore 在每个凭据测试的热路径
+// 上调用，所以 nil-安全 no-op 是正确的默认行为。
+func TestAsStore_NilProject(t *testing.T) {
+	var p *Project
+	if s := p.AsStore(); s != nil {
+		t.Errorf("nil project: AsStore() = %v, want nil", s)
+	}
+	if s := p.AsStoreWithPassphrase(""); s != nil {
+		t.Errorf("nil project: AsStoreWithPassphrase(\"\") = %v, want nil", s)
+	}
+	if s := p.AsStoreWithPassphrase("secret"); s != nil {
+		t.Errorf("nil project: AsStoreWithPassphrase(secret) = %v, want nil", s)
+	}
+}
+
+// TestAsStore_EphemeralProject — ephemeral projects have DB=nil
+// so AsStore must return nil. / TestAsStore_EphemeralProject：
+// 即扫即走项目 DB=nil，AsStore 必须返 nil。
+func TestAsStore_EphemeralProject(t *testing.T) {
+	p, err := Open("")
+	if err != nil {
+		t.Fatalf("Open(\"\"): %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	if s := p.AsStore(); s != nil {
+		t.Errorf("ephemeral project: AsStore() = %v, want nil", s)
+	}
+}
+
+// TestAsStoreWithPassphrase_PersistentEmptyPass — persistent
+// project with empty passphrase uses plaintext store (the v0.2.x
+// default). / TestAsStoreWithPassphrase_PersistentEmptyPass：
+// 持久化项目配空 passphrase 使用明文 store（v0.2.x 默认）。
+func TestAsStoreWithPassphrase_PersistentEmptyPass(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	name := "asstore-test-empty-pass"
+	p, err := Open(name)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	s := p.AsStoreWithPassphrase("")
+	if s == nil {
+		t.Fatal("AsStoreWithPassphrase(\"\") = nil, want non-nil store")
+	}
+}
+
 // TestProjectsRoot returns the expected layout.
 func TestProjectsRoot(t *testing.T) {
 	got := ProjectsRoot()

@@ -182,6 +182,7 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | `rsync` | 873, 8873 | ✅ (`@RSYNCD:` greeting) | ✅ (USERNAME + MD5 challenge) |
 | `docker` | 2375, 2376 | ✅ (GET /_ping + /info) | ✅ (HTTP Basic to /images/json) |
 | `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 header + Start) | ✅ (AMQP PLAIN) |
+| `mqtt` | 1883, 8883 | ✅ (MQTT 3.1.1 / 5.0 CONNECT/CONNACK) | – (added v0.4) |
 | `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write) |
 | `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
 | `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |

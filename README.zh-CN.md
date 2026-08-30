@@ -181,6 +181,7 @@ fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass
 | `rsync` | 873, 8873 | ✅（`@RSYNCD:` 问候） | ✅（USERNAME + MD5 挑战） |
 | `docker` | 2375, 2376 | ✅（GET /_ping + /info） | ✅（HTTP Basic to /images/json） |
 | `rabbitmq` | 5672 | ✅（AMQP 0-9-1 header + Start） | ✅（AMQP PLAIN） |
+| `mqtt` | 1883, 8883 | ✅（MQTT 3.1.1 / 5.0 CONNECT/CONNACK） | – (v0.4 新增) |
 | `modbus` | 502 | ✅（Read Device Identification） | ✅（仅读设备 ID；不写线圈/寄存器） |
 | `ipmi` | 623 (UDP) | ✅（RMCP+ Session Open） | ✅（RAKP v2.0 HMAC-SHA1） |
 | `bacnet` | 47808 (UDP) | ✅（BACnet/IP Who-Is → I-Am） | ✅（可达性探针） |

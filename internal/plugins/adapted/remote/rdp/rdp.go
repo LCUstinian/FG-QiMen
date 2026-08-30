@@ -194,10 +194,7 @@ func parseServerCoreFromMCS(mcs []byte) (*ServerCore, error) {
 		return nil, fmt.Errorf("rdp: serverCore anchor not found in MCS body")
 	}
 	start := idx + len(anchor)
-	end := start + 128
-	if end > len(mcs) {
-		end = len(mcs)
-	}
+	end := min(start+128, len(mcs))
 	if start >= len(mcs) {
 		return nil, fmt.Errorf("rdp: serverCore extends past MCS body")
 	}

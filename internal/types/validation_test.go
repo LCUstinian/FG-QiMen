@@ -124,3 +124,34 @@ func TestValidateThreads(t *testing.T) {
 // / TestSanitizeFilePath 在 v0.3.1 移除——见优化路线图 Phase 1.10。
 // SanitizeFilePath 是无调用方的 dead code；路径遍历覆盖现在在
 // workspace 包测试里。)
+
+// TestValidateTimeout covers the upper + lower bounds of the
+// per-op timeout validator. The upper bound (3600s = 1h) exists
+// because a misconfigured "timeout = 99999999" would block
+// workers for hours and effectively DoS the operator's
+// machine. / 测每操作 timeout 验证器的上下界。上界（3600s = 1h）
+// 存在是因为错配的"timeout = 99999999"会把 worker 卡数小时，等于
+// 把操作员的机器 DoS 掉。
+func TestValidateTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout int64
+		wantErr bool
+	}{
+		{"valid 1ns", 1, false},
+		{"valid 3s", 3, false},
+		{"valid 1h", 3600, false},
+		{"invalid 0", 0, true},
+		{"invalid -1", -1, true},
+		{"invalid 3601", 3601, true},
+		{"invalid 99999999", 99999999, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTimeout("test", tt.timeout)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTimeout(%d) error = %v, wantErr %v", tt.timeout, err, tt.wantErr)
+			}
+		})
+	}
+}
