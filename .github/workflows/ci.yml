@@ -171,20 +171,20 @@ jobs:
       - name: coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          shell: bash
-          set -euo pipefail
           go test -timeout 240s -coverprofile=coverage.out -covermode=atomic ./...
-          # Extract the total-coverage percentage from the last line
-          # of go tool cover -func output. The line is always
-          # `total:\t...\tNN.N%` so $NF gives the percentage. We
-          # discard the trailing % with sed so awk comparison is
-          # numeric. / 从 go tool cover -func 最后一行抽总覆盖率
-          # 百分比。行格式固定是 `total:\t...\tNN.N%`，$NF 即百
-          # 分比。sed 去尾部 % 让 awk 比较是数字。
-          PCT=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | sed 's/%//')
-          echo "Total coverage: ${PCT}%"
-          # Phase 1.10 → Phase 2.x: bump the coverage floor 50% → 60%.
-          awk -v p="$PCT" 'BEGIN { if (p+0 < 60) { print "FAIL: coverage " p "% < 60% threshold"; exit 1 } else { print "PASS: coverage " p "% >= 60% threshold" } }'
+          # Delegate to a Python script instead of inlining
+          # bash + awk + sed. The previous inlined version
+          # intermittently exit-127'd on the GHA runner
+          # (suspected: default PATH mismatch + tail -1 SIGPIPE
+          # race on small coverage.out files). Python 3 is
+          # pre-installed on every ubuntu-latest image, so this
+          # trades a bit of indirection for a deterministic
+          # exit code. / 委托给 Python 脚本而不是内联 bash +
+          # awk + sed。旧版本在 GHA runner 上间歇性 exit 127
+          # （疑：默认 PATH 不匹配 + 小 coverage.out 文件下
+          # tail -1 的 SIGPIPE 竞态）。ubuntu-latest 镜像预装
+          # Python 3，所以这点间接换来了确定性退出码。
+          python3 scripts/ci-coverage-check.py
 
       - name: upload coverage artifact
         if: matrix.os == 'ubuntu-latest'
