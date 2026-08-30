@@ -90,3 +90,33 @@ func WrapError(protocol, op string, err error) error {
 	}
 	return fmt.Errorf("%s: %s: %w", protocol, op, err)
 }
+
+// DialTCPAddr is the host:port-string sibling of DialTCP. Some
+// auth helpers (e.g. sshTry) take a pre-joined addr because
+// they want to share the JoinHostPort across a loop without
+// re-computing per iteration. DialTCPAddr accepts that
+// pre-joined string and routes it through the same proxy
+// manager as DialTCP, so the --proxy / --socks5 settings
+// apply uniformly across all auth-tree dial sites. /
+// DialTCPAddr 是 DialTCP 的 host:port 字符串版。部分 auth
+// 助手（如 sshTry）接收预拼好的 addr 字符串是为了在循环里
+// 跨凭据复用 JoinHostPort。DialTCPAddr 接那个预拼字符串，走
+// 与 DialTCP 同一个 proxy manager，让 --proxy / --socks5 在
+// 整个 auth 树的 dial 站点上统一生效。
+func DialTCPAddr(ctx context.Context, addr string, timeout time.Duration) (net.Conn, error) {
+	if d, err := proxy.GetGlobalDialer(); err == nil {
+		conn, err := d.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+		return conn, nil
+	}
+	d := net.Dialer{Timeout: timeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	return conn, nil
+}

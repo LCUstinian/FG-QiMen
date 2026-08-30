@@ -19,8 +19,6 @@ package remote
 import (
 	"context"
 	"fmt"
-	"net"
-	"strconv"
 	"time"
 
 	vnc "github.com/mitchellh/go-vnc"
@@ -67,7 +65,6 @@ func (a *VNCAuthenticator) Authenticate(ctx context.Context, host string, port i
 	if len(creds) == 0 {
 		return nil, nil
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	for i, c := range creds {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -75,8 +72,13 @@ func (a *VNCAuthenticator) Authenticate(ctx context.Context, host string, port i
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
-		d := net.Dialer{Timeout: timeout}
-		conn, err := d.DialContext(ctx, "tcp", addr)
+		// v0.4 Phase 2.2: route through credential.DialTCP so the
+		// global --proxy / --socks5 settings apply automatically.
+		// Falls back to direct dial if no proxy manager is
+		// initialised (test / library paths). / v0.4 Phase 2.2：
+		// 走 credential.DialTCP 让全局 --proxy / --socks5 自动生
+		// 效。无 proxy manager 时（测试 / 库）回退到直连。
+		conn, err := credential.DialTCP(ctx, host, port, timeout)
 		if err != nil {
 			return nil, err
 		}

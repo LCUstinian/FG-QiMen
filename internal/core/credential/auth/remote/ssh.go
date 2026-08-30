@@ -96,8 +96,13 @@ func (a *SSHAuthenticator) Authenticate(ctx context.Context, host string, port i
 // 本函数因该原因保留 raw net.Dialer；每凭据试连仍通过 ctx 取消
 // 并由 dialer 携带 timeout。
 func sshTry(ctx context.Context, addr string, c credential.Cred, hkcb ssh.HostKeyCallback, timeout time.Duration) bool {
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	// v0.4 Phase 2.2: route through credential.DialTCPAddr so the
+	// global --proxy / --socks5 settings apply automatically.
+	// Falls back to direct dial if no proxy manager is
+	// initialised. / v0.4 Phase 2.2：走 credential.DialTCPAddr 让
+	// 全局 --proxy / --socks5 自动生效。无 proxy manager 时回退到
+	// 直连。
+	conn, err := credential.DialTCPAddr(ctx, addr, timeout)
 	if err != nil {
 		return false
 	}

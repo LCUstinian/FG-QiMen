@@ -22,7 +22,6 @@ package remote
 import (
 	"context"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -97,8 +96,13 @@ func (a *TelnetAuthenticator) Authenticate(ctx context.Context, host string, por
 // timeout 决定，而非硬编码 2s——一个接受 TCP 但永不响应的慢 telnetd
 // 不再能让 worker 池卡满 cfg.Timeout。
 func (a *TelnetAuthenticator) attempt(ctx context.Context, host string, port int, user, pass string, timeout time.Duration) (bool, error) {
-	d := net.Dialer{Timeout: timeout}
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	// v0.4 Phase 2.2: route through credential.DialTCP so the
+	// global --proxy / --socks5 settings apply automatically.
+	// Falls back to direct dial if no proxy manager is
+	// initialised (test / library paths). / v0.4 Phase 2.2：
+	// 走 credential.DialTCP 让全局 --proxy / --socks5 自动生
+	// 效。无 proxy manager 时（测试 / 库）回退到直连。
+	conn, err := credential.DialTCP(ctx, host, port, timeout)
 	if err != nil {
 		return false, err
 	}
