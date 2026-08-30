@@ -2,7 +2,7 @@
 
 > Date: 2026-08-19
 > Branch: `worktree-second-batch-fixes`
-> Plan: derived from the v0.2 comprehensive audit (`docs/comprehensive-audit-report.md`)
+> Plan: derived from the v0.2 comprehensive audit (`docs/archive/comprehensive-audit-report.md`)
 
 This report documents the nine commits executed in the second-batch
 repair iteration, the verification evidence, and the residual items

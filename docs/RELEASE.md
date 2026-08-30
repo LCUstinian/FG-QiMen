@@ -176,8 +176,9 @@ docker pull ghcr.io/<owner>/fg-qimen:vX.Y.Z
 
 - Workflows: `.github/workflows/release.yml`, `container.yml`,
   `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`, `scoop-bucket.yml`
-- Per-batch verification: `docs/FIRST_BATCH_VERIFICATION.md`,
-  `SECOND_BATCH_VERIFICATION.md`, `V0.4_VERIFICATION.md`
+- Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
+  `docs/verification/v0.3/second-batch-verification.md`,
+  `docs/verification/v0.4/verification.md`
 - Release notes: `CHANGELOG.md`
 - Dockerfile: `.github/docker/Dockerfile`
-- Benchmark baselines: `docs/BENCHMARKS_v0.4.md`
+- Benchmark baselines: `docs/verification/v0.4/benchmarks.md`

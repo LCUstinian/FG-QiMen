@@ -2,7 +2,7 @@
 
 > Date: 2026-07-23
 > Branch: `worktree-high-priority-fixes`
-> Plan: [`docs/superpowers/plans/2026-07-22-high-priority-fixes.md`](./superpowers/plans/2026-07-22-high-priority-fixes.md)
+> Plan: [`docs/design/2026-07-22-high-priority-fixes.md`](../../design/2026-07-22-high-priority-fixes.md)
 
 This report documents the seven tasks executed in the first-batch repair iteration, the verification evidence, and the residual risks deferred to future iterations.
 

@@ -2,7 +2,7 @@
 
 > Date: 2026-08-22
 > Branch: `worktree-v0.4-fcovers`
-> Source audit: [`docs/comprehensive-audit-report.md`](comprehensive-audit-report.md)
+> Source audit: [`docs/archive/comprehensive-audit-report.md`](../archive/comprehensive-audit-report.md)
 > Prior batches: [`FIRST_BATCH_VERIFICATION.md`](FIRST_BATCH_VERIFICATION.md), [`SECOND_BATCH_VERIFICATION.md`](SECOND_BATCH_VERIFICATION.md)
 
 This report documents the eight commits landed in the v0.4 batch,

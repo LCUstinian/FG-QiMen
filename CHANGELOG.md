@@ -13,7 +13,7 @@ _No pending changes._
 
 Second batch of audit-driven correctness, security, and reliability
 fixes. All ten commits are documented in
-[`docs/SECOND_BATCH_VERIFICATION.md`](docs/SECOND_BATCH_VERIFICATION.md);
+[`docs/verification/v0.3/second-batch-verification.md`](docs/verification/v0.3/second-batch-verification.md);
 this entry lists the user-visible deltas only.
 
 ### Security
@@ -79,7 +79,7 @@ this entry lists the user-visible deltas only.
 
 First batch of audit-driven correctness, performance, and security
 fixes (7 commits). All seven commits are documented in
-[`docs/FIRST_BATCH_VERIFICATION.md`](docs/FIRST_BATCH_VERIFICATION.md);
+[`docs/verification/v0.3/first-batch-verification.md`](docs/verification/v0.3/first-batch-verification.md);
 this entry lists the user-visible deltas only.
 
 ### Security
@@ -142,7 +142,7 @@ this entry lists the user-visible deltas only.
 ### Tests
 
 Test coverage rose materially in this batch. Headline numbers
-(see `docs/FIRST_BATCH_VERIFICATION.md` for the full matrix):
+(see [`docs/verification/v0.3/first-batch-verification.md`](docs/verification/v0.3/first-batch-verification.md) for the full matrix):
 
 - `internal/network/proxy`: **0% → 86.3%**
 - `internal/store`: **N/A → 61.3%**
@@ -157,7 +157,7 @@ concurrent-writes, and the `RawTCPIdentify` helper.
 ## [0.2.0] - 2026-06-15
 
 Initial public release (audit fixes from v0.1).
-See [docs/RELEASE_NOTES_v0.2.md](docs/RELEASE_NOTES_v0.2.md) for the full list.
+See [docs/verification/v0.2/release-notes.md](docs/verification/v0.2/release-notes.md) for the full list.
 
 ### Highlights
 
