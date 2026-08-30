@@ -44,6 +44,38 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 
 	sess.UI.Banner(cfg)
 
+	// v0.4 Phase 2.1: dispatch by mode. The previous code
+	// unconditionally ran alive + scan + plugins for every mode
+	// and used wantIdentify/wantCredential to gate the plugin
+	// stage only. In ModeCrack the user already has a target:port
+	// list (either from --project + bbolt or from --hosts-file +
+	// --ports); running alive + a fresh port scan was pure
+	// overhead. The ModeCrack pipeline skips both stages and
+	// goes straight to plugin Identify + Credential on the
+	// supplied pairs. / v0.4 Phase 2.1：按 mode 派发。旧代码
+	// 无条件跑 alive + scan + plugins，只在 plugin 层用
+	// wantIdentify/wantCredential 挡。ModeCrack 下用户已经
+	// 有 target:port 列表（--project + bbolt 或
+	// --hosts-file + --ports），跑 alive + 端口扫描是纯浪费。
+	// ModeCrack 流水线跳过这两步，直接对给定的 target:port 跑
+	// plugin Identify + Credential。
+	switch cfg.Mode {
+	case types.ModeScan, types.ModeLinked:
+		return runFullPipeline(ctx, sess)
+	case types.ModeCrack:
+		return runCrackPipeline(ctx, sess)
+	default:
+		return 0, fmt.Errorf("unknown mode: %q", cfg.Mode)
+	}
+}
+
+// runFullPipeline is the original alive → scan → identify →
+// optional credential pipeline, used for ModeScan and ModeLinked.
+// / runFullPipeline 是原 alive → scan → identify → 可选 credential
+// 流水线，给 ModeScan 和 ModeLinked 用。
+func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
+	cfg := sess.Config
+
 	// Expand targets. / 展开目标。
 	targets, err := types.ExpandTargets(cfg.Host, cfg.HostsFile)
 	if err != nil {
@@ -273,6 +305,139 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 	}()
 
 	// Stage 3: result sink. / 阶段 3：结果汇。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runResultSink(ctx, sess, results)
+	}()
+
+	// Periodic stats pusher. / 周期性 stats 推送。
+	go pushStats(ctx, sess, 1*time.Second)
+
+	wg.Wait()
+	sess.UI.Done(summaryString(sess))
+	return 0, nil
+}
+
+// runCrackPipeline runs only the plugin Identify + Credential
+// stages on a pre-known target:port list. No alive probe, no
+// port scan. The list comes from one of:
+//   - --hosts-file + --ports (CLI flags, ephemeral)
+//   - --project + bbolt-seen-set (persistent, repeated crack)
+//
+// Skipping alive+scan saves ~1 TCP connect per target per port
+// in typical use (a 256-host /24 × 6-port crack skips 1536
+// redundant connects per the old code). / runCrackPipeline 仅
+// 在预先已知的 target:port 列表上跑 plugin Identify + Credential。
+// 不跑 alive 探活、不跑端口扫描。列表来源：
+//   - --hosts-file + --ports（CLI flag，即扫即走）
+//   - --project + bbolt seen-set（持久化，重复 crack）
+//
+// 跳过 alive + scan 在典型场景下省 ~1 TCP connect/host/port
+// （256-host /24 × 6-port 的 crack 比旧代码少 1536 次冗余连接）。
+func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
+	cfg := sess.Config
+
+	// Wire the bbolt batched writer (same as full pipeline — crack
+	// mode hits are exactly the thing worth persisting). / 接
+	// bbolt 批量写（与 full pipeline 同——crack 模式命中就是
+	// 值得持久化的东西）。
+	if sess.Store != nil && !cfg.NoBatch {
+		bw := store.NewBatchWriter(sess.Store, store.DefaultBatchSize, store.DefaultBatchInterval)
+		sess.BatchWriter = bw
+		defer bw.Stop()
+		go bw.Run(ctx)
+	}
+
+	// Resolve the target:port list. / 解析 target:port 列表。
+	targets, err := types.ExpandTargets(cfg.Host, cfg.HostsFile)
+	if err != nil {
+		return 0, fmt.Errorf("expand targets: %w", err)
+	}
+	ports, err := cfg.ResolvePorts()
+	if err != nil {
+		return 0, fmt.Errorf("resolve ports: %w", err)
+	}
+	if len(targets) == 0 || len(ports) == 0 {
+		sess.Log.Info("crack mode: empty targets or ports; nothing to crack")
+		sess.UI.Done(summaryString(sess))
+		return 0, nil
+	}
+	// The CrossIterator produces the Cartesian product host × port.
+	// We feed it into the same `items` channel the full pipeline
+	// uses so the plugin worker + result sink code path is shared.
+	// / CrossIterator 生成 host × port 笛卡尔积。喂到与 full
+	// pipeline 相同的 `items` 通道，共享 plugin worker + result
+	// sink 代码路径。
+	items := make(chan types.ScanItem, DefaultChannelBuffer)
+	results := make(chan *types.Result, DefaultChannelBuffer)
+
+	var wg sync.WaitGroup
+
+	// Crack mode: NO port scan, NO alive probe. We feed the
+	// items channel directly from the iterator. / Crack 模式：
+	// 不跑端口扫描、不跑 alive 探活。直接从迭代器喂 items 通道。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(items)
+		it := scan.NewCrossIterator(targetAddrs(targets), ports)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			item, ok := it.Next()
+			if !ok {
+				return
+			}
+			sess.State.Counters.Ports.Add(1)
+			select {
+			case items <- types.ScanItem{Host: item.Host, Port: item.Port}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Stage 2: plugin worker pool — same as full pipeline.
+	// / 阶段 2：plugin worker 池——同 full pipeline。
+	workerCount := cfg.Threads
+	if workerCount <= 0 {
+		workerCount = DefaultPluginWorkers
+	}
+	maxWorkers := cfg.MaxPluginWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = DefaultPluginWorkers
+	}
+	if workerCount > maxWorkers {
+		workerCount = maxWorkers
+	}
+
+	// Crack mode ALWAYS needs creds (it's the whole point of
+	// the mode). / Crack 模式总是需要 creds（这是模式的意义）。
+	creds, err := loadCreds(sess)
+	if err != nil {
+		return 0, fmt.Errorf("load credentials: %w", err)
+	}
+	var workersWG sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		workersWG.Add(1)
+		go func() {
+			defer workersWG.Done()
+			runPluginWorker(ctx, sess, creds, items, results)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		workersWG.Wait()
+		close(results)
+	}()
+
+	// Stage 3: result sink — same as full pipeline.
+	// / 阶段 3：结果汇——同 full pipeline。
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
