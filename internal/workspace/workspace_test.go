@@ -66,6 +66,33 @@ func TestAsStoreWithPassphrase_PersistentEmptyPass(t *testing.T) {
 	}
 }
 
+// TestAsStoreWithPassphrase_EncrypedPath exercises the v0.4+
+// passphrase branch (non-empty passphrase → NewStoreWithEnc,
+// not NewStore). / TestAsStoreWithPassphrase_EncrypedPath 跑
+// v0.4+ passphrase 分支（非空 passphrase → NewStoreWithEnc，
+// 不是 NewStore）。
+func TestAsStoreWithPassphrase_EncrypedPath(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	name := "asstore-test-encrypted"
+	p, err := Open(name)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	s := p.AsStoreWithPassphrase("hunter2-correct-horse")
+	if s == nil {
+		t.Fatal("AsStoreWithPassphrase(\"hunter2...\") = nil, want non-nil store")
+	}
+	// And the empty-passphrase path again for the same project
+	// to lock the dispatch. / 同项目再跑一次 empty-passphrase
+	// 分支锁派发。
+	s2 := p.AsStoreWithPassphrase("")
+	if s2 == nil {
+		t.Fatal("second AsStoreWithPassphrase(\"\") = nil, want non-nil store")
+	}
+}
+
 // TestProjectsRoot returns the expected layout.
 func TestProjectsRoot(t *testing.T) {
 	got := ProjectsRoot()
