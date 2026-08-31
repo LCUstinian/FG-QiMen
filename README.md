@@ -248,28 +248,93 @@ fg-qimen projects list           # list projects
 fg-qimen projects create <n>     # create project
 fg-qimen projects delete <n>     # delete project
 fg-qimen projects info <n>       # show project details
+fg-qimen projects export <n> <out.fgq>   # export project to single .fgq file
+fg-qimen projects import <in.fgq> <n>   # import from .fgq file
 fg-qimen version                 # show version
 fg-qimen completion bash         # generate shell completion
 ```
 
-### Top-10 flags
+### Quick start (5 essential flags)
 
-| Short | Long | Default | Meaning |
+For ~90% of scans you only need these five flags:
+
+| Short | Long | Example | Purpose |
 |---|---|---|---|
-| `-H` | `--host` | (empty) | target IP / CIDR / range / comma-list |
-| `-f` | `--hosts-file` | (empty) | load targets from file |
-| `-p` | `--project` | (empty) | project name (`""` = ephemeral) |
-|     | `--mode` | `scan` | `scan` / `crack` / `linked` |
-|     | `--ports` | `22,80,3306,3389,6379,8080` | comma-separated ports |
-|     | `--exclude-ports` | (empty) | ports to exclude |
-|     | `--resume` | `false` | resume from bbolt seen-set |
-|     | `--no-state` | `false` | disable bbolt, in-memory only |
-| `-t` | `--threads` | `200` | concurrent workers |
-|     | `--timeout` | `3s` | per-op timeout |
+| `-H` | `--host` | `-H 10.0.0.0/24` | target IP / CIDR / range / comma-list |
+| `-p` | `--project` | `-p corp` | named project (persists to bbolt; omit for ephemeral) |
+| `-u` | `--user` | `-u root admin` | inline usernames |
+| `-U` | `--user-file` | `-U users.txt` | usernames dictionary file (one per line) |
+| `-W` | `--pass-file` | `-W pass.txt` | passwords dictionary file (one per line; `-W` not `-P` so it doesn't collide with `-P`/`--pass` inline) |
 
-Full 28-flag reference grouped by area (Target / Workspace / Ports / Network /
-Concurrency / Credentials / Output / Behavior / Safety) and CLI usage templates:
-[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) or `fg-qimen --help`.
+Concrete recipes:
+
+```bash
+# Minimal scan: 256-host /24 against default ports
+fg-qimen -H 10.0.0.0/24
+
+# Named project with dictionaries + small thread count
+fg-qimen -p corp -H 10.0.0.0/24 -U users.txt -W pass.txt -t 50
+
+# Re-attack a saved project against its previously-seen hosts
+fg-qimen resume -p corp
+
+# Crack-only: skip alive + port scan, just try creds
+fg-qimen scan -p corp -mode crack -U users.txt -W pass.txt
+
+# Behind an HTTP proxy (chains through any plugin's dialer)
+fg-qimen -H 10.0.0.0/24 -X http://127.0.0.1:8080
+```
+
+### Full flag reference (v0.4.1 — 45 flags, 17 with short aliases)
+
+| Short | Long | Default | Group | Meaning |
+|---|---|---|---|---|
+| `-H` | `--host` | (empty) | Target | target IP / CIDR / range / comma-list (e.g. `10.0.0.0/24,192.168.1.0/24`) |
+| `-f` | `--hosts-file` | (empty) | Target | load targets from file (one host per line; `#` comments skipped) |
+| `-p` | `--project` | (empty) | Workspace | project name; empty = ephemeral (no bbolt) |
+|     | `--project-key` | (empty) | Workspace | passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Empty = plaintext. Env: `FG_QIMEN_PROJECT_KEY` |
+| `-M` | `--mode` | `scan` | Workspace | `scan` (alive→scan→identify) / `crack` (creds only) / `linked` (scan + creds) |
+|     | `--resume` | `false` | Workspace | resume from bbolt seen-set (skip already-seen host:port pairs) |
+|     | `--no-state` | `false` | Workspace | disable bbolt, in-memory only; the project is wiped on exit |
+|     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | comma-separated port list |
+|     | `--exclude-ports` | (empty) | Ports | ports to remove from the resolved list |
+|     | `--no-icmp` | `false` | Ports | skip ICMP alive probe (TCP-only mode for hostile networks) |
+| `-X` | `--proxy` | (empty) | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). |
+|     | `--socks5` | (empty) | Network | SOCKS5 proxy URL (e.g. `socks5://user:pass@127.0.0.1:1080`) |
+|     | `--iface` | (empty) | Network | bind outgoing connections to this local IP |
+| `-t` | `--threads` | `200` | Concurrency | concurrent workers in the plugin pool |
+|     | `--max-workers` | `16` | Concurrency | hard upper bound for `--threads` (caps the auto-scaler) |
+|     | `--timeout` | `3s` | Concurrency | per-op timeout (also covers the alive probe, port scan connect, plugin handshake) |
+| `-a` | `--alive-only` | `false` | Concurrency | stop after the alive probe; no scan / identify / credential |
+| `-u` | `--user` | (empty) | Credentials | inline usernames (comma-separated) |
+|     | `--pass` | (empty) | Credentials | inline passwords (comma-separated; `-P` short) |
+| `-U` | `--user-file` | (empty) | Credentials | usernames dictionary file (one per line; `-U` short, v0.4.1+) |
+| `-W` | `--pass-file` | (empty) | Credentials | passwords dictionary file (one per line; `-W` not `-P` to avoid collision with `-P`/`--pass` inline) |
+| `-o` | `--output-txt` | (empty) | Output | path to TXT result file (`-o` short) |
+| `-j` | `--output-json` | (empty) | Output | path to NDJSON result file (`-j` short) |
+|     | `--output-csv` | (empty) | Output | path to CSV result file (one row per result; stable column order for awk / pandas) |
+|     | `--output-sarif` | (empty) | Output | path to SARIF 2.1.0 JSON (one document, for GitHub Code Scanning) |
+|     | `--rotate-bytes` | `0` | Output | per-file size cap for output rotation (0 = no rotation). Renamed from `--output-rotate-bytes` in v0.4.1; the `output-` prefix was redundant since `rotate` is unique to the output subsystem. |
+|     | `--rotate-files` | `0` | Output | total files to keep including active (0 = no rotation). Renamed from `--output-rotate-files` in v0.4.1. |
+|     | `--show-creds` | `false` | Output | force cleartext in `result.txt` (creds.txt is always cleartext) |
+|     | `--plugins` | (empty) | Output | comma-separated plugin allowlist (e.g. `--plugins ssh,redis,vnc`); empty = all |
+|     | `--web-fingerprint` | (empty) | Output | path or URL to extra FingerprintHub-style web rules |
+|     | `--http-form-url` | (empty) | Output | HTTP basic-auth URL for the HTTP form-brute plugin (opt-in) |
+|     | `--http-form-fields` | `user=$user$,pass=$pass$` | Output | field template for the form-brute plugin |
+|     | `--http-form-success` | (empty) | Output | substring that indicates a successful login response |
+|     | `--http-form-failure` | `invalid` | Output | substring that indicates a failed login response |
+|     | `--http-form-redirect` | (empty) | Output | if set, follow redirects and use this substring to detect success in the final response |
+|     | `--silent` | `false` | Behavior | suppress banner / live event log lines |
+|     | `--no-tui` | `false` | Behavior | force plain-text output even when stdout is a TTY |
+|     | `--no-batch` | `false` | Behavior | disable bbolt batched writes (one fsync per Put instead of per batch) |
+| `-v` | `--verbose` | `false` | Behavior | verbose logging (debug-level from plugins) |
+|     | `--insecure-tls` | `false` | Safety | skip TLS certificate verification (probe builds; INSECURE — see HARD rule) |
+|     | `--insecure-ssh` | `false` | Safety | skip SSH host-key verification (INSECURE — see HARD rule) |
+|     | `--known-hosts` | (empty) | Safety | path to `known_hosts` file (sets `InsecureIgnoreHostKey` to false) |
+
+Complete CLI usage templates (one per common workflow) live in
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md). The current
+`fg-qimen --help` output is the authoritative reference.
 
 ---
 

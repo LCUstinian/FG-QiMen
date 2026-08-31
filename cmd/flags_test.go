@@ -68,9 +68,14 @@ var expectedFlagGroups = map[string]string{
 	"output-json":  "Output",
 	"output-csv":   "Output",
 	"output-sarif": "Output",
-	// v0.4: output rotation. / v0.4：输出轮转。
-	"output-rotate-bytes": "Output",
-	"output-rotate-files": "Output",
+	// v0.4: output rotation (renamed v0.4.1 from --output-rotate-*
+	// to --rotate-* — the `output-` prefix was redundant since
+	// `rotate` is unique to the output subsystem). / v0.4：输出
+	// 轮转（v0.4.1 从 --output-rotate-* 改名为 --rotate-*—
+	// `output-` 前缀冗余，因为 `rotate` 在整个 flag 空间里唯
+	// 一归属输出子系统）。
+	"rotate-bytes": "Output",
+	"rotate-files": "Output",
 	// Behavior
 	"silent":   "Behavior",
 	"no-tui":   "Behavior",

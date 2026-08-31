@@ -152,7 +152,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"project name (empty = ephemeral oneshot mode)")
 	pf.StringVar(&flagProjectKey, "project-key", "",
 		"passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
-	pf.StringVar(&flagMode, "mode", "scan",
+	pf.StringVarP(&flagMode, "mode", "M", "scan",
 		"run mode: scan | crack | linked")
 	pf.BoolVarP(&flagResume, "resume", "", false,
 		"resume from bbolt seen-set (project mode only)")
@@ -168,7 +168,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"only run host discovery; skip port scan and plugins")
 
 	// 4. Network / 网络
-	pf.StringVar(&flagProxy, "proxy", "",
+	pf.StringVarP(&flagProxy, "proxy", "X", "",
 		"HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)")
 	pf.StringVar(&flagSocks5, "socks5", "",
 		"SOCKS5 proxy address (e.g. 127.0.0.1:1080 or socks5://user:pass@host:port)")
@@ -196,9 +196,17 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"credential testing usernames (repeatable)")
 	pf.StringSliceVarP(&flagPass, "pass", "P", nil,
 		"credential testing passwords (repeatable)")
-	pf.StringVar(&flagUserFile, "user-file", "",
+	pf.StringVarP(&flagUserFile, "user-file", "U", "",
 		"usernames dictionary file")
-	pf.StringVar(&flagPassFile, "pass-file", "",
+	// -W for pass-file (not -P) so it doesn't collide with -P/--pass
+	// (the inline password list). Operators who set up wordlists
+	// in scripts almost always need both -u/--user and -W/--pass-file;
+	// -P/--pass is for the rare inline list case.
+	// / -W for pass-file（不用 -P）以免与 -P/--pass（内联口令
+	// 列表）冲突。操作员在脚本里同时设 user/pass wordlist 几乎总
+	// 需要 -u/--user 加 -W/--pass-file；-P/--pass 是罕见的内联
+	// 列表场景。
+	pf.StringVarP(&flagPassFile, "pass-file", "W", "",
 		"passwords dictionary file")
 
 	// 7. Output files / 输出文件
@@ -215,10 +223,10 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// total files (active + .1 .2 ...). / v0.4：--output-rotate NMB,N
 	// 在现行文件跨过 NMB 兆字节时轮转 TXT/JSON/CSV/SARIF 输出，
 	// 保留 N 个文件（active + .1 .2 ...）。
-	pf.Int64Var(&flagOutputRotateBytes, "output-rotate-bytes", 0,
-		"per-file size cap in bytes for output rotation (0 = no rotation)")
-	pf.IntVar(&flagOutputRotateFiles, "output-rotate-files", 0,
-		"total number of output files to keep (0 = no rotation)")
+	pf.Int64Var(&flagOutputRotateBytes, "rotate-bytes", 0,
+		"per-file size cap in bytes for output rotation (0 = no rotation). Shorthand: v0.4 shortened --output-rotate-bytes → --rotate-bytes (output-* is the only rotate-prefixed flag).")
+	pf.IntVar(&flagOutputRotateFiles, "rotate-files", 0,
+		"total number of output files to keep (0 = no rotation). Shorthand: v0.4 shortened --output-rotate-files → --rotate-files.")
 
 	// HTTP form brute (opt-in; --http-form-url empty = no-op).
 	// / HTTP form 爆破（opt-in；--http-form-url 空 = no-op）。
@@ -271,7 +279,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
-	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "output-rotate-bytes", "output-rotate-files"}, groupOutput)
+	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "rotate-bytes", "rotate-files"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }
