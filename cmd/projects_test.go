@@ -419,3 +419,86 @@ func openProjectForTest(t *testing.T, name string) (*workspace.Project, error) {
 	t.Helper()
 	return workspace.Open(name)
 }
+
+// TestRunProjectsExportImport — happy-path round-trip through
+// the .fgq format at the CLI boundary. / TestRunProjectsExportImport
+// — 通过 .fgq 格式在 CLI 边界的 happy-path 往返。
+func TestRunProjectsExportImport(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	// Create a real project (writes bbolt). / 创建真项目（写
+	// bbolt）。
+	createCmd := newCmdForTest(t, runProjectsCreate)
+	if err := runProjectsCreate(createCmd, []string{"alpha"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Export to .fgq. / 导出到 .fgq。
+	fgqPath := filepath.Join(tmp, "alpha.fgq")
+	exportCmd := newCmdForTest(t, runProjectsExport)
+	if err := runProjectsExport(exportCmd, []string{"alpha", fgqPath}); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if _, err := os.Stat(fgqPath); err != nil {
+		t.Fatalf("expected .fgq file: %v", err)
+	}
+
+	// Delete the source project to make the import meaningful
+	// (otherwise it's importing into the same dir).
+	// / 删源项目让 import 有意义（否则是导入同目录）。
+	deleteCmd := newCmdForTest(t, runProjectsDelete)
+	if err := runProjectsDelete(deleteCmd, []string{"alpha"}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Import under a new name. / 用新名字 import。
+	importCmd := newCmdForTest(t, runProjectsImport)
+	if err := runProjectsImport(importCmd, []string{fgqPath, "beta"}); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	// The new project should exist. / 新项目应存在。
+	if _, err := os.Stat(filepath.Join(tmp, "runs", "projects", "beta")); err != nil {
+		t.Errorf("imported project not present: %v", err)
+	}
+}
+
+// TestRunProjectsImportRefusesExisting — refuse to overwrite
+// an existing project unless the user deletes it first.
+// / TestRunProjectsImportRefusesExisting — 拒绝覆盖已有项目，
+// 除非用户先 delete。
+func TestRunProjectsImportRefusesExisting(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	// Create a source and a target. / 创建源和目标。
+	createCmd := newCmdForTest(t, runProjectsCreate)
+	if err := runProjectsCreate(createCmd, []string{"src"}); err != nil {
+		t.Fatalf("create src: %v", err)
+	}
+	if err := runProjectsCreate(createCmd, []string{"dst"}); err != nil {
+		t.Fatalf("create dst: %v", err)
+	}
+
+	// Export src. / 导出 src。
+	fgqPath := filepath.Join(tmp, "src.fgq")
+	exportCmd := newCmdForTest(t, runProjectsExport)
+	if err := runProjectsExport(exportCmd, []string{"src", fgqPath}); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	// Delete src so we have only dst. / 删 src，只留 dst。
+	deleteCmd := newCmdForTest(t, runProjectsDelete)
+	if err := runProjectsDelete(deleteCmd, []string{"src"}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Import into "dst" should fail because dst already exists.
+	// / Import 到 "dst" 应失败，因为 dst 已存在。
+	importCmd := newCmdForTest(t, runProjectsImport)
+	err := runProjectsImport(importCmd, []string{fgqPath, "dst"})
+	if err == nil {
+		t.Fatal("import into existing project should fail; got nil")
+	}
+}

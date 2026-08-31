@@ -49,6 +49,24 @@ var (
 		Args:  cobra.ExactArgs(1),
 		RunE:  runProjectsInfo,
 	}
+	// v0.4 Phase 2.4: portable single-file project dump (.fgq
+	// format). export a project to share with a teammate or
+	// back up off-box; import to recreate the bbolt project
+	// locally. / v0.4 Phase 2.4：可移植单文件项目转储（.fgq 格
+	// 式）。导出项目以便与队友共享或异地备份；导入可在本地重建
+	// bbolt 项目。
+	projectsExportCmd = &cobra.Command{
+		Use:   "export <name> <out.fgq>",
+		Short: "Export a project workspace to a single .fgq file",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runProjectsExport,
+	}
+	projectsImportCmd = &cobra.Command{
+		Use:   "import <in.fgq> <name>",
+		Short: "Import a project from a .fgq file",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runProjectsImport,
+	}
 )
 
 func init() {
@@ -57,6 +75,8 @@ func init() {
 	projectsCmd.AddCommand(projectsCreateCmd)
 	projectsCmd.AddCommand(projectsDeleteCmd)
 	projectsCmd.AddCommand(projectsInfoCmd)
+	projectsCmd.AddCommand(projectsExportCmd)
+	projectsCmd.AddCommand(projectsImportCmd)
 }
 
 // runProjectsList lists all projects under ./runs/projects/.
@@ -185,4 +205,45 @@ func validProjectName(name string) bool {
 		}
 	}
 	return !strings.Contains(name, "..")
+}
+
+// runProjectsExport writes the project's bbolt state to a
+// single .fgq file. See internal/workspace/export.go for
+// the file format. / runProjectsExport 把项目的 bbolt 状态
+// 写到单 .fgq 文件。文件格式见 internal/workspace/export.go。
+func runProjectsExport(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	outPath := args[1]
+	proj, err := workspace.Open(name)
+	if err != nil {
+		return fmt.Errorf("open project %q: %w", name, err)
+	}
+	defer func() { _ = proj.Close() }()
+	if err := proj.Export(outPath); err != nil {
+		return fmt.Errorf("export %q → %s: %w", name, outPath, err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Exported project %q to %s\n", name, outPath)
+	return nil
+}
+
+// runProjectsImport recreates a project from a .fgq file. The
+// project name is taken from the second positional argument
+// (it can differ from the original project name in the file).
+// / runProjectsImport 从 .fgq 文件重建项目。项目名取第二
+// 个位置参数（可以与文件里记录的原项目名不同）。
+func runProjectsImport(cmd *cobra.Command, args []string) error {
+	inPath := args[0]
+	name := args[1]
+	// Refuse to silently overwrite an existing project. The
+	// user can `delete` first if they want to replace. / 拒绝
+	// 静默覆盖已有项目。如要替换，用户可以先 delete。
+	dir := filepath.Join(workspace.ProjectsRoot(), name)
+	if _, err := os.Stat(dir); err == nil {
+		return fmt.Errorf("project %q already exists at %s; delete it first if you want to replace", name, dir)
+	}
+	if err := workspace.Import(inPath, name); err != nil {
+		return fmt.Errorf("import %s → %q: %w", inPath, name, err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Imported %s as project %q\n", inPath, name)
+	return nil
 }
