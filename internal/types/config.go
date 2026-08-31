@@ -83,6 +83,22 @@ type Config struct {
 	OutputJSON string
 	OutputCSV  string // v0.3.0: path to result.csv; empty = not written
 
+	// v0.4: output rotation. OutputRotateMaxBytes and
+	// OutputRotateMaxFiles together implement a size-based
+	// rolling-file policy: when a sink's byte counter crosses
+	// OutputRotateMaxBytes the active file is closed, renamed
+	// to <path>.1, and a new <path> is opened. Files rotate
+	// through .1 .2 ... .(OutputRotateMaxFiles-1); the oldest
+	// beyond the cap is dropped. 0 in either field disables
+	// rotation (default). / v0.4：输出轮转。OutputRotateMaxBytes
+	// 和 OutputRotateMaxFiles 一起实现基于大小的 rolling-file
+	// 策略：sink 字节计数超过 OutputRotateMaxBytes 时关闭当前
+	// 文件、改名为 <path>.1、开新 <path>。文件轮转 .1 .2 ...
+	// .(OutputRotateMaxFiles-1)；超出上限的最旧文件被丢弃。
+	// 任一字段为 0 关闭轮转（默认）。
+	OutputRotateMaxBytes int64
+	OutputRotateMaxFiles  int
+
 	// UI / 界面
 	Silent  bool
 	NoTUI   bool

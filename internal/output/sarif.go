@@ -163,7 +163,7 @@ func buildSARIFDocument(results []*types.Result) sarifDocument {
 // it to w. / writeSARIFDocument 渲染文档为格式化 JSON 并写入 w。
 func writeSARIFDocument(w *flushCloser, results []*types.Result) error {
 	doc := buildSARIFDocument(results)
-	enc := json.NewEncoder(w.bw)
+	enc := json.NewEncoder(w.bw())
 	enc.SetIndent("", "  ")
 	return enc.Encode(doc)
 }

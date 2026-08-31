@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -16,36 +15,32 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
-// flushCloser wraps a *bufio.Writer around an *os.File and provides a
-// Close() that flushes the buffer then closes the file. This lets us
-// keep the io.WriteCloser type used in Output.
+// flushCloser wraps a *rotatingWriter and provides a Close() that
+// flushes the active file and rotates if the size cap is hit.
 //
-// flushCloser 把 *bufio.Writer 包到 *os.File 外面，Close() 行为：先 flush
-// buffer 再关文件。这样 Output 可以统一用 io.WriteCloser 类型。
+// flushCloser 把 *rotatingWriter 包起来，Close() 行为：先 flush
+// 当前文件，必要时滚到下一个文件。
 type flushCloser struct {
-	bw *bufio.Writer
-	f  *os.File
+	rw *rotatingWriter
 }
 
-func (fc *flushCloser) Write(p []byte) (int, error) { return fc.bw.Write(p) }
+func (fc *flushCloser) Write(p []byte) (int, error) { return fc.rw.Write(p) }
 func (fc *flushCloser) Close() error {
-	if fc.bw != nil {
-		_ = fc.bw.Flush()
-	}
-	if fc.f != nil {
-		// P2-7 (audit): f.Sync() forces the OS to flush the file's
-		// buffers, surviving power-loss / OOM-kill without losing the
-		// last ~200ms of buffered writes. / P2-7（审计）：f.Sync() 强制
-		// OS 把文件 buffer 落盘，避免掉电/OOM 杀进程时丢最后 ~200ms
-		// 写入。
-		// We deliberately ignore the Sync error: Close() below is the
-		// authoritative close, and failing here would mask the close
-		// error which is more actionable. / 这里有意忽略 Sync 错误：
-		// 下面的 Close() 是权威关闭，此处失败会掩盖更可执行的 close 错误。
-		_ = fc.f.Sync()
-		return fc.f.Close()
+	if fc.rw != nil {
+		return fc.rw.Close()
 	}
 	return nil
+}
+
+// bw returns the underlying bufio.Writer so callers like
+// csv.NewWriter / json.NewEncoder can wrap the rotating file.
+// / bw 返底层 bufio.Writer，方便 csv.NewWriter / json.NewEncoder
+// 这类调用方包旋转文件。
+func (fc *flushCloser) bw() *bufio.Writer {
+	if fc.rw == nil {
+		return nil
+	}
+	return fc.rw.bw()
 }
 
 // Output writes results to TXT, NDJSON, creds, RDP, and CSV files.
@@ -142,6 +137,19 @@ type OutputConfig struct {
 	// 明文——操作员跑扫描就是为了拿到真实口令去用。result.txt 才是会
 	// 被复制到工单/聊天里的可分享表面，所以加门。
 	ShowCleartext bool
+
+	// v0.4: size-based output rotation. RotateMaxBytes is the
+	// per-file size cap; when the active sink crosses it the
+	// file is closed, renamed to <path>.1, and a new <path>
+	// opened. RotateMaxFiles is the total number of files to
+	// keep (active + .1 .2 ...). 0 in either field disables
+	// rotation (default). / v0.4：基于大小的输出轮转。
+	// RotateMaxBytes 是单文件大小阈值；现行 sink 跨过时关闭
+	// 改名为 <path>.1 并开新 <path>。RotateMaxFiles 是总
+	// 保留文件数（active + .1 .2 ...）。任一字段 0 关闭
+	// 轮转（默认）。
+	RotateMaxBytes int64
+	RotateMaxFiles  int
 }
 
 // OpenOutput opens (creates if needed) the configured output files and
@@ -165,7 +173,7 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 			o.csv = w
 			// Allocate csv.Writer once; reused per WriteResult.
 			// / 一次性分配 csv.Writer；WriteResult 复用。
-			o.csvWriter = csv.NewWriter(w.bw)
+			o.csvWriter = csv.NewWriter(w.bw())
 		}},
 		{cfg.ResultSARIFPath, 0o644, func(w *flushCloser) { o.sarif = w }},
 	}
@@ -173,16 +181,20 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 		if op.path == "" {
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(op.path), 0o755); err != nil {
-			_ = o.Close()
-			return nil, fmt.Errorf("mkdir for %s: %w", op.path, err)
-		}
-		f, err := os.OpenFile(op.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, op.perm)
+		// v0.4 Phase 2.3: size-based output rotation. When
+		// RotateMaxBytes > 0 and RotateMaxFiles > 0, the
+		// active sink is wrapped in a rotatingWriter that
+		// auto-rolls at the size cap. 0 in either field
+		// disables rotation (default). / v0.4 Phase 2.3：基于
+		// 大小的输出轮转。RotateMaxBytes > 0 且 RotateMaxFiles > 0
+		// 时，现行 sink 包到 rotatingWriter 里，跨过大小阈值
+		// 自动滚动。任一字段为 0 关闭轮转（默认）。
+		rw, err := newRotatingWriter(op.path, op.perm, cfg.RotateMaxBytes, cfg.RotateMaxFiles)
 		if err != nil {
 			_ = o.Close()
-			return nil, fmt.Errorf("open %s: %w", op.path, err)
+			return nil, err
 		}
-		op.set(&flushCloser{bw: bufio.NewWriter(f), f: f})
+		op.set(&flushCloser{rw: rw})
 	}
 	return o, nil
 }
@@ -259,11 +271,11 @@ func (o *Output) Flush() error {
 	}
 	var firstErr error
 	for _, f := range flushers {
-		if f.w == nil || f.w.bw == nil {
+		if f.w == nil || f.w.bw() == nil {
 			continue
 		}
 		f.mu.Lock()
-		err := f.w.bw.Flush()
+		err := f.w.bw().Flush()
 		f.mu.Unlock()
 		if err != nil && firstErr == nil {
 			firstErr = err

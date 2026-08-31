@@ -432,11 +432,13 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 		}
 	}
 	out, err := output.OpenOutput(output.OutputConfig{
-		ResultTXTPath:   resultTXT,
-		ResultJSONPath:  resultJSON,
-		ResultCSVPath:   resultCSV,
-		ResultSARIFPath: resultSARIF,
-		CredsPath:       credsPath,
+		ResultTXTPath:    resultTXT,
+		ResultJSONPath:   resultJSON,
+		ResultCSVPath:    resultCSV,
+		ResultSARIFPath:  resultSARIF,
+		CredsPath:        credsPath,
+		RotateMaxBytes:   flagOutputRotateBytes,
+		RotateMaxFiles:   flagOutputRotateFiles,
 		RDPJSONPath:     rdpJSON,
 		RDPTXTPath:      rdpTXT,
 		// P0#2: result.txt gets the redaction gate; creds.txt is

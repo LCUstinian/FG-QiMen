@@ -90,6 +90,10 @@ var (
 	flagOutputCSV   string
 	flagOutputSARIF string // v0.4: SARIF for GitHub Code Scanning
 
+	// v0.4: output rotation. / v0.4：输出轮转。
+	flagOutputRotateBytes int64 // per-file size cap; 0 = no rotation
+	flagOutputRotateFiles int   // total files (active + .1 .2 ...); 0 = no rotation
+
 	// 8. Behaviour / 行为
 	flagSilent        bool
 	flagNoTUI         bool
@@ -206,6 +210,15 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written.")
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
 		"path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written.")
+	// v0.4: --output-rotate NMB,N rotates TXT/JSON/CSV/SARIF outputs
+	// when the active file crosses NMB megabytes, keeping N
+	// total files (active + .1 .2 ...). / v0.4：--output-rotate NMB,N
+	// 在现行文件跨过 NMB 兆字节时轮转 TXT/JSON/CSV/SARIF 输出，
+	// 保留 N 个文件（active + .1 .2 ...）。
+	pf.Int64Var(&flagOutputRotateBytes, "output-rotate-bytes", 0,
+		"per-file size cap in bytes for output rotation (0 = no rotation)")
+	pf.IntVar(&flagOutputRotateFiles, "output-rotate-files", 0,
+		"total number of output files to keep (0 = no rotation)")
 
 	// HTTP form brute (opt-in; --http-form-url empty = no-op).
 	// / HTTP form 爆破（opt-in；--http-form-url 空 = no-op）。
@@ -258,7 +271,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
-	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif"}, groupOutput)
+	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "output-rotate-bytes", "output-rotate-files"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

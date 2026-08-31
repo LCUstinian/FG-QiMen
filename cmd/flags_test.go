@@ -68,6 +68,9 @@ var expectedFlagGroups = map[string]string{
 	"output-json":  "Output",
 	"output-csv":   "Output",
 	"output-sarif": "Output",
+	// v0.4: output rotation. / v0.4：输出轮转。
+	"output-rotate-bytes": "Output",
+	"output-rotate-files": "Output",
 	// Behavior
 	"silent":   "Behavior",
 	"no-tui":   "Behavior",
