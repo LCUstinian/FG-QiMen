@@ -112,6 +112,16 @@ func (a *ModbusAuthenticator) Authenticate(ctx context.Context, host string, por
 // Read。否则 TCP 已建连但永不响应的 Modbus 设备会把 worker 阻塞满
 // cfg.Timeout。
 func (a *ModbusAuthenticator) attempt(ctx context.Context, addr string, timeout time.Duration) (bool, error) {
+	// Note: this plugin takes pre-built `host:port` strings
+	// from the caller, so we use the inline net.Dialer
+	// pattern. v0.4 Phase 2.2 (proxy unification) would
+	// refactor the Authenticate → attempt boundary to pass
+	// host and port separately, then route through
+	// credential.DialTCP. Tracked for the next phase. / 本函数
+	// 接收调用方预构的 `host:port` 字符串，所以用 inline
+	// net.Dialer 模式。v0.4 Phase 2.2（代理统一）会重构
+	// Authenticate → attempt 边界分别传 host 和 port，然后走
+	// credential.DialTCP。下一阶段跟踪。
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
