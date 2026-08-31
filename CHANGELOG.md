@@ -9,6 +9,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No pending changes._
 
+## [0.4.0] - 2026-08-30
+
+v0.4 cycle: quality foundation + four core pipeline improvements.
+Combines the v0.4.0-rc1 quality pass (CI green, coverage 60%)
+with the four Phase 2 features below. / v0.4 周期：质量基础 + 四
+项核心管线改进。合并 v0.4.0-rc1 质量阶段（CI 绿、覆盖率 60%）
+与下列四项 Phase 2 功能。
+
+Full per-feature verification lives in
+[`docs/verification/v0.4/verification.md`](docs/verification/v0.4/verification.md)
+and [`docs/verification/v0.4/benchmarks.md`](docs/verification/v0.4/benchmarks.md).
+
+### Added
+
+- **Phase 2.1 — Crack-mode refactor** (`core.RunScan`): RunScan is
+  now a thin dispatcher. ModeScan and ModeLinked go through
+  `runFullPipeline` (alive → scan → identify → optional credential
+  as before). ModeCrack goes through `runCrackPipeline`, which
+  skips the alive + port-scan stages entirely and feeds a
+  pre-known host:port list straight into the plugin worker pool.
+  A 256-host /24 × 6-port crack now skips ~1536 redundant TCP
+  connects that the previous mode-conditional code issued. /
+  Phase 2.1 crack-mode 重构：RunScan 改为薄派发。ModeScan /
+  ModeLinked 走 runFullPipeline（与之前相同 alive → scan →
+  identify → 可选 credential）。ModeCrack 走 runCrackPipeline，
+  完全跳过 alive + 端口扫描，直接把已知的 host:port 列表喂
+  给 plugin worker 池。
+
+- **Phase 2.2 — Proxy unification** (`credential.DialTCPAddr`):
+  the new `credential.DialTCPAddr` function takes a pre-joined
+  `host:port` string and routes it through the same global proxy
+  manager as `credential.DialTCP`, so `--proxy` / `--socks5`
+  apply uniformly across the auth tree. Migrated telnet, vnc,
+  and ssh from raw `net.Dialer` to the new helper. Other plugins
+  (modbus, bacnet, ipmi) keep raw `net.Dialer` because they need
+  a transport-specific path (UDP / custom protocol setup) the
+  unified TCP dialer doesn't fit. / Phase 2.2 代理统一：新增
+  credential.DialTCPAddr 接收预拼的 `host:port` 字符串，走与
+  DialTCP 同一全局 proxy manager，让 --proxy / --socks5 在整
+  个 auth 树上统一生效。把 telnet、vnc、ssh 从 raw net.Dialer
+  迁到新 helper。
+
+- **Phase 2.3 — Output rotation** (`--output-rotate-bytes N`,
+  `--output-rotate-files M`): new `rotatingWriter` rolls the
+  TXT / NDJSON / CSV / SARIF sinks when they cross the byte cap.
+  Files rotate `<path>` → `<path>.1` → `<path>.2` → ... up to
+  the configured M total. `flushCloser` refactored to wrap the
+  new type. 4 unit tests cover under-cap / at-cap / beyond-cap /
+  zero-cap. / Phase 2.3 输出轮转：新增 rotatingWriter，当
+  TXT / NDJSON / CSV / SARIF sink 跨过字节阈值时滚动。文件
+  滚 `<path>` → `<path>.1` → ... 到 M 个总文件。
+
+- **Phase 2.4 — `.fgq` project import/export** (`projects
+  export` / `projects import`): single-file portable project
+  dump. Format: 4-byte magic `FGQ1` + 4-byte LE uint32 header
+  length + JSON header (version, project, created_at, db_bytes) +
+  raw bbolt data, byte-for-byte. CLI: `fg-qimen projects
+  export <name> <out.fgq>` / `fg-qimen projects import
+  <in.fgq> <name>`. Import refuses to overwrite an existing
+  project unless `delete` runs first. 4 unit tests + 2 CLI tests
+  in `internal/workspace` + `cmd/projects_test.go`. / Phase 2.4
+  .fgq 项目导入/导出：单文件可移植项目转储。格式 4 字节
+  magic `FGQ1` + 4 字节 header 长度 + JSON header + 原始 bbolt
+  数据。CLI 两条新命令。
+
+### Coverage
+
+- Coverage gate bumped 50% → 60% in this cycle (actual ~60.0%).
+- New unit tests this cycle: 9 (5 in `internal/workspace`,
+  4 in `internal/output` for rotation, plus 1 in
+  `internal/version` for the const→var ldflag regression).
+
+### CI
+
+- CI exit-126 / exit-127 fixes from v0.4.0-rc1 carry forward:
+  actionlint downloads via real file (not `bash <(curl)`);
+  coverage check uses a Python script (deterministic, no
+  SIGPIPE on `tail -1`).
+
 ## [0.3.1] - 2026-08-19
 
 Second batch of audit-driven correctness, security, and reliability
