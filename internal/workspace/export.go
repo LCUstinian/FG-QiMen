@@ -55,10 +55,10 @@ var fgqMagic = [4]byte{'F', 'G', 'Q', '1'}
 // of the .fgq file. / fgqHeader 是 .fgq 文件起始的 JSON 序列化
 // 元数据块。
 type fgqHeader struct {
-	Version   string    `json:"version"`   // FG-QiMen release that produced this file, e.g. "v0.4.0"
-	Project   string    `json:"project"`   // project name
+	Version   string    `json:"version"`    // FG-QiMen release that produced this file, e.g. "v0.4.0"
+	Project   string    `json:"project"`    // project name
 	CreatedAt time.Time `json:"created_at"` // export time (local)
-	DBBytes   int64     `json:"db_bytes"`  // size of the embedded bbolt data
+	DBBytes   int64     `json:"db_bytes"`   // size of the embedded bbolt data
 }
 
 // Export writes the persistent project at <ProjectsRoot>/<name>/

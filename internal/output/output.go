@@ -149,7 +149,7 @@ type OutputConfig struct {
 	// 保留文件数（active + .1 .2 ...）。任一字段 0 关闭
 	// 轮转（默认）。
 	RotateMaxBytes int64
-	RotateMaxFiles  int
+	RotateMaxFiles int
 }
 
 // OpenOutput opens (creates if needed) the configured output files and

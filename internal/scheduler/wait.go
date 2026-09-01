@@ -111,13 +111,13 @@ func (m Mode) String() string {
 // Options collects the raw inputs from CLI flags. / Options
 // 收 CLI flag 的原始输入。
 type Options struct {
-	At        string
-	In        string
-	Cron      string
-	TZ        string
-	Daemon    bool
-	DryRun    bool
-	Now       time.Time // injectable for tests
+	At     string
+	In     string
+	Cron   string
+	TZ     string
+	Daemon bool
+	DryRun bool
+	Now    time.Time // injectable for tests
 }
 
 // ErrInvalidCombination is returned when conflicting inputs are
@@ -230,6 +230,7 @@ func (in *Input) NextFire() time.Time {
 // countdown on in.Output. Returns when:
 //   - the target time is reached (nil error), or
 //   - ctx is cancelled (ctx.Err()), or
+//
 // - the schedule is ModeNone (nil error, no wait).
 //
 // Wait 阻塞到下次执行时间（或无调度时立即返回），每秒在
@@ -237,6 +238,7 @@ func (in *Input) NextFire() time.Time {
 //   - 到目标时间（nil error）
 //   - ctx 取消（ctx.Err()）
 //   - ModeNone（nil error，不等）
+//
 // defaultOutput returns the io.Writer used when Input.Output
 // is nil. The "tee" form below mirrors the project's standard
 // human channel (stderr) so countdown lines don't pollute the

@@ -43,16 +43,16 @@ func TestParseCron_Descriptor(t *testing.T) {
 
 func TestParseCron_Invalid(t *testing.T) {
 	cases := []string{
-		"",                  // empty
-		"* * * *",          // only 4 fields
-		"* * * * * *",      // 6 fields without Second option
-		"60 0 * * *",        // minute out of range
-		"0 24 * * *",        // hour out of range
-		"0 0 32 * *",        // day out of range
-		"0 0 0 * *",         // day 0
-		"0 0 * 13 *",        // month 13
-		"0 0 * 0 *",         // month 0
-		"abc 0 * * *",       // not a number
+		"",            // empty
+		"* * * *",     // only 4 fields
+		"* * * * * *", // 6 fields without Second option
+		"60 0 * * *",  // minute out of range
+		"0 24 * * *",  // hour out of range
+		"0 0 32 * *",  // day out of range
+		"0 0 0 * *",   // day 0
+		"0 0 * 13 *",  // month 13
+		"0 0 * 0 *",   // month 0
+		"abc 0 * * *", // not a number
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) {

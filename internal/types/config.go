@@ -97,7 +97,7 @@ type Config struct {
 	// .(OutputRotateMaxFiles-1)；超出上限的最旧文件被丢弃。
 	// 任一字段为 0 关闭轮转（默认）。
 	OutputRotateMaxBytes int64
-	OutputRotateMaxFiles  int
+	OutputRotateMaxFiles int
 
 	// UI / 界面
 	Silent  bool
