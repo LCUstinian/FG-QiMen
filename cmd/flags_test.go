@@ -76,6 +76,13 @@ var expectedFlagGroups = map[string]string{
 	// 一归属输出子系统）。
 	"rotate-bytes": "Output",
 	"rotate-files": "Output",
+	// v0.5: scheduled scan. / v0.5：定时扫描。
+	"at":               "Schedule",
+	"in":               "Schedule",
+	"cron":             "Schedule",
+	"tz":               "Schedule",
+	"daemon":           "Schedule",
+	"schedule-dry-run": "Schedule",
 	// Behavior
 	"silent":   "Behavior",
 	"no-tui":   "Behavior",

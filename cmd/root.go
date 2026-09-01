@@ -69,6 +69,7 @@ const (
 	groupOutput      = "Output"
 	groupBehavior    = "Behavior"
 	groupSafety      = "Safety"
+	groupSchedule    = "Schedule"
 )
 
 // rootCmd is the top-level fg-qimen command.

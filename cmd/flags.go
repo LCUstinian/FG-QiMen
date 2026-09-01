@@ -94,6 +94,21 @@ var (
 	flagOutputRotateBytes int64 // per-file size cap; 0 = no rotation
 	flagOutputRotateFiles int   // total files (active + .1 .2 ...); 0 = no rotation
 
+	// v0.5: scheduled scan. --at (RFC3339 absolute), --in
+	// (Go duration), --cron (5-field expr via robfig/cron/v3)
+	// are mutually exclusive; --tz sets the IANA zone for cron
+	// evaluation; --daemon loops cron forever; --dry-run prints
+	// the next fire time and exits. / v0.5：定时扫描。--at
+	// (RFC3339 绝对)、--in (Go duration)、--cron (5 字段，robfig
+	// /cron/v3) 互斥；--tz 设 cron 求值的 IANA 时区；--daemon
+	// 循环跑 cron；--dry-run 打印下次执行时间后退出。
+	flagScheduleAt     string
+	flagScheduleIn     string
+	flagScheduleCron   string
+	flagScheduleTZ     string
+	flagScheduleDaemon bool
+	flagScheduleDryRun bool
+
 	// 8. Behaviour / 行为
 	flagSilent        bool
 	flagNoTUI         bool
@@ -227,6 +242,18 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"per-file size cap in bytes for output rotation (0 = no rotation). Shorthand: v0.4 shortened --output-rotate-bytes → --rotate-bytes (output-* is the only rotate-prefixed flag).")
 	pf.IntVar(&flagOutputRotateFiles, "rotate-files", 0,
 		"total number of output files to keep (0 = no rotation). Shorthand: v0.4 shortened --output-rotate-files → --rotate-files.")
+	pf.StringVar(&flagScheduleAt, "at", "",
+		"absolute start time as RFC3339 (e.g. \"2026-12-25T09:00:00+08:00\"). Time zone is embedded in the timestamp. Mutually exclusive with --in and --cron.")
+	pf.StringVar(&flagScheduleIn, "in", "",
+		"relative delay (Go duration syntax, e.g. \"2h30m\"). Mutually exclusive with --at and --cron.")
+	pf.StringVar(&flagScheduleCron, "cron", "",
+		"5-field cron expression (minute hour dom month dow). Evaluated in the --tz zone (or system local if --tz is empty). robfig/cron/v3 syntax; --at and --in are mutually exclusive with this. Requires --daemon to loop.")
+	pf.StringVar(&flagScheduleTZ, "tz", "",
+		"IANA time zone for cron expression evaluation (e.g. \"America/New_York\"). Defaults to the system local zone if empty. Cross-timezone scans are the main use case for this flag.")
+	pf.BoolVar(&flagScheduleDaemon, "daemon", false,
+		"loop the scan on the cron schedule indefinitely. Only meaningful with --cron. Press Ctrl-C to exit.")
+	pf.BoolVar(&flagScheduleDryRun, "schedule-dry-run", false,
+		"print the next scheduled fire time and exit without waiting. Useful for verifying --at / --in / --cron / --tz without committing to the wait.")
 
 	// HTTP form brute (opt-in; --http-form-url empty = no-op).
 	// / HTTP form 爆破（opt-in；--http-form-url 空 = no-op）。
@@ -281,5 +308,6 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "rotate-bytes", "rotate-files"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
+	annotate(pf, []string{"at", "in", "cron", "tz", "daemon", "schedule-dry-run"}, groupSchedule)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

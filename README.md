@@ -235,6 +235,16 @@ to v0.4+.
   <out.fgq>` / `projects import <in.fgq> <name>`): portable
   single-file project dump (4-byte magic `FGQ1` + JSON header +
   raw bbolt data). Format is forward-compatible across releases.
+- **Scheduled scan** (`--at`, `--in`, `--cron`, `--tz`,
+  `--daemon`, `--schedule-dry-run`): cross-timezone scheduled
+  scans. `--at RFC3339` schedules a one-shot, `--in DURATION`
+  schedules a relative delay, `--cron EXPR` is a 5-field
+  expression evaluated in `--tz` (or system local). Add
+  `--daemon` to loop the scan on the cron schedule
+  indefinitely. The new `fg-qimen schedules add | list |
+  remove` subcommand persists schedules to the project DB so
+  they survive process restart. Powered by
+  `github.com/robfig/cron/v3` for the cron parser.
 
 ---
 

@@ -71,6 +71,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("config error: %w", err)
 	}
 
+	// v0.5: scheduled scan. Parse the schedule (--at / --in /
+	// --cron / --tz) and either dry-run, wait, or run as a
+	// daemon before any network I/O. / v0.5：定时扫描。在任何网
+	// 络 I/O 前解析 --at / --in / --cron / --tz，然后干跑、等
+	// 待、或以 daemon 模式跑。
+	if err := applySchedule(cmd); err != nil {
+		return err
+	}
+
 	// Apply transport-layer security flags BEFORE any TLS/SSH probe
 	// is constructed. The transport package exposes atomic flags that
 	// the auth / plugin TLS sites read at probe-build time; setting

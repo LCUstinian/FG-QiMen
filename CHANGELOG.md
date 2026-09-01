@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No pending changes._
+### Added
+
+- **Scheduled scan** (`--at`, `--in`, `--cron`, `--tz`,
+  `--daemon`, `--schedule-dry-run`): cross-timezone scheduled
+  scans. --at takes an RFC3339 absolute time (the time zone
+  is embedded in the timestamp, so a New York operator can
+  schedule a scan for "2026-12-25T09:00:00+08:00" without
+  having to convert). --in is a Go duration. --cron is a
+  5-field cron expression evaluated in --tz (or system local
+  if --tz is empty), powered by `github.com/robfig/cron/v3`.
+  --daemon loops the scan on the cron schedule indefinitely
+  (press Ctrl-C to exit). --schedule-dry-run prints the next
+  fire time and exits without waiting. The scan waits for the
+  target time before opening any sockets or files, so a
+  misconfigured schedule fails fast. / 定时扫描：--at 接
+  RFC3339 绝对时间戳（时区嵌入时间戳里，NYC 操作员可以直接
+  排 "2026-12-25T09:00:00+08:00" 而不用转时区）；--in 接 Go
+  duration；--cron 是 5 字段 cron 表达式，在 --tz 时区（或
+  --tz 空时用系统本地）下求值，底层用 robfig/cron/v3；
+  --daemon 按 cron 循环跑（Ctrl-C 退出）；--schedule-dry-run
+  打下次 fire 时间后退出。扫描在等目标时间期间不开任何
+  socket 或文件，配错时立即报错。
+- **`schedules` subcommand** (`fg-qimen schedules add | list
+  | remove`): persistent schedules stored in the project DB
+  (the `schedules` bucket, opened lazily by
+  `internal/scheduler/store.go`). Survive process restart, so
+  an operator can `add` once and `list` later to audit what's
+  queued. / `schedules` 子命令（add | list | remove）：调
+  度存项目 DB 的 `schedules` bucket，进程重启后保留。
+- **Internal `internal/scheduler` package**: standalone,
+  no-cobra, unit-testable. Holds the cron parser wrapper,
+  wait-loop with countdown + ctx cancel, and the bbolt
+  store. 12 unit tests cover all paths. / 内部
+  `internal/scheduler` 包：独立、无 cobra、纯单测。含 cron
+  解析包装、倒计时 + ctx 取消的等待循环、bbolt 存储。
+  12 个单测覆盖所有路径.
 
 ## [0.4.0] - 2026-08-30
 
