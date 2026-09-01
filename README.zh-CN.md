@@ -9,7 +9,7 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 [English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.md)
 
 ```
-┌─ FG-QIMEN v0.3 ──── project: corp-intranet ──── mode: linked ─┐
+┌─ FG-QIMEN v0.5 ──── project: corp-intranet ──── mode: linked ─┐
 │ ⟳ Scanning... elapsed 00:01:23  throughput 142 pps             │
 ├──────────────────────┬──────────────────────────────────────────┤
 │ 目标                 │ 实时事件                                │
@@ -167,12 +167,12 @@ fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass
 | `smb` | 445, 139 | ✅（SMB magic） | ✅（SMB2 Session Setup NTLMv2） |
 | `smtp` | 25, 465, 587, 2525 | ✅（EHLO） | – (v0.2+) |
 | `snmp` | 161, 162 | ✅（sysDescr.0 原文） | – (v0.2+) |
-| `snmpv3` | 161, 162 | ✅（GetRequest v3） | – (v0.3.1 新增) |
+| `snmpv3` | 161, 162 | ✅（GetRequest v3） | |
 | `ldap` | 389, 636 | ✅（BindRequest + SearchRequest） | – (v0.2+) |
 | `memcached` | 11211, 11212 | ✅（text "version\r\n"） | ✅（ASCII "auth" 探针） |
 | `elasticsearch` | 9200, 9300 | ✅（HTTP GET /） | ✅（HTTP Basic） |
-| `rdp` | 3389 | ✅（TPKT/X.224/MCS 四步） | –（NLA 凭据测试 v0.4+ deferred） |
-| `rdpnla` | 3389 | ✅（RDP NLA 状态 HYBRID/SSL/旧版） | –（NLA 凭据 v0.4+ deferred） |
+| `rdp` | 3389 | ✅（TPKT/X.224/MCS 四步） | |
+| `rdpnla` | 3389 | ✅（RDP NLA 状态 HYBRID/SSL/旧版） | |
 | `vnc` | 5900–5905 | ✅（RFB 003.x banner） | ✅（RFB 握手 + DES 挑战） |
 | `telnet` | 23, 2323 | ✅（IAC-stripped banner） | ✅（IAC + 提示符 + user/pass 流） |
 | `oracle` | 1521, 1526, 2483 | ✅（TNS Connect/Accept） | ✅（TNS 握手 via go-ora） |
@@ -183,22 +183,22 @@ fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass
 | `rsync` | 873, 8873 | ✅（`@RSYNCD:` 问候） | ✅（USERNAME + MD5 挑战） |
 | `docker` | 2375, 2376 | ✅（GET /_ping + /info） | ✅（HTTP Basic to /images/json） |
 | `rabbitmq` | 5672 | ✅（AMQP 0-9-1 header + Start） | ✅（AMQP PLAIN） |
-| `mqtt` | 1883, 8883 | ✅（MQTT 3.1.1 / 5.0 CONNECT/CONNACK） | – (v0.4 新增) |
-| `activemq` | 61616 | ✅（OpenWire stub） | – (v0.4 新增) |
-| `kafka` | 9092 | ✅（ApiVersions v0+） | – (v0.4 新增) |
-| `rocketmq` | 9876 | ✅（RemotingCommand stub） | – (v0.4 新增) |
+| `mqtt` | 1883, 8883 | ✅（MQTT 3.1.1 / 5.0 CONNECT/CONNACK） | |
+| `activemq` | 61616 | ✅（OpenWire stub） | |
+| `kafka` | 9092 | ✅（ApiVersions v0+） | |
+| `rocketmq` | 9876 | ✅（RemotingCommand stub） | |
 | `modbus` | 502 | ✅（Read Device Identification） | ✅（仅读设备 ID；不写线圈/寄存器） |
 | `ipmi` | 623 (UDP) | ✅（RMCP+ Session Open） | ✅（RAKP v2.0 HMAC-SHA1） |
 | `bacnet` | 47808 (UDP) | ✅（BACnet/IP Who-Is → I-Am） | ✅（可达性探针） |
-| `ntp` | 123 (UDP) | ✅（NTPv4 client, Mode=4） | – (v0.3.1 新增) |
-| `tftp` | 69 (UDP) | ✅（RRQ → DATA/ERROR） | – (v0.3.1 新增) |
-| `dns` | 53 (UDP) | ✅（CHAOS version.bind + root A） | – (v0.3.1 新增) |
+| `ntp` | 123 (UDP) | ✅（NTPv4 client, Mode=4） | |
+| `tftp` | 69 (UDP) | ✅（RRQ → DATA/ERROR） | |
+| `dns` | 53 (UDP) | ✅（CHAOS version.bind + root A） | |
 | `nfs` | 2049 | ✅（ONC RPC NULL call） | ✅（RPC NULL；无 AUTH_GSS） |
-| `jenkins` | 8080, 8443, 50000 | ✅（Jenkins crumb + version） | – (v0.4 新增) |
-| `kibana` | 5601 | ✅（Kibana status API） | – (v0.4 新增) |
-| `weblogic` | 7001, 7002, 8443 | ✅（WebLogic console 登录页） | – (v0.4 新增) |
-| `aws` | 80（云元数据） | ✅（IMDSv1 + IMDSv2 指纹） | – (v0.4 新增) |
-| `azure` | 80（云元数据） | ✅（Azure IMDS 指纹） | – (v0.4 新增) |
+| `jenkins` | 8080, 8443, 50000 | ✅（Jenkins crumb + version） | |
+| `kibana` | 5601 | ✅（Kibana status API） | |
+| `weblogic` | 7001, 7002, 8443 | ✅（WebLogic console 登录页） | |
+| `aws` | 80（云元数据） | ✅（IMDSv1 + IMDSv2 指纹） | |
+| `azure` | 80（云元数据） | ✅（Azure IMDS 指纹） | |
 
 凭据测试覆盖 **21 个服务**（SSH + Redis + MongoDB + PostgreSQL + MSSQL + SMB +
 Memcached + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 + IMAP +
@@ -208,28 +208,7 @@ SOCKS5 + Rsync + Docker + RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS），均
 IPv6 是一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规则集通过
 `--web-fingerprint <path-or-url>` 加载（本地文件或 HTTP URL，可从规则服务
 器 live-update）。RDP NLA 状态（HYBRID / SSL / 旧版）由 `rdp-nla` 插件
-探测；完整 CredSSP 认证延期到 v0.4+。
-
-### v0.4 核心改进
-
-- **Crack-mode 重构**：`ModeCrack` 现在跳过 alive + 端口扫描阶段，
-  直接把已知的 host:port 列表喂给 plugin worker 池。256-host
-  /24 × 6-port 的 crack 比旧版 mode-conditional 路径少约
-  1536 次冗余 TCP 连接。
-- **代理统一**（`--proxy` / `--socks5`）：所有 auth 树 TCP
-  拨号站点走 `credential.DialTCP`（或预拼 `host:port` 字串
-  用 `credential.DialTCPAddr`），全局 proxy manager 统一生效。
-  telnet、VNC、SSH 已迁移；剩余 UDP / 自定义协议插件后续
-  阶段补。
-- **输出轮转**（`--output-rotate-bytes N` +
-  `--output-rotate-files M`）：基于大小的 rolling-file，给
-  TXT / NDJSON / CSV / SARIF sink 用。文件滚 `<path>` →
-  `<path>.1` → `<path>.2` → ... 到 M 个总文件。两 flag 都
-  > 0 才启用轮转；任一 0 走 v0.4 前的单文件行为。
-- **`.fgq` 项目导入/导出**（`projects export <name> <out.fgq>` /
-  `projects import <in.fgq> <name>`）：可移植单文件项目转储
-  （4 字节 magic `FGQ1` + JSON header + 原始 bbolt 数据）。
-  格式跨 release 向后兼容。
+探测；完整 CredSSP 认证延期。
 
 ---
 

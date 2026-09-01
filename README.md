@@ -10,7 +10,7 @@ vs persistent project workspace with bbolt state).
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
-┌─ FG-QIMEN v0.3 ──── project: corp-intranet ──── mode: linked ─┐
+┌─ FG-QIMEN v0.5 ──── project: corp-intranet ──── mode: linked ─┐
 │ ⟳ Scanning... elapsed 00:01:23  throughput 142 pps             │
 ├──────────────────────┬──────────────────────────────────────────┤
 │ Targets              │ Live Events                              │
@@ -168,12 +168,12 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | `smb` | 445, 139 | ✅ (SMB magic) | ✅ (SMB2 Session Setup NTLMv2) |
 | `smtp` | 25, 465, 587, 2525 | ✅ (EHLO) | – (v0.2+) |
 | `snmp` | 161, 162 | ✅ (sysDescr.0 raw) | – (v0.2+) |
-| `snmpv3` | 161, 162 | ✅ (GetRequest v3) | – (added v0.3.1) |
+| `snmpv3` | 161, 162 | ✅ (GetRequest v3) | |
 | `ldap` | 389, 636 | ✅ (BindRequest + SearchRequest) | – (v0.2+) |
 | `memcached` | 11211, 11212 | ✅ (text "version\r\n") | ✅ (ASCII "auth" probe) |
 | `elasticsearch` | 9200, 9300 | ✅ (HTTP GET /) | ✅ (HTTP Basic) |
-| `rdp` | 3389 | ✅ (TPKT/X.224/MCS 4-step) | – (NLA cred test is v0.4+ deferral) |
-| `rdpnla` | 3389 | ✅ (RDP NLA posture HYBRID/SSL/legacy) | – (NLA cred is v0.4+ deferral) |
+| `rdp` | 3389 | ✅ (TPKT/X.224/MCS 4-step) | – (NLA cred test deferred) |
+| `rdpnla` | 3389 | ✅ (RDP NLA posture HYBRID/SSL/legacy) | – (NLA cred deferred) |
 | `vnc` | 5900–5905 | ✅ (RFB 003.x banner) | ✅ (RFB handshake + DES challenge) |
 | `telnet` | 23, 2323 | ✅ (IAC-stripped banner) | ✅ (IAC + prompt + user/pass flow) |
 | `oracle` | 1521, 1526, 2483 | ✅ (TNS Connect/Accept) | ✅ (TNS handshake via go-ora) |
@@ -184,22 +184,22 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | `rsync` | 873, 8873 | ✅ (`@RSYNCD:` greeting) | ✅ (USERNAME + MD5 challenge) |
 | `docker` | 2375, 2376 | ✅ (GET /_ping + /info) | ✅ (HTTP Basic to /images/json) |
 | `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 header + Start) | ✅ (AMQP PLAIN) |
-| `mqtt` | 1883, 8883 | ✅ (MQTT 3.1.1 / 5.0 CONNECT/CONNACK) | – (added v0.4) |
-| `activemq` | 61616 | ✅ (OpenWire stub) | – (added v0.4) |
-| `kafka` | 9092 | ✅ (ApiVersions v0+) | – (added v0.4) |
-| `rocketmq` | 9876 | ✅ (RemotingCommand stub) | – (added v0.4) |
+| `mqtt` | 1883, 8883 | ✅ (MQTT 3.1.1 / 5.0 CONNECT/CONNACK) | |
+| `activemq` | 61616 | ✅ (OpenWire stub) | |
+| `kafka` | 9092 | ✅ (ApiVersions v0+) | |
+| `rocketmq` | 9876 | ✅ (RemotingCommand stub) | |
 | `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write) |
 | `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
 | `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |
-| `ntp` | 123 (UDP) | ✅ (NTPv4 client, Mode=4) | – (added v0.3.1) |
-| `tftp` | 69 (UDP) | ✅ (RRQ → DATA/ERROR) | – (added v0.3.1) |
-| `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | – (added v0.3.1) |
+| `ntp` | 123 (UDP) | ✅ (NTPv4 client, Mode=4) | |
+| `tftp` | 69 (UDP) | ✅ (RRQ → DATA/ERROR) | |
+| `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | |
 | `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL; no AUTH_GSS) |
-| `jenkins` | 8080, 8443, 50000 | ✅ (Jenkins crumb + version) | – (added v0.4) |
-| `kibana` | 5601 | ✅ (Kibana status API) | – (added v0.4) |
-| `weblogic` | 7001, 7002, 8443 | ✅ (WebLogic console login page) | – (added v0.4) |
-| `aws` | 80 (cloud-metadata) | ✅ (IMDSv1 + IMDSv2 fingerprint) | – (added v0.4) |
-| `azure` | 80 (cloud-metadata) | ✅ (Azure IMDS fingerprint) | – (added v0.4) |
+| `jenkins` | 8080, 8443, 50000 | ✅ (Jenkins crumb + version) | |
+| `kibana` | 5601 | ✅ (Kibana status API) | |
+| `weblogic` | 7001, 7002, 8443 | ✅ (WebLogic console login page) | |
+| `aws` | 80 (cloud-metadata) | ✅ (IMDSv1 + IMDSv2 fingerprint) | |
+| `azure` | 80 (cloud-metadata) | ✅ (Azure IMDS fingerprint) | |
 
 Credential testing covers **21 services** (SSH + Redis + MongoDB +
 PostgreSQL + MSSQL + SMB + Memcached + Elasticsearch + VNC + Telnet + Oracle +
@@ -210,41 +210,8 @@ BACnet + NFS), all with the no-exploit enforcement
 IPv6 is first-class (single IP / CIDR / comma-list). Custom web-fingerprint
 rulesets load via `--web-fingerprint <path-or-url>` (local file or HTTP URL
 for live-update from a rules server). RDP NLA posture (HYBRID / SSL / legacy)
-is detected by the `rdp-nla` plugin; full CredSSP authentication is deferred
-to v0.4+.
-
-### v0.4 core improvements
-
-- **Crack-mode refactor**: `ModeCrack` now skips the alive + port-scan
-  stages and feeds a pre-known host:port list straight into the plugin
-  worker pool. A 256-host /24 × 6-port crack skips ~1536 redundant
-  TCP connects vs. the previous mode-conditional path.
-- **Proxy unification** (`--proxy` / `--socks5`): all auth-tree
-  TCP dial sites route through `credential.DialTCP` (or
-  `credential.DialTCPAddr` for pre-joined `host:port` strings),
-  so the global proxy manager applies uniformly. Telnet, VNC,
-  SSH already migrated; remaining UDP / custom-protocol plugins
-  follow in a later phase.
-- **Output rotation** (`--output-rotate-bytes N` +
-  `--output-rotate-files M`): size-based rolling-file for
-  TXT / NDJSON / CSV / SARIF sinks. Files rotate `<path>` →
-  `<path>.1` → `<path>.2` → ... up to M total. Both flags
-  must be > 0 to enable rotation; either 0 keeps the
-  pre-v0.4 single-file behavior.
-- **`.fgq` project import/export** (`projects export <name>
-  <out.fgq>` / `projects import <in.fgq> <name>`): portable
-  single-file project dump (4-byte magic `FGQ1` + JSON header +
-  raw bbolt data). Format is forward-compatible across releases.
-- **Scheduled scan** (`--at`, `--in`, `--cron`, `--tz`,
-  `--daemon`, `--schedule-dry-run`): cross-timezone scheduled
-  scans. `--at RFC3339` schedules a one-shot, `--in DURATION`
-  schedules a relative delay, `--cron EXPR` is a 5-field
-  expression evaluated in `--tz` (or system local). Add
-  `--daemon` to loop the scan on the cron schedule
-  indefinitely. The new `fg-qimen schedules add | list |
-  remove` subcommand persists schedules to the project DB so
-  they survive process restart. Powered by
-  `github.com/robfig/cron/v3` for the cron parser.
+is detected by the `rdp-nla` plugin; full CredSSP authentication is
+deferred.
 
 ---
 

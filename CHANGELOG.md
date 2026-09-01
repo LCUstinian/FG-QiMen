@@ -7,42 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No pending changes._
+
+## [0.5.0] - 2026-09-01
+
+Cross-timezone scheduled scan. The user runs scans
+regularly from a different time zone than the targets and
+needed a way to schedule without host-side cron. v0.5 adds
+`--at` / `--in` / `--cron` / `--tz` / `--daemon` for
+in-band scheduling, and a `fg-qimen schedules add | list |
+remove` subcommand for persistent schedules stored in the
+project DB. / 跨时区定时扫描。用户经常从与目标不同时区发起
+扫描，需要不依赖宿主机 cron 的调度方式。v0.5 加 `--at` /
+`--in` / `--cron` / `--tz` / `--daemon` 做带内调度，加
+`fg-qimen schedules add | list | remove` 子命令做存项目 DB
+的持久化调度。
+
+Full verification: [`docs/verification/v0.5/verification.md`](docs/verification/v0.5/verification.md)
+
 ### Added
 
-- **Scheduled scan** (`--at`, `--in`, `--cron`, `--tz`,
-  `--daemon`, `--schedule-dry-run`): cross-timezone scheduled
-  scans. --at takes an RFC3339 absolute time (the time zone
-  is embedded in the timestamp, so a New York operator can
-  schedule a scan for "2026-12-25T09:00:00+08:00" without
-  having to convert). --in is a Go duration. --cron is a
-  5-field cron expression evaluated in --tz (or system local
-  if --tz is empty), powered by `github.com/robfig/cron/v3`.
-  --daemon loops the scan on the cron schedule indefinitely
-  (press Ctrl-C to exit). --schedule-dry-run prints the next
-  fire time and exits without waiting. The scan waits for the
-  target time before opening any sockets or files, so a
-  misconfigured schedule fails fast. / 定时扫描：--at 接
-  RFC3339 绝对时间戳（时区嵌入时间戳里，NYC 操作员可以直接
-  排 "2026-12-25T09:00:00+08:00" 而不用转时区）；--in 接 Go
-  duration；--cron 是 5 字段 cron 表达式，在 --tz 时区（或
-  --tz 空时用系统本地）下求值，底层用 robfig/cron/v3；
-  --daemon 按 cron 循环跑（Ctrl-C 退出）；--schedule-dry-run
-  打下次 fire 时间后退出。扫描在等目标时间期间不开任何
-  socket 或文件，配错时立即报错。
-- **`schedules` subcommand** (`fg-qimen schedules add | list
-  | remove`): persistent schedules stored in the project DB
-  (the `schedules` bucket, opened lazily by
-  `internal/scheduler/store.go`). Survive process restart, so
-  an operator can `add` once and `list` later to audit what's
-  queued. / `schedules` 子命令（add | list | remove）：调
-  度存项目 DB 的 `schedules` bucket，进程重启后保留。
-- **Internal `internal/scheduler` package**: standalone,
-  no-cobra, unit-testable. Holds the cron parser wrapper,
-  wait-loop with countdown + ctx cancel, and the bbolt
-  store. 12 unit tests cover all paths. / 内部
-  `internal/scheduler` 包：独立、无 cobra、纯单测。含 cron
-  解析包装、倒计时 + ctx 取消的等待循环、bbolt 存储。
-  12 个单测覆盖所有路径.
+- **Scheduled scan flags** (`--at`, `--in`, `--cron`, `--tz`,
+  `--daemon`, `--schedule-dry-run`): see [CLI reference](README.md#cli-reference).
+  The scan waits for the target time before opening any sockets
+  or files, so a misconfigured schedule fails fast.
+- **`fg-qimen schedules add | list | remove` subcommand**:
+  persistent schedules in the project DB (`schedules` bbolt
+  bucket, opened lazily by `internal/scheduler/store.go`).
+  `add` validates the cron expression at parse time so a bad
+  record never lands in the DB.
+- **`internal/scheduler` package**: standalone, no-cobra,
+  unit-testable. Holds the cron parser wrapper, wait-loop
+  with countdown + ctx cancel, and the bbolt store.
+
+### Changed
+
+- **New external dep: `github.com/robfig/cron/v3`** (~50 KB
+  binary). Chosen on explicit user request after the
+  classifier blocked the dep on the first pass; the
+  alternative was a self-rolled ~150-line cron parser. We
+  switched because robfig/cron/v3 handles edge cases (DST
+  transitions, seconds field, descriptor syntax like
+  `@daily`, `@hourly`) that the self-rolled version would
+  inevitably re-discover and re-fix badly.
+
+### Test coverage
+
+16 new unit tests in `internal/scheduler/` and
+`cmd/schedule_test.go`:
+- cron: valid / invalid / descriptor (`@hourly`, `@daily`,
+  `@midnight`) / TZ loading
+- wait: success / cancel / dry-run
+- bbolt store: add / get / list / remove / idempotent
+  remove / preserve-CreatedAt on overwrite
+- CLI: detectScheduleMode (3 modes + empty), loadScheduleTZ
+  (3 variants), full `schedules add → list → remove` round-trip
+
+Total coverage now 60.4% (was 60.0% in v0.4.0).
+
+### Compatibility
+
+- `--output-rotate-bytes` / `--output-rotate-files` renamed to
+  `--rotate-bytes` / `--rotate-files` (renamed in v0.4.1; the
+  `output-` prefix was redundant). No other breaking changes.
+- The "v0.4 core improvements" content from earlier READMEs
+  has moved to this changelog. Per-plugin `(added v0.X)` notes
+  have moved to this changelog too. The READMEs now describe
+  the current behaviour without per-version changelog.
+
+## [0.4.0] - 2026-08-30
+
+### Added
+
+- **Crack-mode refactor** (`core.RunScan`): `ModeCrack` now
+  skips the alive + port-scan stages and feeds a pre-known
+  host:port list straight into the plugin worker pool. A
+  256-host /24 × 6-port crack now skips ~1536 redundant TCP
+  connects vs. the previous mode-conditional path.
+- **Proxy unification** (`--proxy` / `--socks5`): all
+  auth-tree TCP dial sites route through
+  `credential.DialTCP` (or `credential.DialTCPAddr` for
+  pre-joined `host:port` strings), so the global proxy
+  manager applies uniformly. Telnet, VNC, SSH migrated;
+  remaining UDP / custom-protocol plugins to follow.
+- **Output rotation** (`--output-rotate-bytes N` +
+  `--output-rotate-files M`): size-based rolling-file for
+  TXT / NDJSON / CSV / SARIF sinks. Files rotate `<path>` →
+  `<path>.1` → `<path>.2` → ... up to M total. Both flags
+  must be > 0 to enable rotation; either 0 keeps the
+  pre-v0.4 single-file behavior.
+- **`.fgq` project import/export** (`projects export <name>
+  <out.fgq>` / `projects import <in.fgq> <name>`): portable
+  single-file project dump (4-byte magic `FGQ1` + JSON header
+  + raw bbolt data). Format is forward-compatible across
+  releases.
+- **MQTT plugin** (1883 / 8883): Identify plugin for
+  MQTT 3.1.1 / 5.0 brokers.
+- **CLI ergonomics** (v0.4.1): short aliases added — `-U`
+  (`--user-file`), `-W` (`--pass-file`), `-M` (`--mode`),
+  `-X` (`--proxy`). The two `--output-rotate-*` flags
+  shortened to `--rotate-*`. The audit added 10 missing
+  plugins to the README plugin table (snmpv3, rdpnla,
+  activemq, kafka, rocketmq, jenkins, kibana, weblogic,
+  aws, azure).
+
+### Changed
+
+- **Coverage gate 50% → 60%** (CI fails below 60%).
+
+### CI
+
+- Fixed exit-126 / exit-127 in actionlint + coverage step
+  (actionlint now downloads via a real file, not `bash
+  <(curl)`; coverage uses a Python script).
 
 ## [0.4.0] - 2026-08-30
 
@@ -123,7 +200,7 @@ and [`docs/verification/v0.4/benchmarks.md`](docs/verification/v0.4/benchmarks.m
   coverage check uses a Python script (deterministic, no
   SIGPIPE on `tail -1`).
 
-## [0.3.1] - 2026-08-19
+## [0.3.1] - 2026-08-19 (original entry)
 
 Second batch of audit-driven correctness, security, and reliability
 fixes. All ten commits are documented in

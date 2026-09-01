@@ -19,9 +19,11 @@ docs/
 │   ├── v0.3/
 │   │   ├── first-batch-verification.md
 │   │   └── second-batch-verification.md
-│   └── v0.4/
-│       ├── verification.md
-│       └── benchmarks.md
+│   ├── v0.4/
+│   │   ├── verification.md
+│   │   └── benchmarks.md
+│   └── v0.5/
+│       └── verification.md       ← scheduled scan + persistent schedules
 │
 ├── design/                      ← Design specs (date-stamped)
 │   ├── 2026-06-13-db-cred-rdp-fingerprint-design.md
