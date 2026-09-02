@@ -96,8 +96,8 @@ central `credential.Scheduler`, which expects a registered name).
 
 ## Adding a credential authenticator
 
-`Credential()` in the plugin is a no-op stub (`return nil`) for v0.2+
-because the central `credential.Scheduler` owns the spraying loop.
+`Credential()` in the plugin is a no-op stub (`return nil`) because
+the central `credential.Scheduler` owns the spraying loop.
 To add a real authenticator, create a sibling package under
 `internal/core/credential/auth/<category>/<protocol>/` that
 implements:

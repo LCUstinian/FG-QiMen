@@ -1,7 +1,7 @@
 # Release Procedure
 
-> v0.3.1+ — multi-platform automated release pipeline.
-> v0.3.1+ — 多平台自动发布流水线。
+> current — multi-platform automated release pipeline.
+> current — 多平台自动发布流水线。
 
 This document describes how to cut a release of FG-QiMen. The pipeline
 is fully automated; a tag push is the only manual trigger.
@@ -178,7 +178,8 @@ docker pull ghcr.io/<owner>/fg-qimen:vX.Y.Z
   `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`, `scoop-bucket.yml`
 - Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
   `docs/verification/v0.3/second-batch-verification.md`,
-  `docs/verification/v0.4/verification.md`
+  `docs/verification/v0.4/verification.md`,
+  `docs/verification/v0.5/verification.md`
 - Release notes: `CHANGELOG.md`
 - Dockerfile: `.github/docker/Dockerfile`
 - Benchmark baselines: `docs/verification/v0.4/benchmarks.md`

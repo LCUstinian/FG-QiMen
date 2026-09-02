@@ -43,6 +43,8 @@ cmd/                                Cobra commands
     │   ├── portscan/fingerprint/   Nmap PSL service fingerprint
     │   ├── discovery/              LAN-only ARP + NetBIOS
     │   └── workspace/              ephemeral / project state
+    ├── scheduler/                  cross-timezone schedule (--at, --in,
+    │                              --cron); cron parser via robfig/cron/v3
     └── version/                    ldflag-injected version string
 ```
 

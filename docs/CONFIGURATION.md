@@ -20,7 +20,8 @@ Flags are grouped into 9 categories in the help output:
 | Network | `--proxy`, `--socks5`, `--iface`, `--port-timeout`, `--web-timeout` |
 | Concurrency | `--threads`, `--timeout`, `--shutdown-timeout` |
 | Credentials | `--user`, `--pass`, `--user-file`, `--pass-file` |
-| Output | `--output-txt`, `--output-json`, `--output-csv` |
+| Output | `--output-txt`, `--output-json`, `--output-csv`, `--rotate-bytes`, `--rotate-files` |
+| Schedule | `--at`, `--in`, `--cron`, `--tz`, `--daemon`, `--schedule-dry-run` |
 | Behavior | `--silent`, `--no-tui`, `--no-batch`, `--no-icmp`, `--verbose`, `--plugins` |
 | Safety | `--show-creds`, `--insecure-tls`, `--insecure-ssh`, `--known-hosts` |
 
@@ -83,6 +84,26 @@ fg-qimen -H 10.0.0.0/24 --timeout 5s --web-timeout 10s
 # Output to a different directory (opt-in path)
 FG_QIMEN_ALLOW_EXTERNAL_OUTPUT=1 fg-qimen -H 10.0.0.0/24 \
     -o /tmp/scan.txt -j /tmp/scan.json
+
+# Schedule a scan to start at a specific instant in another zone
+# (timestamp's offset is the time zone — no --tz needed).
+# / 排一个跨时区扫描在指定瞬时启动（时间戳的 offset 就是
+# 时区——不用 --tz）。
+fg-qimen -p corp -H 10.0.0.0/24 --at "2026-12-25T09:00:00+08:00"
+
+# Run a cron-scheduled scan every day at 9am Shanghai time.
+# Ctrl-C to exit; --schedule-dry-run previews without waiting.
+# / 每天上海时间 9am 跑 cron 调度扫描。Ctrl-C 退出；
+# --schedule-dry-run 不等、只打预览。
+fg-qimen -p corp -H 10.0.0.0/24 --cron "0 9 * * *" \
+    --tz Asia/Shanghai --daemon
+
+# Persist a schedule in the project DB (survives restart) and
+# inspect what's queued. / 调度持久化到项目 DB（重启后保留），
+# 查看挂起的调度。
+fg-qimen schedules add    -p corp morning --cron "0 9 * * *"
+fg-qimen schedules list  -p corp
+fg-qimen schedules remove -p corp morning
 ```
 
 ## See also
