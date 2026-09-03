@@ -163,8 +163,8 @@ func dedupKey(c Cred) string {
 
 // LoadOptions configures file loading. / LoadOptions 配置文件加载。
 type LoadOptions struct {
-	// Users / Passes are inline values from -u / -P flags. / Users / Passes
-	// 来自 -u / -P 的内联值。
+	// Users / Passes are inline values from -u / -p flags. / Users / Passes
+	// 来自 -u / -p 的内联值。
 	Users  []string
 	Passes []string
 

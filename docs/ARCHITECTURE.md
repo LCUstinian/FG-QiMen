@@ -73,12 +73,21 @@ rules: no post-auth action, no exploitation.
 
 ```
 runs/projects/<name>/
-├── fg.db                # bbolt state
-├── targets.txt
-├── result.txt / .json / .csv
-├── creds.txt            # always cleartext
-└── rdp.json / rdp.txt   # RDP deep fingerprint
+├── fg.db                  # bbolt state
+├── targets.txt            # hand-editable target list (no fgqm_ prefix — operators edit it directly)
+└── <YYYY-MM-DD>/
+    ├── fgqm_result.txt / .json / .csv / .sarif
+    ├── fgqm_creds.txt     # always cleartext
+    └── fgqm_rdp.json / .txt   # RDP deep fingerprint
 ```
+
+The `fgqm_` prefix marks every result artifact as fg-qimen's,
+so they stand out in mixed directories (`ls runs/` →
+`fgqm_*.txt` is obviously the scanner's, not the app's). The
+prefix is also a stable grep anchor: `grep -l 'fgqm_' runs/`
+finds every result file across all projects and all dates.
+`targets.txt` stays unprefixed because it's the one file
+operators are expected to read and edit by hand.
 
 Ephemeral mode (no `-p`): workspace is CWD, no bbolt. Project mode
 (`-p <name>`): per-project bbolt + optional encryption.

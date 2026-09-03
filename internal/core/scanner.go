@@ -44,6 +44,19 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 
 	sess.UI.Banner(cfg)
 
+	// Periodic UI stats ticker. Started HERE (before mode dispatch
+	// + alive discovery), not deeper in the pipeline, so the UI
+	// ticks elapsed time during the alive sweep too — otherwise
+	// the screen sits idle for the entire ICMP/TCP/system-ping
+	// round and looks like nothing is happening ("did it start?").
+	// The ticker is fire-and-forget; it auto-exits when ctx fires.
+	// / 周期性 UI stats 滴答。在这里启动（mode 派发 + alive 探测之
+	// 前），而不是在流水线深处，让 UI 在 alive sweep 期间也走
+	// elapsed——否则屏幕在整个 ICMP/TCP/system-ping 回合内空着，看
+	// 上去像没动静（"它开始了吗？"）。ticker fire-and-forget；
+	// ctx 触发时自动退出。
+	go pushStats(ctx, sess, 1*time.Second)
+
 	// v0.4 Phase 2.1: dispatch by mode. The previous code
 	// unconditionally ran alive + scan + plugins for every mode
 	// and used wantIdentify/wantCredential to gate the plugin
@@ -92,6 +105,13 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		aliveOpts.Timeout = cfg.Timeout
 	}
 	aliveDiscovery := alive.New(aliveOpts)
+	// Surface what we're about to do — alive sweep can take
+	// seconds-to-minutes on big targets, and a silent "no counters
+	// moving" screen reads as "did anything start?". / 把接下来做
+	// 的事情打出来——alive sweep 在大目标上可能要几秒到几分钟，
+	// 屏幕静默"计数器不动"看上去像"是不是没启动？"
+	sess.Log.Info("[*] alive: probing %d host(s) (timeout %s, threads %d)",
+		len(targets), aliveOpts.Timeout, aliveOpts.Threads)
 	aliveRes, _ := aliveDiscovery.Run(ctx, targetAddrs(targets))
 	sess.State.Counters.Alive.Store(int64(len(aliveRes.Hits)))
 	if len(aliveRes.Hits) > 0 && len(aliveRes.Hits) < len(targets) {
@@ -311,8 +331,12 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		runResultSink(ctx, sess, results)
 	}()
 
-	// Periodic stats pusher. / 周期性 stats 推送。
-	go pushStats(ctx, sess, 1*time.Second)
+	// (Periodic stats pusher is started in RunScan, BEFORE this
+	// function, so the UI ticks during alive discovery too. Don't
+	// start a second one here — that would 2x the tick rate.
+	// / 周期性 stats 推送器在 RunScan 里、本函数之前已启动，让
+	// UI 在 alive 探测期间也走滴答。这里别再起一个，否则 tick
+	// 率翻倍。)
 
 	wg.Wait()
 	sess.UI.Done(summaryString(sess))
@@ -444,8 +468,12 @@ func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		runResultSink(ctx, sess, results)
 	}()
 
-	// Periodic stats pusher. / 周期性 stats 推送。
-	go pushStats(ctx, sess, 1*time.Second)
+	// (Periodic stats pusher is started in RunScan, BEFORE this
+	// function, so the UI ticks during alive discovery too. Don't
+	// start a second one here — that would 2x the tick rate.
+	// / 周期性 stats 推送器在 RunScan 里、本函数之前已启动，让
+	// UI 在 alive 探测期间也走滴答。这里别再起一个，否则 tick
+	// 率翻倍。)
 
 	wg.Wait()
 	sess.UI.Done(summaryString(sess))

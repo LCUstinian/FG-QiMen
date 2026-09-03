@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -25,17 +26,41 @@ import (
 // SSHAuthenticator authenticates against SSH servers.
 // SSHAuthenticator 对 SSH 服务器进行认证。
 type SSHAuthenticator struct {
-	// HostKeyCallback is the SSH host-key verification callback. By
-	// default we accept any host key (scanner needs to work against
-	// unknown hosts). / HostKeyCallback 是 SSH 主机密钥验证回调。默认
-	// 接受任何主机密钥（扫描器要能连未知主机）。
-	HostKeyCallback ssh.HostKeyCallback
+	// hostKeyCB is the SSH host-key verification callback, lazily
+	// resolved via transport.SSHHostKeyCallback() on first use so
+	// the "no known_hosts" warning only fires when SSH is actually
+	// probed (i.e., during a real scan with flags parsed), not
+	// during package init in tests that merely import this
+	// package. Memoised with sync.Once so the known_hosts file
+	// is loaded once per Authenticator, not once per connection.
+	// / hostKeyCB 是 SSH 主机密钥验证回调，在首次使用时通过
+	// transport.SSHHostKeyCallback() 懒解析，让"无 known_hosts"
+	// 警告只在 SSH 实际探测时（也就是带 flag 的真扫描时）出现，
+	// 不在仅 import 此包的测试的 init() 期间出现。sync.Once
+	// 记忆化，确保 known_hosts 文件每 Authenticator 只加载一次，
+	// 不是每次连接加载一次。
+	hostKeyCB     ssh.HostKeyCallback
+	hostKeyCBOnce sync.Once
 }
 
 // NewSSHAuthenticator returns a default-configured SSH authenticator.
-// NewSSHAuthenticator 返回默认配置的 SSH 认证器。
+// The host-key callback is resolved lazily on first Authenticate
+// call, not here — see SSHAuthenticator.hostKeyCB doc for why.
+// / NewSSHAuthenticator 返回默认配置的 SSH 认证器。主机密钥回调
+// 在首次 Authenticate 调用时懒解析，而不是在这里——见
+// SSHAuthenticator.hostKeyCB 文档的说明。
 func NewSSHAuthenticator() *SSHAuthenticator {
-	return &SSHAuthenticator{HostKeyCallback: transport.SSHHostKeyCallback()}
+	return &SSHAuthenticator{}
+}
+
+// hostKey returns the SSH host-key callback, resolving it on first
+// use. Subsequent calls return the same callback. / hostKey 返回
+// SSH 主机密钥回调，首次使用时解析。后续调用返回同一回调。
+func (a *SSHAuthenticator) hostKey() ssh.HostKeyCallback {
+	a.hostKeyCBOnce.Do(func() {
+		a.hostKeyCB = transport.SSHHostKeyCallback()
+	})
+	return a.hostKeyCB
 }
 
 func init() { credential.Register(NewSSHAuthenticator()) }
@@ -65,7 +90,7 @@ func (a *SSHAuthenticator) Authenticate(ctx context.Context, host string, port i
 		if c.Method != "" && c.Method != credential.AuthPassword {
 			continue
 		}
-		if hit := sshTry(ctx, addr, c, a.HostKeyCallback, timeout); hit {
+		if hit := sshTry(ctx, addr, c, a.hostKey(), timeout); hit {
 			return &credential.Hit{
 				Cred:     c,
 				Attempts: i + 1,

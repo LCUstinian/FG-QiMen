@@ -30,7 +30,7 @@ vs persistent project workspace with bbolt state).
 
 FG-QiMen **deliberately does not include any vulnerability-exploitation code**.
 The scanner tries standard authentication handshakes against known services;
-on a hit, the credential is written to `creds.txt` and the run stops — no
+on a hit, the credential is written to `fgqm_creds.txt` and the run stops — no
 `Session.Exec`, no webshell, no persistence. The full no-exploit contract
 (the explicit list of forbidden capabilities) lives in
 [`docs/SECURITY.md`](docs/SECURITY.md).
@@ -44,10 +44,10 @@ on a hit, the credential is written to `creds.txt` and the run stops — no
 fg-qimen -H 192.168.1.0/24
 
 # persistent project with bbolt state
-fg-qimen -p corp -H 10.0.0.0/24 -mode linked
+fg-qimen --project corp -H 10.0.0.0/24 --mode linked
 
 # resume a paused project
-fg-qimen resume -p corp
+fg-qimen resume --project corp
 
 # list projects
 fg-qimen projects list
@@ -90,11 +90,11 @@ echo "10.0.0.0/24"   >  runs/projects/corp-intranet/targets.txt
 echo "10.0.1.0/24"   >> runs/projects/corp-intranet/targets.txt
 
 # linked mode (scan + credential test in one pass)
-fg-qimen -p corp-intranet -f runs/projects/corp-intranet/targets.txt -mode linked \
-    -u root admin -P 123456 admin P@ssw0rd
+fg-qimen --project corp-intranet -f runs/projects/corp-intranet/targets.txt --mode linked \
+    -u root admin -p 123456 admin P@ssw0rd
 
 # resume / info
-fg-qimen resume -p corp-intranet
+fg-qimen resume --project corp-intranet
 fg-qimen projects info corp-intranet
 ```
 
@@ -125,8 +125,8 @@ qwerty
 ```
 
 ```bash
-fg-qimen -H 10.0.0.0/24 -p 22,3306 --user-file users.txt --pass-file pass.txt
-fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass.txt -p corp
+fg-qimen -H 10.0.0.0/24 --ports 22,3306 -uf users.txt -pf pass.txt
+fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project corp
 ```
 
 ---
@@ -148,11 +148,11 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Output formats
 
-- `result.txt` — human-readable lines
-- `result.json` — NDJSON (one JSON object per line)
-- `result.csv` — RFC 4180, one row per result
-- `creds.txt` — credential hits (cleartext; operator's working file)
-- `rdp.json` / `rdp.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
+- `fgqm_result.txt` — human-readable lines
+- `fgqm_result.json` — NDJSON (one JSON object per line)
+- `fgqm_result.csv` — RFC 4180, one row per result
+- `fgqm_creds.txt` — credential hits (cleartext; operator's working file)
+- `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
 
 ### Plugins (44 plugins / authenticators)
 
@@ -205,7 +205,7 @@ Credential testing covers **21 services** (SSH + Redis + MongoDB +
 PostgreSQL + MSSQL + SMB + Memcached + Elasticsearch + VNC + Telnet + Oracle +
 WinRM + POP3 + IMAP + SOCKS5 + Rsync + Docker + RabbitMQ + Modbus + IPMI v2.0 +
 BACnet + NFS), all with the no-exploit enforcement
-(`creds.txt` is the only side-effect).
+(`fgqm_creds.txt` is the only side-effect).
 
 IPv6 is first-class (single IP / CIDR / comma-list). Custom web-fingerprint
 rulesets load via `--web-fingerprint <path-or-url>` (local file or HTTP URL
@@ -219,14 +219,14 @@ deferred.
 
 ```
 fg-qimen [flags]
-fg-qimen scan [flags]            # explicit scan
-fg-qimen resume -p <name>        # resume project
-fg-qimen projects list           # list projects
-fg-qimen projects create <n>     # create project
-fg-qimen projects delete <n>     # delete project
-fg-qimen projects info <n>       # show project details
-fg-qimen projects export <n> <out.fgq>   # export project to single .fgq file
-fg-qimen projects import <in.fgq> <n>   # import from .fgq file
+fg-qimen scan [flags]                       # explicit scan
+fg-qimen resume --project <name>            # resume project
+fg-qimen projects list                      # list projects
+fg-qimen projects create <n>                # create project
+fg-qimen projects delete <n>                # delete project
+fg-qimen projects info <n>                  # show project details
+fg-qimen projects export <n> <out.fgq>      # export project to single .fgq file
+fg-qimen projects import <in.fgq> <n>      # import from .fgq file
 fg-qimen version                 # show version
 fg-qimen completion bash         # generate shell completion
 ```
@@ -238,10 +238,19 @@ For ~90% of scans you only need these five flags:
 | Short | Long | Example | Purpose |
 |---|---|---|---|
 | `-H` | `--host` | `-H 10.0.0.0/24` | target IP / CIDR / range / comma-list |
-| `-p` | `--project` | `-p corp` | named project (persists to bbolt; omit for ephemeral) |
+| (无) | `--project` | `--project corp` | named project (persists to bbolt; omit for ephemeral) |
 | `-u` | `--user` | `-u root admin` | inline usernames |
-| `-U` | `--user-file` | `-U users.txt` | usernames dictionary file (one per line) |
-| `-W` | `--pass-file` | `-W pass.txt` | passwords dictionary file (one per line; `-W` not `-P` so it doesn't collide with `-P`/`--pass` inline) |
+| `-uf` | `--user-file` | `-uf users.txt` | usernames dictionary file (one per line) |
+| `-pf` | `--pass-file` | `-pf pass.txt` | passwords dictionary file (one per line) |
+
+The four most common pairings:
+
+```bash
+-H 1.0.0.0/8 -u admin -p root,toor              # host + inline creds
+-H 1.0.0.0/8 -uf users.txt -pf passes.txt       # host + wordlists
+-H 1.0.0.0/8 -f targets.txt -a                  # hosts file + alive-only
+-H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv      # all three output sinks
+```
 
 Concrete recipes:
 
@@ -250,33 +259,39 @@ Concrete recipes:
 fg-qimen -H 10.0.0.0/24
 
 # Named project with dictionaries + small thread count
-fg-qimen -p corp -H 10.0.0.0/24 -U users.txt -W pass.txt -t 50
+fg-qimen --project corp -H 10.0.0.0/24 -uf users.txt -pf pass.txt -t 50
 
 # Re-attack a saved project against its previously-seen hosts
-fg-qimen resume -p corp
+fg-qimen resume --project corp
 
 # Crack-only: skip alive + port scan, just try creds
-fg-qimen scan -p corp -mode crack -U users.txt -W pass.txt
+fg-qimen scan --project corp --mode crack -uf users.txt -pf pass.txt
 
 # Behind an HTTP proxy (chains through any plugin's dialer)
-fg-qimen -H 10.0.0.0/24 -X http://127.0.0.1:8080
+fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 ```
 
-### Full flag reference (v0.4.1 — 45 flags, 17 with short aliases)
+> **Short-flag convention** (v0.5.1+): all lowercase, mnemonic only,
+> 2-letter for namespaces (output-* / user-pass-file). `-H` is the
+> sole uppercase (it avoids the `-h`/`--help` collision that cobra
+> reserves). See [CHANGELOG](CHANGELOG.md) for the migration
+> table from v0.5.0.
+
+### Full flag reference (v0.5.1 — 45 flags, 14 with short aliases)
 
 | Short | Long | Default | Group | Meaning |
 |---|---|---|---|---|
 | `-H` | `--host` | (empty) | Target | target IP / CIDR / range / comma-list (e.g. `10.0.0.0/24,192.168.1.0/24`) |
 | `-f` | `--hosts-file` | (empty) | Target | load targets from file (one host per line; `#` comments skipped) |
-| `-p` | `--project` | (empty) | Workspace | project name; empty = ephemeral (no bbolt) |
+|     | `--project` | (empty) | Workspace | project name; empty = ephemeral (no bbolt). No short flag — use long form (e.g. `--project corp`). |
 |     | `--project-key` | (empty) | Workspace | passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Empty = plaintext. Env: `FG_QIMEN_PROJECT_KEY` |
-| `-M` | `--mode` | `scan` | Workspace | `scan` (alive→scan→identify) / `crack` (creds only) / `linked` (scan + creds) |
-|     | `--resume` | `false` | Workspace | resume from bbolt seen-set (skip already-seen host:port pairs) |
+|     | `--mode` | `scan` | Workspace | `scan` (alive→scan→identify) / `crack` (creds only) / `linked` (scan + creds) |
+| `-r` | `--resume` | `false` | Workspace | resume from bbolt seen-set (skip already-seen host:port pairs). New in v0.5.1. |
 |     | `--no-state` | `false` | Workspace | disable bbolt, in-memory only; the project is wiped on exit |
 |     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | comma-separated port list |
 |     | `--exclude-ports` | (empty) | Ports | ports to remove from the resolved list |
 |     | `--no-icmp` | `false` | Ports | skip ICMP alive probe (TCP-only mode for hostile networks) |
-| `-X` | `--proxy` | (empty) | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). |
+|     | `--proxy` | (empty) | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). No short flag (use long form). |
 |     | `--socks5` | (empty) | Network | SOCKS5 proxy URL (e.g. `socks5://user:pass@127.0.0.1:1080`) |
 |     | `--iface` | (empty) | Network | bind outgoing connections to this local IP |
 | `-t` | `--threads` | `200` | Concurrency | concurrent workers in the plugin pool |
@@ -284,16 +299,16 @@ fg-qimen -H 10.0.0.0/24 -X http://127.0.0.1:8080
 |     | `--timeout` | `3s` | Concurrency | per-op timeout (also covers the alive probe, port scan connect, plugin handshake) |
 | `-a` | `--alive-only` | `false` | Concurrency | stop after the alive probe; no scan / identify / credential |
 | `-u` | `--user` | (empty) | Credentials | inline usernames (comma-separated) |
-|     | `--pass` | (empty) | Credentials | inline passwords (comma-separated; `-P` short) |
-| `-U` | `--user-file` | (empty) | Credentials | usernames dictionary file (one per line; `-U` short, v0.4.1+) |
-| `-W` | `--pass-file` | (empty) | Credentials | passwords dictionary file (one per line; `-W` not `-P` to avoid collision with `-P`/`--pass` inline) |
-| `-o` | `--output-txt` | (empty) | Output | path to TXT result file (`-o` short) |
-| `-j` | `--output-json` | (empty) | Output | path to NDJSON result file (`-j` short) |
-|     | `--output-csv` | (empty) | Output | path to CSV result file (one row per result; stable column order for awk / pandas) |
-|     | `--output-sarif` | (empty) | Output | path to SARIF 2.1.0 JSON (one document, for GitHub Code Scanning) |
+| `-p` | `--pass` | (empty) | Credentials | inline passwords (comma-separated). v0.5.1: short changed from `-P` to `-p` (Unix-standard mnemonic for password; matches sshpass / passwd / openssl). |
+| `-uf` | `--user-file` | (empty) | Credentials | usernames dictionary file (one per line). v0.5.1: short changed from `-U` to `-uf` (nmap-style 2-letter for namespaced flags). |
+| `-pf` | `--pass-file` | (empty) | Credentials | passwords dictionary file (one per line). v0.5.1: short changed from `-W` to `-pf`. |
+| `-ot` | `--output-txt` | (empty) | Output | path to TXT result file. v0.5.1: short changed from `-o` to `-ot` (2-letter for the output namespace). |
+| `-oj` | `--output-json` | (empty) | Output | path to NDJSON result file. v0.5.1: short changed from `-j` to `-oj`. |
+| `-oc` | `--output-csv` | (empty) | Output | path to CSV result file (one row per result; stable column order for awk / pandas). New in v0.5.1. |
+|     | `--output-sarif` | (empty) | Output | path to SARIF 2.1.0 JSON (one document, for GitHub Code Scanning). No short flag (niche). |
 |     | `--rotate-bytes` | `0` | Output | per-file size cap for output rotation (0 = no rotation). Renamed from `--output-rotate-bytes` in v0.4.1; the `output-` prefix was redundant since `rotate` is unique to the output subsystem. |
 |     | `--rotate-files` | `0` | Output | total files to keep including active (0 = no rotation). Renamed from `--output-rotate-files` in v0.4.1. |
-|     | `--show-creds` | `false` | Output | force cleartext in `result.txt` (creds.txt is always cleartext) |
+|     | `--show-creds` | `false` | Output | force cleartext in `fgqm_result.txt` (`fgqm_creds.txt` is always cleartext) |
 |     | `--plugins` | (empty) | Output | comma-separated plugin allowlist (e.g. `--plugins ssh,redis,vnc`); empty = all |
 |     | `--web-fingerprint` | (empty) | Output | path or URL to extra FingerprintHub-style web rules |
 |     | `--http-form-url` | (empty) | Output | HTTP basic-auth URL for the HTTP form-brute plugin (opt-in) |

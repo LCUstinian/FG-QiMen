@@ -98,7 +98,7 @@ func TestOpenOutputCreatesParentDirs(t *testing.T) {
 	dir := t.TempDir()
 	resultsDir := filepath.Join(dir, "nested", "results")
 	cfg := OutputConfig{
-		ResultTXTPath: filepath.Join(resultsDir, "result.txt"),
+		ResultTXTPath: filepath.Join(resultsDir, "fgqm_result.txt"),
 	}
 	o, err := OpenOutput(cfg)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestWriteResultJSON(t *testing.T) {
 // it must remain empty when no cred hits arrive.
 func TestWriteCredSkipsWhenNil(t *testing.T) {
 	dir := t.TempDir()
-	cfg := OutputConfig{CredsPath: filepath.Join(dir, "creds.txt")}
+	cfg := OutputConfig{CredsPath: filepath.Join(dir, "fgqm_creds.txt")}
 	o, err := OpenOutput(cfg)
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)
@@ -212,7 +212,7 @@ func TestWriteCredSkipsWhenNil(t *testing.T) {
 // for pretty-printing.)
 func TestWriteCredAppendsLine(t *testing.T) {
 	dir := t.TempDir()
-	cfg := OutputConfig{CredsPath: filepath.Join(dir, "creds.txt")}
+	cfg := OutputConfig{CredsPath: filepath.Join(dir, "fgqm_creds.txt")}
 	o, err := OpenOutput(cfg)
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)
@@ -240,8 +240,8 @@ func TestWriteCredAppendsLine(t *testing.T) {
 func TestWriteRDPEmitsBoth(t *testing.T) {
 	dir := t.TempDir()
 	cfg := OutputConfig{
-		RDPJSONPath: filepath.Join(dir, "rdp.json"),
-		RDPTXTPath:  filepath.Join(dir, "rdp.txt"),
+		RDPJSONPath: filepath.Join(dir, "fgqm_rdp.json"),
+		RDPTXTPath:  filepath.Join(dir, "fgqm_rdp.txt"),
 	}
 	o, err := OpenOutput(cfg)
 	if err != nil {
@@ -354,11 +354,11 @@ func TestCloseIdempotent(t *testing.T) {
 func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 	dir := t.TempDir()
 	cfg := OutputConfig{
-		ResultTXTPath:  filepath.Join(dir, "r.txt"),
-		ResultJSONPath: filepath.Join(dir, "r.json"),
-		CredsPath:      filepath.Join(dir, "creds.txt"),
-		RDPJSONPath:    filepath.Join(dir, "rdp.json"),
-		RDPTXTPath:     filepath.Join(dir, "rdp.txt"),
+		ResultTXTPath:  filepath.Join(dir, "fgqm_r.txt"),
+		ResultJSONPath: filepath.Join(dir, "fgqm_r.json"),
+		CredsPath:      filepath.Join(dir, "fgqm_creds.txt"),
+		RDPJSONPath:    filepath.Join(dir, "fgqm_rdp.json"),
+		RDPTXTPath:     filepath.Join(dir, "fgqm_rdp.txt"),
 	}
 	o, err := OpenOutput(cfg)
 	if err != nil {
@@ -442,13 +442,13 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 			t.Errorf("%s: got %d lines, want %d", path, n, want)
 		}
 	}
-	assertLineCount(filepath.Join(dir, "r.txt"))
-	assertLineCount(filepath.Join(dir, "creds.txt"))
-	assertLineCount(filepath.Join(dir, "rdp.txt"))
+	assertLineCount(filepath.Join(dir, "fgqm_r.txt"))
+	assertLineCount(filepath.Join(dir, "fgqm_creds.txt"))
+	assertLineCount(filepath.Join(dir, "fgqm_rdp.txt"))
 	// JSON / NDJSON files: each line is one JSON object, no
 	// interleaving means no line is invalid JSON. / JSON 文件每行一
 	// 个 JSON 对象，无交错意味着没有非法 JSON 行。
-	for _, p := range []string{filepath.Join(dir, "r.json"), filepath.Join(dir, "rdp.json")} {
+	for _, p := range []string{filepath.Join(dir, "fgqm_r.json"), filepath.Join(dir, "fgqm_rdp.json")} {
 		f, err := os.Open(p)
 		if err != nil {
 			t.Fatalf("open %s: %v", p, err)

@@ -7,7 +7,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No pending changes._
+### Changed
+
+- **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
+  `cmd/multishort_test.go`, `cmd/{root,resume,scan,schedules}.go`,
+  `internal/core/credential/pool.go`, `README*`). Single-letter
+  shorts are now all lowercase and mnemonic; 2-letter shorts
+  are used for namespaced / paired flags (output-* and
+  user/pass-file, nmap `-oN/-oX/-oG/-oA` precedent); awkward
+  uppercase shorts with no mnemonic (`-M`, `-X`, `-U`, `-W`,
+  `-P`) are removed. **Migration table** (v0.5.0 → v0.5.1):
+
+  | 旧 | 新 |
+  |---|---|
+  | `-p corp` | `--project corp` |
+  | `-M scan` | `--mode scan` |
+  | `-X http://proxy:8080` | `--proxy http://proxy:8080` |
+  | `-U users.txt` | `-uf users.txt` |
+  | `-W pass.txt` | `-pf pass.txt` |
+  | `-P admin,root` | `-p admin,root` |
+  | `-o result.txt` | `-ot result.txt` |
+  | `-j result.json` | `-oj result.json` |
+  | (无) | `-oc result.csv` (新增) |
+  | (无) | `-r` (`--resume` 短参新增) |
+
+  No deprecated aliases kept — clean break. Underlying impl
+  notes: pflag v1.0.9 panics on multi-char shorthands at
+  registration, so `-ot` / `-oj` / `-oc` / `-uf` / `-pf` go
+  through a 50-line pre-parse hook in `cmd/multishort.go`
+  that rewrites them to `--output-txt` etc. before cobra
+  sees the args. A flag-value heuristic (skip rewrite when
+  the previous arg is flag-shaped) ensures literal passwords
+  like `-p "-ot"` round-trip correctly via the long form.
+
+  / 短参全面重构（cmd/flags.go、cmd/multishort.go、cmd/multishort_test.go、
+  cmd/{root,resume,scan,schedules}.go、internal/core/credential/pool.go、
+  README*）。单字母短参全部小写 + mnemonic；2 字母短参用于命名空
+  间 / 配对（output-* 和 user/pass-file，nmap `-oN/-oX/-oG/-oA`
+  先例）；无语义的大写短参（`-M`、`-X`、`-U`、`-W`、`-P`）删
+  除。**迁移表**（v0.5.0 → v0.5.1）：见上。无 deprecated
+  alias 保留——硬切。实现备注：pflag v1.0.9 在注册时拒绝多字
+  母 shorthand 会 panic，所以 `-ot` / `-oj` / `-oc` / `-uf` /
+  `-pf` 走 cmd/multishort.go 的 50 行预解析 hook，在 cobra 看
+  到 args 前改写为 `--output-txt` 等。flag-value 启发式（上
+  一个 arg 是 flag 形态则跳过重写）确保字面密码如 `-p "-ot"`
+  通过长形式能正确往返。
+
+- **`fgqm_` prefix on all result files** (`cmd/scan.go`,
+  `cmd/projects.go`, `cmd/flags.go`, `internal/output/*_test.go`,
+  `README*`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`).
+  All seven default result filenames now carry the `fgqm_`
+  prefix so they're identifiable as fg-qimen's in mixed
+  directories (`fgqm_result.txt`, `fgqm_result.json`,
+  `fgqm_result.csv`, `fgqm_result.sarif`, `fgqm_creds.txt`,
+  `fgqm_rdp.json`, `fgqm_rdp.txt`). `targets.txt` stays
+  unprefixed because operators edit it by hand. The `-o` /
+  `-j` / `--output-csv` / `--output-sarif` flags still let
+  callers override the filename (and the path), so existing
+  scripted pipelines that pass an explicit filename continue
+  to work.
+
+  / 全部结果文件加 `fgqm_` 前缀（cmd/scan.go、cmd/projects.go、
+  cmd/flags.go、internal/output/*_test.go、README*、docs/ARCHITECTURE.md、
+  docs/SECURITY.md）。七个默认结果文件名都带 `fgqm_` 前缀，混
+  合目录里一眼能认出是 fg-qimen 的产物。`targets.txt` 不加前
+  缀，因为操作员手编。-o / -j / --output-csv / --output-sarif 仍
+  可覆盖文件名（和路径），现有脚本管线传显式文件名继续可用。
+
+- **Per-run HH-MM-SS stamp on filenames** (`cmd/scan.go`,
+  `cmd/cmd_test.go`). Two runs on the same day now produce
+  distinct filenames instead of overwriting each other. The
+  directory is still bucketed by `YYYY-MM-DD`; the timestamp
+  goes on the file (`fgqm_result_14-30-22.txt` rather than
+  `fgqm_result.txt`). Format is `HH-MM-SS` local-time
+  (dash-separated for Windows-filename compatibility and to
+  match the `YYYY-MM-DD` style). `-o` / `-j` /
+  `--output-csv` / `--output-sarif` still bypass the stamp —
+  operators who pass explicit paths want their exact path,
+  not an auto-decorated one. The stamp is captured once at
+  scan start, so all sinks in a single run share the same
+  suffix.
+
+  / 同日多次 run 文件名加 HH-MM-SS 时间戳（cmd/scan.go、
+  cmd/cmd_test.go）。同日两次 run 现在产出不同文件名，不再
+  互相覆盖。目录仍按 YYYY-MM-DD 分桶，时间戳打在文件名上
+  （fgqm_result_14-30-22.txt 而非 fgqm_result.txt）。格式
+  HH-MM-SS 本地时间（连字符分隔，兼容 Windows 文件名，且
+  与 YYYY-MM-DD 风格一致）。-o / -j / --output-csv /
+  --output-sarif 仍可跳过时间戳——操作员传显式路径就是要精
+  确路径，不自动加缀。时间戳在 scan 开始时一次性抓取，单
+  次 run 的所有 sink 共享同一后缀。
+
+- **Daily-bucketed result directories** (`cmd/scan.go`,
+  `cmd/cmd_test.go`, `cmd/flags.go`). Default result-file paths
+  now include a local-date `YYYY-MM-DD` segment so multi-day
+  scans against the same project don't clobber each other.
+  New layout (ephemeral mode shown, project mode is the same
+  shape under `runs/projects/<name>/`):
+  ```
+  runs/default/2026-09-02/result.txt
+  runs/default/2026-09-02/result.json
+  runs/default/2026-09-02/creds.txt
+  runs/default/2026-09-02/rdp.json
+  runs/default/2026-09-02/rdp.txt
+  ```
+  `fg.db` (the persistent state / dedup DB) stays at the
+  project root and is shared across days — only result
+  artifacts are bucketed. The `-o` / `-j` / `--output-csv` /
+  `--output-sarif` flags still take an explicit path and
+  bypass the bucketing (operators who pass these want their
+  exact path, not an auto-bucketed one). The bucket name is
+  captured once at scan start, so a run that crosses midnight
+  lands in a single folder rather than splitting its results.
+
+  / 结果文件按日分桶（cmd/scan.go、cmd/cmd_test.go、cmd/flags.go）。
+  默认结果路径现在带本地日期 YYYY-MM-DD 段，跨日扫描不会互相
+  覆盖。即扫即走模式新布局（项目模式同形，在 runs/projects/<name>/
+  下）：fg.db（持久化状态 / 去重 DB）保持在项目根，跨日共享；
+  只有结果产物分桶。-o / -j / --output-csv / --output-sarif 仍
+  接显式路径，跳过分桶（操作员传这些就是要精确路径）。桶名在
+  scan 开始时一次性抓取，跨午夜扫描落到单一日桶，不会拆分结果。
+
+### Fixed
+
+- **Hard-exit data loss on result sinks** (`cmd/scan.go`,
+  `cmd/cmd_test.go`). On the hard-exit path — second SIGINT
+  or drain timeout — `os.Exit(1)` skips the deferred
+  `sess.Out.Close()` in `runScan`, leaving up to 4 KB per
+  sink (default `bufio.Writer`) of buffered writes plus the
+  entire SARIF in-memory document unflushed on disk.
+  `preHardExit` now invokes `closeOutputForHardExit(sessOut)`
+  before quitting the TUI, so the last result row and the
+  full SARIF document both land before the process dies.
+  Three regression tests cover the nil case, the streaming
+  case (txt), and the SARIF single-doc case.
+
+  硬退出丢结果（cmd/scan.go、cmd/cmd_test.go）。硬退出路径
+  （第二次 SIGINT 或 drain 超时）上 os.Exit(1) 跳过 runScan
+  里 defer 的 sess.Out.Close()，导致每 sink 最多 4 KB（默认
+  bufio.Writer）缓冲写入加上整个 SARIF 文档不落盘。preHardExit
+  现在在 Quit TUI 前调 closeOutputForHardExit(sessOut)，让最
+  后一行结果和完整 SARIF 文档在进程死前都落到磁盘。三个回归
+  测试覆盖 nil、流式（txt）、SARIF 单文档场景。
 
 ## [0.5.0] - 2026-09-01
 

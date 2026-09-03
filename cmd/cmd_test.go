@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
@@ -148,13 +149,27 @@ func TestBuildConfigResumeRequiresProject(t *testing.T) {
 
 // --- resolveOutputPath ---
 
+// fixedNow is the time injected into resolveOutputPath by the
+// tests below. Pinning it keeps the assertions deterministic
+// (no race against the wall clock) and pins the daily-bucket +
+// filename-stamp contract — the project's whole "results bucket
+// by YYYY-MM-DD and stamp by HH-MM-SS" invariant hinges on two
+// format strings.
+// / fixedNow 是下方测试注入到 resolveOutputPath 的时间。固定
+// 它让断言确定（不和挂钟竞争），并钉住日桶 + 文件名时间戳
+// 布局——整个"结果按 YYYY-MM-DD 分桶 + HH-MM-SS 打戳"的契约
+// 挂在两个格式串上。
+var fixedNow = time.Date(2026, 9, 2, 14, 30, 22, 0, time.Local)
+
 // TestResolveOutputPathFlagValue: an explicit -o/-j value wins over
 // both project mode and ephemeral mode, AS LONG AS the resolved
 // path stays under the cwd (Stage 18 / P1#18 / F-05 fix).
-// We use a cwd-relative path here.
+// We use a cwd-relative path here. The flag value bypasses the
+// daily bucket (operators who pass -o want their explicit path,
+// not an auto-bucketed one).
 func TestResolveOutputPathFlagValue(t *testing.T) {
 	c := &types.Config{Project: "anything"}
-	got, err := resolveOutputPath(c, "custom/path.txt", "default.txt")
+	got, err := resolveOutputPath(c, "custom/path.txt", "default.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
 	}
@@ -173,7 +188,7 @@ func TestResolveOutputPathFlagValue(t *testing.T) {
 // is the env var FG_QIMEN_ALLOW_EXTERNAL_OUTPUT=1.
 func TestResolveOutputPathFlagValueEscape(t *testing.T) {
 	c := &types.Config{Project: "anything"}
-	_, err := resolveOutputPath(c, "../../../../../../etc/passwd", "default.txt")
+	_, err := resolveOutputPath(c, "../../../../../../etc/passwd", "default.txt", fixedNow)
 	if err == nil {
 		t.Error("resolveOutputPath(../../etc/passwd) returned nil err; want containment error")
 	}
@@ -183,11 +198,14 @@ func TestResolveOutputPathFlagValueEscape(t *testing.T) {
 }
 
 // TestResolveOutputPathProjectMode: in project mode, the path
-// falls back to runs/projects/<name>/<default>.
+// falls back to runs/projects/<name>/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
+// The daily bucket is the per-run boundary that prevents one
+// day's results from clobbering the next; the HH-MM-SS stamp
+// prevents two same-day runs from clobbering each other.
 func TestResolveOutputPathProjectMode(t *testing.T) {
 	c := &types.Config{Project: "corp"}
-	want := filepath.Join("runs", "projects", "corp", "result.txt")
-	got, err := resolveOutputPath(c, "", "result.txt")
+	want := filepath.Join("runs", "projects", "corp", "2026-09-02", "fgqm_result_14-30-22.txt")
+	got, err := resolveOutputPath(c, "", "fgqm_result.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
 	}
@@ -197,16 +215,122 @@ func TestResolveOutputPathProjectMode(t *testing.T) {
 }
 
 // TestResolveOutputPathEphemeralMode: in ephemeral mode (Project ==
-// ""), the path falls back to runs/default/<default>.
+// ""), the path falls back to runs/default/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
+// Same daily-bucketing + timestamp rules as project mode.
 func TestResolveOutputPathEphemeralMode(t *testing.T) {
 	c := &types.Config{Project: ""}
-	want := filepath.Join("runs", "default", "creds.txt")
-	got, err := resolveOutputPath(c, "", "creds.txt")
+	want := filepath.Join("runs", "default", "2026-09-02", "fgqm_creds_14-30-22.txt")
+	got, err := resolveOutputPath(c, "", "fgqm_creds.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
 	}
 	if got != want {
 		t.Errorf("ephemeral default = %q, want %q", got, want)
+	}
+}
+
+// TestResolveOutputPath_DifferentDatesYieldDifferentBuckets: two
+// runs on different local dates must produce different output
+// directories — that's the whole point of the bucketing. We pin
+// midnight crossings too: a run starting at 23:59 lands in
+// day A, a run starting 1 second later lands in day B.
+// / TestResolveOutputPath_DifferentDatesYieldDifferentBuckets：
+// 不同本地日的两次 run 必须产生不同输出目录——这是分桶的
+// 全部意义。顺便钉住跨午夜：23:59 起的 run 落日 A，1 秒后
+// 起的 run 落日 B。
+func TestResolveOutputPath_DifferentDatesYieldDifferentBuckets(t *testing.T) {
+	c := &types.Config{Project: "corp"}
+	// Distinct seconds so both date AND timestamp differ. If both
+	// ran at 00:00:00 the stamps would collide; the test is meant
+	// to cover "different run ≠ same file".
+	// / 不同的秒让日期和时间戳都不同。若都用 00:00:00 时间戳会
+	// 撞；这测试要覆盖"不同 run ≠ 同文件"。
+	dayA := time.Date(2026, 9, 2, 23, 59, 30, 0, time.Local)
+	dayB := time.Date(2026, 9, 3, 0, 0, 30, 0, time.Local)
+	pathA, _ := resolveOutputPath(c, "", "fgqm_result.txt", dayA)
+	pathB, _ := resolveOutputPath(c, "", "fgqm_result.txt", dayB)
+	if pathA == pathB {
+		t.Errorf("paths for adjacent days should differ:\n  dayA=%q\n  dayB=%q", pathA, pathB)
+	}
+	if !strings.Contains(pathA, "2026-09-02") {
+		t.Errorf("dayA path missing date: %q", pathA)
+	}
+	if !strings.Contains(pathB, "2026-09-03") {
+		t.Errorf("dayB path missing date: %q", pathB)
+	}
+}
+
+// TestResolveOutputPath_SameDayDifferentSecondsYieldDifferentFiles:
+// same day + different seconds → different filenames. This is the
+// load-bearing property for "operator runs fg-qimen twice today,
+// gets two distinct result files, no overwrite".
+// / 同日不同时秒 → 不同文件名。这是"操作员今天跑两次，两套
+// 独立结果不互相覆盖"的承重属性。
+func TestResolveOutputPath_SameDayDifferentSecondsYieldDifferentFiles(t *testing.T) {
+	c := &types.Config{Project: "corp"}
+	t1 := time.Date(2026, 9, 2, 14, 30, 0, 0, time.Local)
+	t2 := time.Date(2026, 9, 2, 14, 31, 30, 0, time.Local)
+	p1, _ := resolveOutputPath(c, "", "fgqm_result.txt", t1)
+	p2, _ := resolveOutputPath(c, "", "fgqm_result.txt", t2)
+	if p1 == p2 {
+		t.Errorf("same-day, different-second runs should yield different files; both = %q", p1)
+	}
+	// Both share the same date bucket. / 共享同日桶。
+	if !strings.Contains(p1, "2026-09-02") || !strings.Contains(p2, "2026-09-02") {
+		t.Errorf("both should be in 2026-09-02 bucket:\n  p1=%q\n  p2=%q", p1, p2)
+	}
+	if !strings.Contains(p1, "14-30-00") {
+		t.Errorf("p1 missing 14-30-00 stamp: %q", p1)
+	}
+	if !strings.Contains(p2, "14-31-30") {
+		t.Errorf("p2 missing 14-31-30 stamp: %q", p2)
+	}
+}
+
+// TestStampFileName: the format string + split point is the
+// load-bearing invariant of the same-day differentiation. If
+// anyone changes "15-04-05" or moves the insertion point, the
+// test breaks loudly. / 格式串 + 插入位置是同日区分的承重不
+// 变量。谁改 "15-04-05" 或挪插入点，测试大声报错。
+func TestStampFileName(t *testing.T) {
+	at := time.Date(2026, 9, 2, 14, 30, 22, 0, time.Local)
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"fgqm_result.txt", "fgqm_result_14-30-22.txt"},
+		{"fgqm_result.json", "fgqm_result_14-30-22.json"},
+		{"fgqm_result.sarif", "fgqm_result_14-30-22.sarif"},
+		{"fgqm_creds.txt", "fgqm_creds_14-30-22.txt"},
+		{"fgqm_alive.txt", "fgqm_alive_14-30-22.txt"},
+		// No extension — suffix appended raw. / 无扩展名直接追加。
+		{"somename", "somename_14-30-22"},
+	}
+	for _, c := range cases {
+		if got := stampFileName(c.in, at); got != c.want {
+			t.Errorf("stampFileName(%q, %v) = %q, want %q", c.in, at, got, c.want)
+		}
+	}
+}
+
+// TestDailyRunSubdir: the format string is the load-bearing
+// invariant of the whole bucketing scheme. If anyone ever
+// changes "2006-01-02" here, the test breaks loudly. / 格式
+// 串是整个分桶方案的关键不变量。谁改 "2006-01-02"，这个测
+// 试大声报错。
+func TestDailyRunSubdir(t *testing.T) {
+	cases := []struct {
+		in   time.Time
+		want string
+	}{
+		{time.Date(2026, 9, 2, 0, 0, 0, 0, time.Local), "2026-09-02"},
+		{time.Date(2026, 12, 31, 23, 59, 59, 0, time.Local), "2026-12-31"},
+		{time.Date(2027, 1, 1, 0, 0, 1, 0, time.Local), "2027-01-01"},
+	}
+	for _, c := range cases {
+		if got := dailyRunSubdir(c.in); got != c.want {
+			t.Errorf("dailyRunSubdir(%v) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 
@@ -291,7 +415,11 @@ func TestOpenOutputSinks(t *testing.T) {
 	if sess.Out == nil {
 		t.Fatal("sess.Out is nil after openOutputSinks")
 	}
-	wantTXT := filepath.Join("runs", "default", "result.txt")
+	wantTXT := filepath.Join(
+		"runs", "default",
+		time.Now().Format("2006-01-02"),
+		"fgqm_result_"+time.Now().Format("15-04-05")+".txt",
+	)
 	if _, err := os.Stat(wantTXT); err != nil {
 		t.Errorf("expected %s to exist; stat err = %v", wantTXT, err)
 	}
@@ -388,4 +516,159 @@ func restoreFlags(s flagSnapshot) {
 	flagShutdownTime = s.shutdownTime
 	flagUser = s.user
 	flagPass = s.pass
+}
+
+// --- closeOutputForHardExit (issue #4 fix) ---
+
+// TestCloseOutputForHardExit_Nil: passing nil is a no-op. The
+// preHardExit closure runs before sess.Out is set (when the
+// signal goroutine happens to invoke it during the brief window
+// between installSignalHandler and openOutputSinks returning),
+// so the helper MUST tolerate nil without panicking.
+//
+// TestCloseOutputForHardExit_Nil：传 nil 应该是空操作。
+// preHardExit 闭包可能在 sess.Out 赋值前被触发（信号 goroutine
+// 在 installSignalHandler 和 openOutputSinks 返回之间的短窗内
+// 调用），所以 helper 必须对 nil 容忍，不能 panic。
+func TestCloseOutputForHardExit_Nil(t *testing.T) {
+	// Should not panic. / 不应 panic。
+	closeOutputForHardExit(nil)
+}
+
+// TestCloseOutputForHardExit_FlushesBuffers: this is the regression
+// test for the data-loss bug — when os.Exit(1) bypasses the deferred
+// sess.Out.Close() in runScan, the last few KB of buffered writes
+// (default bufio = 4 KB per sink) would never hit disk. The fix
+// routes preHardExit through closeOutputForHardExit, which calls
+// Output.Close (and Output.Close calls each sink's bufio.Flush).
+//
+// We open a txt sink, write one row that doesn't fill the buffer
+// to its auto-flush threshold, then call closeOutputForHardExit
+// directly (simulating the hard-exit scenario where the deferred
+// Close never runs). The file should now contain the row.
+//
+// TestCloseOutputForHardExit_FlushesBuffers：数据丢失 bug 的回
+// 归测试——os.Exit(1) 绕过 runScan 里 defer 的 sess.Out.Close()
+// 时，最后几 KB 缓冲写入（默认 bufio 每 sink 4 KB）不会落盘。
+// 修复让 preHardExit 走 closeOutputForHardExit，调用 Output.Close
+// （Output.Close 调每个 sink 的 bufio.Flush）。
+//
+// 我们开一个 txt sink，写一行不到 buffer 自动 flush 阈值的数
+// 据，然后直接调 closeOutputForHardExit（模拟硬退出 defer 不
+// 跑的场景）。文件应该已包含那一行。
+func TestCloseOutputForHardExit_FlushesBuffers(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "fgqm_result.txt")
+
+	out, err := output.OpenOutput(output.OutputConfig{
+		ResultTXTPath: path,
+	})
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+
+	// Write a single short row. The default bufio buffer is 4 KB
+	// so this won't auto-flush; the only way it lands on disk is
+	// an explicit Flush / Close. / 写一行短数据。默认 bufio 是
+	// 4 KB，所以不会自动 flush；唯一让它落盘的办法是显式 Flush
+	// / Close。
+	r := &types.Result{
+		Time:    time.Now(),
+		Host:    "10.0.0.1",
+		Port:    22,
+		Service: "ssh",
+		Banner:  "OpenSSH_9.0",
+	}
+	if err := out.WriteResult(r); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	// Sanity: file should NOT yet contain the row (bufio hasn't
+	// flushed, OS write hasn't happened).
+	// Sanity：文件此时不应包含那一行（bufio 未 flush，OS write
+	// 未发生）。
+	if pre, _ := os.ReadFile(path); strings.Contains(string(pre), "10.0.0.1") {
+		t.Fatalf("buffer flushed too early: %s", pre)
+	}
+
+	// Simulate hard-exit: skip out.Close() and call our helper
+	// directly. The helper MUST flush + close. / 模拟硬退出：
+	// 不调 out.Close()，直接调 helper。helper 必须 flush + close。
+	closeOutputForHardExit(out)
+
+	// Verify the file now contains the row.
+	// 验证文件现在包含那一行。
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "10.0.0.1") {
+		t.Errorf("expected buffered write to be flushed; got: %q", string(data))
+	}
+	if !strings.Contains(string(data), "OpenSSH_9.0") {
+		t.Errorf("expected banner in flush; got: %q", string(data))
+	}
+}
+
+// TestCloseOutputForHardExit_SARIFBuffer: SARIF is special — it's
+// buffered in sarifBuf (a []types.Result) and only emitted in
+// Output.Close. A simple Flush() would NOT save SARIF writes;
+// only Close does. This test pins down that closeOutputForHardExit
+// uses Close (not Flush) so SARIF results also land on disk on
+// hard exit.
+//
+// TestCloseOutputForHardExit_SARIFBuffer：SARIF 是特殊的——
+// 它缓冲在 sarifBuf（[]types.Result），只在 Output.Close 输出。
+// 单纯 Flush() 不能救 SARIF；只有 Close 行。这个测试钉住
+// closeOutputForHardExit 用 Close（而不是 Flush），让 SARIF 写
+// 入在硬退出时也落盘。
+func TestCloseOutputForHardExit_SARIFBuffer(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "fgqm_result.sarif")
+
+	out, err := output.OpenOutput(output.OutputConfig{
+		ResultSARIFPath: path,
+	})
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+
+	// Write a result that goes into the SARIF buffer (no TXT
+	// sink, so it only lands in SARIF). / 写一个只进 SARIF 缓冲
+	// 的结果（没开 TXT sink）。
+	if err := out.WriteResult(&types.Result{
+		Time:    time.Now(),
+		Host:    "10.0.0.2",
+		Port:    443,
+		Service: "https",
+		Banner:  "nginx/1.25",
+	}); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	// Sanity: the SARIF file exists (created at OpenOutput by
+	// newRotatingWriter's O_CREATE) but should be EMPTY — SARIF
+	// is a single doc emitted at Close, not streamed. / Sanity：
+	// SARIF 文件存在（newRotatingWriter 的 O_CREATE 在 OpenOutput
+	// 时创建），但应是空——SARIF 是 Close 时单文档输出，非流式。
+	if data, err := os.ReadFile(path); err != nil {
+		t.Fatalf("stat: %v", err)
+	} else if len(data) != 0 {
+		t.Fatalf("SARIF file should be empty pre-Close; got %d bytes: %q", len(data), data)
+	}
+
+	closeOutputForHardExit(out)
+
+	// Verify SARIF document was emitted with our result.
+	// 验证 SARIF 文档已发出，含我们的结果。
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatalf("SARIF document not emitted; file is empty")
+	}
+	if !strings.Contains(string(data), "10.0.0.2") {
+		t.Errorf("expected SARIF to contain host; got: %q", string(data))
+	}
 }

@@ -177,7 +177,13 @@ func runProjectsInfo(cmd *cobra.Command, args []string) error {
 	}
 	// List output files / 列出输出文件
 	fmt.Fprintln(out, "Files:")
-	for _, fname := range []string{"targets.txt", "result.txt", "result.json", "creds.txt", "rdp.json", "rdp.txt"} {
+	// targets.txt is unprefixed because it's a hand-editable target
+	// list (operators expect to read/write it directly). Result /
+	// creds / RDP files all carry the fgqm_ prefix so they stand
+	// out in mixed directories and grep-friendly. / targets.txt 不
+	// 加前缀因为它是手编目标列表（操作员预期直接读写）。结果 /
+	// 凭据 / RDP 文件都带 fgqm_ 前缀，混合目录里显眼，便于 grep。
+	for _, fname := range []string{"targets.txt", "fgqm_result.txt", "fgqm_result.json", "fgqm_creds.txt", "fgqm_rdp.json", "fgqm_rdp.txt"} {
 		fpath := filepath.Join("runs", "projects", name, fname)
 		if info, err := os.Stat(fpath); err == nil {
 			fmt.Fprintf(out, "  %-15s  %d bytes\n", fname, info.Size())

@@ -28,7 +28,7 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 ## 硬性原则：探测，不攻击
 
 FG-QiMen **故意不包含任何漏洞利用代码**。扫描器用标准认证握手测试已知
-服务；命中时凭据写入 `creds.txt` 即终止——不执行 `Session.Exec`、不上
+服务；命中时凭据写入 `fgqm_creds.txt` 即终止——不执行 `Session.Exec`、不上
 WebShell、不植入持久化。完整的"不做漏洞利用"契约（明确禁止的能力清单）
 见 [`docs/SECURITY.md`](docs/SECURITY.md)。
 
@@ -41,10 +41,10 @@ WebShell、不植入持久化。完整的"不做漏洞利用"契约（明确禁�
 fg-qimen -H 192.168.1.0/24
 
 # 项目模式 + bbolt 状态
-fg-qimen -p corp -H 10.0.0.0/24 -mode linked
+fg-qimen --project corp -H 10.0.0.0/24 --mode linked
 
 # 续传项目
-fg-qimen resume -p corp
+fg-qimen resume --project corp
 
 # 列出所有项目
 fg-qimen projects list
@@ -87,11 +87,11 @@ echo "10.0.0.0/24"   >  runs/projects/corp-intranet/targets.txt
 echo "10.0.1.0/24"   >> runs/projects/corp-intranet/targets.txt
 
 # linked 模式（扫描 + 凭据测试 一把过）
-fg-qimen -p corp-intranet -f runs/projects/corp-intranet/targets.txt -mode linked \
-    -u root admin -P 123456 admin P@ssw0rd
+fg-qimen --project corp-intranet -f runs/projects/corp-intranet/targets.txt --mode linked \
+    -u root admin -p 123456 admin P@ssw0rd
 
 # 续传 / 查看信息
-fg-qimen resume -p corp-intranet
+fg-qimen resume --project corp-intranet
 fg-qimen projects info corp-intranet
 ```
 
@@ -125,8 +125,8 @@ qwerty
 ```
 
 ```bash
-fg-qimen -H 10.0.0.0/24 -p 22,3306 --user-file users.txt --pass-file pass.txt
-fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass.txt -p corp
+fg-qimen -H 10.0.0.0/24 --ports 22,3306 -uf users.txt -pf pass.txt
+fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project corp
 ```
 
 ---
@@ -147,11 +147,11 @@ fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass
 
 ### 输出格式
 
-- `result.txt` — 人类可读
-- `result.json` — NDJSON（每行一个 JSON 对象）
-- `result.csv` — RFC 4180，每条结果一行
-- `creds.txt` — 凭据命中（明文；操作员的工作文件）
-- `rdp.json` / `rdp.txt` — RDP 深度指纹（hostname、build、NLA 标志、OS）
+- `fgqm_result.txt` — 人类可读
+- `fgqm_result.json` — NDJSON（每行一个 JSON 对象）
+- `fgqm_result.csv` — RFC 4180，每条结果一行
+- `fgqm_creds.txt` — 凭据命中（明文；操作员的工作文件）
+- `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP 深度指纹（hostname、build、NLA 标志、OS）
 
 ### 插件（44 个插件 / 认证器）
 
@@ -203,7 +203,7 @@ fg-qimen scan --mode crack -H targets.txt --user-file users.txt --pass-file pass
 凭据测试覆盖 **21 个服务**（SSH + Redis + MongoDB + PostgreSQL + MSSQL + SMB +
 Memcached + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 + IMAP +
 SOCKS5 + Rsync + Docker + RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS），均
-强制不做漏洞利用（`creds.txt` 是唯一副作用）。
+强制不做漏洞利用（`fgqm_creds.txt` 是唯一副作用）。
 
 IPv6 是一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规则集通过
 `--web-fingerprint <path-or-url>` 加载（本地文件或 HTTP URL，可从规则服务
@@ -216,16 +216,16 @@ IPv6 是一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规
 
 ```
 fg-qimen [flags]
-fg-qimen scan [flags]                        # 显式 scan
-fg-qimen resume -p <name>                    # 续传项目
-fg-qimen projects list                       # 列出项目
-fg-qimen projects create <n>                 # 创建项目
-fg-qimen projects delete <n>                 # 删除项目
-fg-qimen projects info <n>                   # 查看项目详情
-fg-qimen projects export <n> <out.fgq>       # 导出项目到单 .fgq 文件
-fg-qimen projects import <in.fgq> <n>       # 从 .fgq 文件导入
-fg-qimen version                             # 显示版本
-fg-qimen completion bash                     # 生成 shell 补全
+fg-qimen scan [flags]                            # 显式 scan
+fg-qimen resume --project <name>                 # 续传项目
+fg-qimen projects list                           # 列出项目
+fg-qimen projects create <n>                     # 创建项目
+fg-qimen projects delete <n>                     # 删除项目
+fg-qimen projects info <n>                       # 查看项目详情
+fg-qimen projects export <n> <out.fgq>           # 导出项目到单 .fgq 文件
+fg-qimen projects import <in.fgq> <n>           # 从 .fgq 文件导入
+fg-qimen version                                 # 显示版本
+fg-qimen completion bash                         # 生成 shell 补全
 ```
 
 ### 5 个最常用 flag（覆盖 ~90% 场景）
@@ -233,10 +233,19 @@ fg-qimen completion bash                     # 生成 shell 补全
 | 短 | 长 | 例子 | 用途 |
 |---|---|---|---|
 | `-H` | `--host` | `-H 10.0.0.0/24` | 目标 IP / CIDR / 范围 / 逗号列表 |
-| `-p` | `--project` | `-p corp` | 命名项目（持久化到 bbolt；省则即扫即走） |
+| (无) | `--project` | `--project corp` | 命名项目（持久化到 bbolt；省则即扫即走） |
 | `-u` | `--user` | `-u root admin` | 内联用户名 |
-| `-U` | `--user-file` | `-U users.txt` | 用户名字典文件（每行一个） |
-| `-W` | `--pass-file` | `-W pass.txt` | 密码字典文件（每行一个；用 `-W` 不用 `-P` 避免与 `-P`/`--pass` 内联冲突） |
+| `-uf` | `--user-file` | `-uf users.txt` | 用户名字典文件（每行一个） |
+| `-pf` | `--pass-file` | `-pf pass.txt` | 密码字典文件（每行一个） |
+
+四个最常用搭配：
+
+```bash
+-H 1.0.0.0/8 -u admin -p root,toor            # 目标 + 内联凭据
+-H 1.0.0.0/8 -uf users.txt -pf passes.txt    # 目标 + wordlist
+-H 1.0.0.0/8 -f targets.txt -a               # hosts file + alive-only
+-H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv   # 三个输出 sink
+```
 
 实用命令：
 
@@ -245,33 +254,35 @@ fg-qimen completion bash                     # 生成 shell 补全
 fg-qimen -H 10.0.0.0/24
 
 # 命名项目 + 字典 + 小并发
-fg-qimen -p corp -H 10.0.0.0/24 -U users.txt -W pass.txt -t 50
+fg-qimen --project corp -H 10.0.0.0/24 -uf users.txt -pf pass.txt -t 50
 
 # 续传已有项目
-fg-qimen resume -p corp
+fg-qimen resume --project corp
 
 # 仅凭据测试：跳过 alive + 端口扫描
-fg-qimen scan -p corp -mode crack -U users.txt -W pass.txt
+fg-qimen scan --project corp --mode crack -uf users.txt -pf pass.txt
 
 # 走 HTTP 代理（自动套到所有插件的拨号器）
-fg-qimen -H 10.0.0.0/24 -X http://127.0.0.1:8080
+fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 ```
 
-### 完整 flag 参考（v0.4.1 — 45 个 flag，17 个有短选项）
+> **短参约定**（v0.5.1+）：全小写，mnemonic 优先，命名空间用 2 字母（output-* / user-pass-file）。`-H` 是唯一大写（避 `-h`/`--help` 冲突）。从 v0.5.0 的迁移表见 [CHANGELOG](CHANGELOG.md)。
+
+### 完整 flag 参考（v0.5.1 — 45 个 flag，14 个有短选项）
 
 | 短 | 长 | 默认 | 分组 | 含义 |
 |---|---|---|---|---|
 | `-H` | `--host` | （空） | Target | 目标 IP / CIDR / 范围 / 逗号列表（如 `10.0.0.0/24,192.168.1.0/24`） |
 | `-f` | `--hosts-file` | （空） | Target | 从文件加载目标（每行一个 host；`#` 开头的行跳过） |
-| `-p` | `--project` | （空） | Workspace | 项目名；空 = 即扫即走（无 bbolt） |
+|     | `--project` | （空） | Workspace | 项目名；空 = 即扫即走（无 bbolt）。无短参（用长形式 `--project corp`）。 |
 |     | `--project-key` | （空） | Workspace | 加密项目 DB 用的 passphrase（AES-256-GCM，v0.4+ 走 Argon2id 派生）。空 = 明文（v0.2.x 兼容）。环境变量：`FG_QIMEN_PROJECT_KEY` |
-| `-M` | `--mode` | `scan` | Workspace | `scan`（alive→scan→identify）/ `crack`（仅凭据测试）/ `linked`（scan + 凭据） |
-|     | `--resume` | `false` | Workspace | 从 bbolt seen-set 续传（跳过已见过 host:port 对） |
+|     | `--mode` | `scan` | Workspace | `scan`（alive→scan→identify）/ `crack`（仅凭据测试）/ `linked`（scan + 凭据） |
+| `-r` | `--resume` | `false` | Workspace | 从 bbolt seen-set 续传（跳过已见过 host:port 对）。v0.5.1 新增。 |
 |     | `--no-state` | `false` | Workspace | 禁用 bbolt，纯内存；项目退出时清空 |
 |     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | 逗号分隔端口列表 |
 |     | `--exclude-ports` | （空） | Ports | 从解析后的端口列表中排除 |
 |     | `--no-icmp` | `false` | Ports | 跳过 ICMP alive 探活（敌对网络下的纯 TCP 模式） |
-| `-X` | `--proxy` | （空） | Network | HTTP/HTTPS 代理 URL（如 `http://127.0.0.1:8080`）。通过 `credential.DialTCP` / `DialTCPAddr` 在所有 TCP 拨号站点生效（Phase 2.2）。 |
+|     | `--proxy` | （空） | Network | HTTP/HTTPS 代理 URL（如 `http://127.0.0.1:8080`）。通过 `credential.DialTCP` / `DialTCPAddr` 在所有 TCP 拨号站点生效（Phase 2.2）。无短参。 |
 |     | `--socks5` | （空） | Network | SOCKS5 代理 URL（如 `socks5://user:pass@127.0.0.1:1080`） |
 |     | `--iface` | （空） | Network | 出站连接绑定的本地 IP |
 | `-t` | `--threads` | `200` | Concurrency | plugin 池的并发 worker 数 |
@@ -279,16 +290,16 @@ fg-qimen -H 10.0.0.0/24 -X http://127.0.0.1:8080
 |     | `--timeout` | `3s` | Concurrency | 单次操作超时（覆盖 alive 探活、端口扫描 connect、插件握手） |
 | `-a` | `--alive-only` | `false` | Concurrency | alive 后就停；不跑 scan / identify / credential |
 | `-u` | `--user` | （空） | Credentials | 内联用户名（逗号分隔） |
-|     | `--pass` | （空） | Credentials | 内联密码（逗号分隔；`-P` 短选项） |
-| `-U` | `--user-file` | （空） | Credentials | 用户名字典文件（每行一个；`-U` 短选项，v0.4.1+） |
-| `-W` | `--pass-file` | （空） | Credentials | 密码字典文件（每行一个；`-W` 不用 `-P` 以免与 `-P`/`--pass` 内联冲突） |
-| `-o` | `--output-txt` | （空） | Output | TXT 结果文件路径（`-o` 短选项） |
-| `-j` | `--output-json` | （空） | Output | NDJSON 结果文件路径（`-j` 短选项） |
-|     | `--output-csv` | （空） | Output | CSV 结果文件路径（每条结果一行，列序稳定便于 awk / pandas） |
-|     | `--output-sarif` | （空） | Output | SARIF 2.1.0 JSON 路径（单文档，给 GitHub Code Scanning） |
+| `-p` | `--pass` | （空） | Credentials | 内联密码（逗号分隔）。v0.5.1：短参从 `-P` 改为 `-p`（Unix 标准 mnemonic，与 sshpass / passwd / openssl 一致）。 |
+| `-uf` | `--user-file` | （空） | Credentials | 用户名字典文件（每行一个）。v0.5.1：短参从 `-U` 改为 `-uf`（nmap 风格 2 字母）。 |
+| `-pf` | `--pass-file` | （空） | Credentials | 密码字典文件（每行一个）。v0.5.1：短参从 `-W` 改为 `-pf`。 |
+| `-ot` | `--output-txt` | （空） | Output | TXT 结果文件路径。v0.5.1：短参从 `-o` 改为 `-ot`（output 命名空间）。 |
+| `-oj` | `--output-json` | （空） | Output | NDJSON 结果文件路径。v0.5.1：短参从 `-j` 改为 `-oj`。 |
+| `-oc` | `--output-csv` | （空） | Output | CSV 结果文件路径（每条结果一行，列序稳定便于 awk / pandas）。v0.5.1 新增。 |
+|     | `--output-sarif` | （空） | Output | SARIF 2.1.0 JSON 路径（单文档，给 GitHub Code Scanning）。无短参（小众）。 |
 |     | `--rotate-bytes` | `0` | Output | 单文件大小阈值触发轮转（0 = 不轮转）。v0.4.1 从 `--output-rotate-bytes` 改名——`output-` 前缀冗余，因为 `rotate` 在整个 flag 空间里唯一归属输出子系统。 |
 |     | `--rotate-files` | `0` | Output | 保留总文件数（含现行，0 = 不轮转）。v0.4.1 从 `--output-rotate-files` 改名。 |
-|     | `--show-creds` | `false` | Output | 在 `result.txt` 强制明文凭据（`creds.txt` 始终明文） |
+|     | `--show-creds` | `false` | Output | 在 `fgqm_result.txt` 强制明文凭据（`fgqm_creds.txt` 始终明文） |
 |     | `--plugins` | （空） | Output | 逗号分隔插件白名单（如 `--plugins ssh,redis,vnc`）；空 = 全部 |
 |     | `--web-fingerprint` | （空） | Output | 额外 FingerprintHub 风格 web 规则文件或 URL |
 |     | `--http-form-url` | （空） | Output | HTTP form-brute 插件的目标 URL（opt-in） |

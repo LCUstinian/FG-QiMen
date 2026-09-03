@@ -4,7 +4,7 @@
 // The command tree:
 //
 //	fg-qimen (root)
-//	├── scan        — default scan (ephemeral or -p <project>)
+//	├── scan        — default scan (ephemeral or --project <name>)
 //	├── resume      — resume a project from bbolt state
 //	├── projects    — manage project workspaces
 //	│   ├── list
@@ -31,6 +31,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	// Register all credential authenticators via their init() funcs.
@@ -83,10 +85,10 @@ three run modes (scan / crack / linked) and two work modes (ephemeral
 oneshot or persistent project workspace with bbolt state).
 
 Examples / 用例:
-  fg-qimen -H 192.168.1.0/24                          # ephemeral scan
-  fg-qimen -p corp -H 10.0.0.0/24 -mode linked       # project mode
-  fg-qimen -p corp -H 10.0.0.0/24 -resume            # resume
-  fg-qimen projects list                              # list projects`,
+  fg-qimen -H 192.168.1.0/24                            # ephemeral scan
+  fg-qimen --project corp -H 10.0.0.0/24 --mode linked  # project mode
+  fg-qimen --project corp -H 10.0.0.0/24 -r            # resume
+  fg-qimen projects list                                # list projects`,
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	// Default behavior: run a scan (implementation lives in scan.go).
@@ -97,6 +99,15 @@ Examples / 用例:
 // Execute is the entry point invoked by main.go.
 // Execute 是 main.go 调用的入口。
 func Execute() error {
+	// Rewrite 2-letter short flags (-ot / -oj / -oc / -uf / -pf)
+	// to their long form before cobra parses. pflag v1.0.9 panics
+	// on multi-char shorthands at registration time, so we
+	// implement the rewrite here. See cmd/multishort.go for the
+	// rewrite logic and the supported alias map.
+	// / 把 2 字母短参（-ot / -oj / -oc / -uf / -pf）在 cobra 解析
+	// 前重写为长形式。pflag v1.0.9 在注册时拒绝多字符 shorthand
+	// 会 panic，所以重写放在这里。详见 cmd/multishort.go。
+	rootCmd.SetArgs(expandMultiCharShorts(os.Args[1:]))
 	return rootCmd.Execute()
 }
 
@@ -138,13 +149,13 @@ const usageTemplate = `Usage:
 
 Flag groups (alphabetical list below) / 分组参考（下方有字母序列表）:
   Target       -H, -f / --host, --hosts-file
-  Workspace    -p, --project-key, --mode, --resume, --no-state
-  Ports        --ports, --exclude-ports, --alive-only
+  Workspace    --project, --project-key, --mode, -r / --resume, --no-state
+  Ports        --ports, --exclude-ports, -a / --alive-only
   Network      --proxy, --socks5, --iface, --port-timeout, --web-timeout
-  Concurrency  -t, --timeout, --shutdown-timeout, --max-workers
-  Credentials  -u, -P, --user-file, --pass-file
-  Output       -o, -j, --output-csv
-  Behavior     --silent, --no-tui, --no-icmp, -v, --plugins
+  Concurrency  -t / --threads, --timeout, --shutdown-timeout, --max-workers
+  Credentials  -u / --user, -p / --pass, -uf / --user-file, -pf / --pass-file
+  Output       -ot / --output-txt, -oj / --output-json, -oc / --output-csv, --output-sarif
+  Behavior     --silent, --no-tui, --no-icmp, -v / --verbose, --plugins
   Safety       --show-creds, --insecure-tls, --insecure-ssh, --known-hosts
 
 {{.Flags.FlagUsages | trimTrailingWhitespaces}}

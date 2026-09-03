@@ -59,14 +59,15 @@ type Output struct {
 	// Per-sink mutexes. Locked by the matching Write* / Close / Flush
 	// method. / 每个 sink 独立 mutex。由对应 Write* / Close / Flush
 	// 方法上锁。
-	txtMu, jsnMu, credsMu, rdpjsonMu, rdptxtMu, csvMu sync.Mutex
+	txtMu, jsnMu, credsMu, rdpjsonMu, rdptxtMu, csvMu, aliveMu sync.Mutex
 
 	// txt  : one human-readable line per result
 	// json : one JSON object per line (NDJSON)
 	// creds: "host:port  plugin  user/pass  time" per hit
 	// rdpjson / rdptxt: RDP deep fingerprint
 	// csv  : RFC 4180 one row per result (header on first write)
-	txt, jsn, creds, rdpjson, rdptxt, csv *flushCloser
+	// alive: one host per line (deduped; pipeline-friendly)
+	txt, jsn, creds, rdpjson, rdptxt, csv, alive *flushCloser
 
 	// csvWriter is hoisted to a field so we allocate it once at
 	// OpenOutput time, not per WriteResult. The previous code
@@ -85,6 +86,16 @@ type Output struct {
 	// "文件中是否已存在"）是因为文件以 O_APPEND 打开，OpenOutput 后
 	// bool 一定是 0。
 	csvHeaderWritten bool
+
+	// aliveSeen dedupes the alive-list writes — a host that
+	// responds to multiple probes (port 22 + 80 + 443) must
+	// appear once, not three times. Guarded by aliveMu. The map
+	// is allocated lazily on first use; nil-safe on the dead path
+	// (no alive sink configured). / aliveSeen 对 alive-list 写
+	// 去重——一个主机响应多个探测（22 + 80 + 443）必须只出现
+	// 一次，不能三次。aliveMu 守护。map 在首次使用时懒分配；
+	// alive sink 没配置时 nil-safe。
+	aliveSeen map[string]struct{}
 
 	// v0.4: SARIF buffer. SARIF is a single JSON document, not a
 	// stream — we accumulate results and emit at Close(). / v0.4：
@@ -116,6 +127,15 @@ type OutputConfig struct {
 	CredsPath      string // empty = no creds output
 	RDPJSONPath    string // empty = no rdp.json output
 	RDPTXTPath     string // empty = no rdp.txt output
+	// ResultAlivePath is the optional alive-host list (one IP per
+	// line, deduped). When set, every WriteResult appends the host
+	// to this file. Pipeline-friendly: the output is directly
+	// usable as `nmap -iL` / `masscan --targets` / `curl` loop
+	// input. / ResultAlivePath 是可选的存活主机列表（每行一个
+	// IP，去重）。设置后，每个 WriteResult 把 host 追加到此文件。
+	// 管道友好——输出可直接用作 `nmap -iL` / `masscan --targets` /
+	// `curl` 循环输入。
+	ResultAlivePath string // empty = no alive-list output
 
 	// v0.4: SARIF (Static Analysis Results Interchange Format) output.
 	// When set, the SARIF JSON document is assembled and written at
@@ -176,6 +196,14 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 			o.csvWriter = csv.NewWriter(w.bw())
 		}},
 		{cfg.ResultSARIFPath, 0o644, func(w *flushCloser) { o.sarif = w }},
+		{cfg.ResultAlivePath, 0o644, func(w *flushCloser) {
+			o.alive = w
+			// Lazy-allocate the dedup map now that we have an
+			// alive sink. nil-safe on the dead path (no alive
+			// configured). / 既然开了 alive sink，现在懒分配去重
+			// map。alive 没配置时 nil-safe。
+			o.aliveSeen = make(map[string]struct{})
+		}},
 	}
 	for _, op := range openers {
 		if op.path == "" {
@@ -220,6 +248,7 @@ func (o *Output) Close() error {
 		{o.rdpjson, &o.rdpjsonMu, "rdp.json"},
 		{o.rdptxt, &o.rdptxtMu, "rdp.txt"},
 		{o.csv, &o.csvMu, "csv"},
+		{o.alive, &o.aliveMu, "alive"},
 		// SARIF goes last: assemble the document from o.sarifBuf,
 		// write it, then close. / SARIF 放最后：从 o.sarifBuf 组装
 		// 文档、写入、再关闭。
@@ -268,6 +297,7 @@ func (o *Output) Flush() error {
 		{o.rdpjson, &o.rdpjsonMu},
 		{o.rdptxt, &o.rdptxtMu},
 		{o.csv, &o.csvMu},
+		{o.alive, &o.aliveMu},
 	}
 	var firstErr error
 	for _, f := range flushers {
@@ -355,6 +385,21 @@ func (o *Output) WriteResult(r *types.Result) error {
 		_ = o.writeCSVvia(o.csvWriter, r)
 		o.csvWriter.Flush()
 		o.csvMu.Unlock()
+	}
+	// Alive-host list: append r.Host if this is the first time we've
+	// seen it this run. Dedup'd under aliveMu so concurrent workers
+	// don't double-write. Empty r.Host is a defensive no-op (would
+	// produce a stray blank line that breaks `nmap -iL`). / 存活
+	// 主机列表：若本次 run 首次见到 r.Host 则追加。aliveMu 守护
+	// 去重，并发 worker 不会双写。空 r.Host 是防御性 no-op（会
+	// 产生空行，破坏 `nmap -iL`）。
+	if o.alive != nil && r.Host != "" {
+		o.aliveMu.Lock()
+		if _, dup := o.aliveSeen[r.Host]; !dup {
+			o.aliveSeen[r.Host] = struct{}{}
+			fmt.Fprintln(o.alive, r.Host)
+		}
+		o.aliveMu.Unlock()
 	}
 	return nil
 }

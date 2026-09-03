@@ -137,6 +137,50 @@ var (
 // 所有 flag 都是 PersistentFlags，确保每个子命令（scan / resume /
 // projects / version）继承它们。子命令通过上述包级变量读取
 // （如 flagProject、flagOutputTXT）。
+//
+// Short-flag design (v0.5.1):
+//
+//	**Principle**: short flags must be mnemonic and only exist where
+//	they help. Awkward 1- or 2-letter shorts are worse than no short
+//	at all — operators have to memorise a non-obvious mapping. We
+//	prefer long-form over confusing shorts.
+//
+//	**Case**: lowercase only, with -H as the single documented
+//	uppercase exception (it avoids the -h/--help collision that
+//	cobra reserves).
+//
+//	**Shape**: single-letter shorts for unique concepts (user, pass,
+//	threads, host, resume, alive-only, verbose); two-letter shorts
+//	for namespaced or paired concepts (output-* 4 files; user/pass-
+//	file wordlist pair). Follows nmap's `-oN/-oX/-oG/-oA` precedent
+//	for the output namespace.
+//
+//	**Common pairs that "just work"**:
+//	  -H 1.0.0.0/8 -u admin -p root,toor
+//	  -H 1.0.0.0/8 -uf users.txt -pf passes.txt
+//	  -H ... -f targets.txt -a
+//	  -H ... -ot results.txt -oj results.json -oc results.csv
+//
+//	Dropped shorts (use long form): --project, --mode, --proxy,
+//	--output-sarif. Old shorts -p/-M/-X/-o/-j/-U/-W were either
+//	workarounds for collision, arbitrary uppercase letters, or
+//	collision-prone single letters in a namespace that needed two.
+//
+//	短参数设计（v0.5.1）：
+//	**原则**：短参数必须 mnemonic，存在才有意义。无语义的 1-2 字
+//	母短参比没有更糟——操作员得记无显式映射。我们宁用长形式也不
+//	要混淆的短参。
+//	**大小写**：全小写，仅 -H 是文档化的大写例外（避 -h/--help
+//	冲突）。
+//	**形态**：单字母给唯一概念（user / pass / threads / host 等）；
+//	双字母给命名空间 / 成对概念（output-* 4 文件、user/pass-file
+//	wordlist 配对）。output 命名空间沿用 nmap `-oN/-oX/-oG/-oA`
+//	先例。
+//	**常用搭配**：见上。
+//	去掉的短参（用长形式）：--project、--mode、--proxy、
+//	--output-sarif。旧 -p/-M/-X/-o/-j/-U/-W 要么是冲突 workaround，
+//	要么是随意的随机大写字母，要么是命名空间里易撞车的单字母。
+//
 // annotate flags with their group for --help output. Cobra renders
 // annotations["cobra_annotation_group_name"] as section headers.
 //
@@ -163,15 +207,22 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"load targets from a file (one per line)")
 
 	// 2. Workspace / 工作区
-	pf.StringVarP(&flagProject, "project", "p", "",
+	// --project has no short flag. Use long form (`--project corp`)
+	// to free up -p for --pass (the standard Unix mnemonic for
+	// password, matches sshpass / passwd / openssl).
+	// / --project 没有短参数。用长形式（--project corp），把 -p
+	// 让给 --pass（Unix 标准 mnemonic）。
+	pf.StringVar(&flagProject, "project", "",
 		"project name (empty = ephemeral oneshot mode)")
 	pf.StringVar(&flagProjectKey, "project-key", "",
 		"passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
-	pf.StringVarP(&flagMode, "mode", "M", "scan",
+	pf.StringVar(&flagMode, "mode", "scan",
 		"run mode: scan | crack | linked")
-	pf.BoolVarP(&flagResume, "resume", "", false,
+	// -r for --resume: high-frequency operation (resuming an
+	// interrupted scan is a daily operator task); mnemonic R.
+	pf.BoolVarP(&flagResume, "resume", "r", false,
 		"resume from bbolt seen-set (project mode only)")
-	pf.BoolVarP(&flagNoState, "no-state", "", false,
+	pf.BoolVar(&flagNoState, "no-state", false,
 		"disable bbolt, use in-memory dedup only")
 
 	// 3. Port selection / 端口选择
@@ -183,7 +234,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"only run host discovery; skip port scan and plugins")
 
 	// 4. Network / 网络
-	pf.StringVarP(&flagProxy, "proxy", "X", "",
+	// --proxy has no short flag. Old -X had no mnemonic link.
+	pf.StringVar(&flagProxy, "proxy", "",
 		"HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)")
 	pf.StringVar(&flagSocks5, "socks5", "",
 		"SOCKS5 proxy address (e.g. 127.0.0.1:1080 or socks5://user:pass@host:port)")
@@ -199,7 +251,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 5. Concurrency & timing / 并发与超时
 	pf.IntVarP(&flagThreads, "threads", "t", 200,
 		"concurrent worker count")
-	pf.DurationVarP(&flagTimeout, "timeout", "", 3*time.Second,
+	pf.DurationVar(&flagTimeout, "timeout", 3*time.Second,
 		"per-operation timeout (e.g. 3s, 500ms)")
 	pf.DurationVar(&flagShutdownTime, "shutdown-timeout", 5*time.Second,
 		"graceful shutdown drain timeout")
@@ -209,28 +261,41 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 6. Credentials / 凭据
 	pf.StringSliceVarP(&flagUser, "user", "u", nil,
 		"credential testing usernames (repeatable)")
-	pf.StringSliceVarP(&flagPass, "pass", "P", nil,
+	// -p for --pass is the Unix-standard mnemonic for password
+	// (matches sshpass / passwd / openssl). The previous -P was an
+	// arbitrary uppercase workaround to avoid the (now-removed)
+	// -p on --project.
+	pf.StringSliceVarP(&flagPass, "pass", "p", nil,
 		"credential testing passwords (repeatable)")
-	pf.StringVarP(&flagUserFile, "user-file", "U", "",
+	// Two-letter shorts -uf / -pf for the wordlist pair: high-
+	// frequency combo in real scans, compresses the common
+	// `-u user --user-file users.txt -p pass --pass-file passes.txt`
+	// into `-u user -uf users.txt -p pass -pf passes.txt` and makes
+	// the user/pass symmetry visible at a glance. Note: shorthand
+	// is empty ("") because pflag v1.0.9 rejects >1-char shorthands
+	// at registration time; the rewrite is done in cmd/multishort.go
+	// before cobra sees the args. / 双字母 -uf / -pf 给 wordlist
+	// 配对：高频组合……shorthand 为空是因为 pflag 拒绝多字母，注册
+	// 时会 panic；重写在 cmd/multishort.go 里做。
+	pf.StringVar(&flagUserFile, "user-file", "",
 		"usernames dictionary file")
-	// -W for pass-file (not -P) so it doesn't collide with -P/--pass
-	// (the inline password list). Operators who set up wordlists
-	// in scripts almost always need both -u/--user and -W/--pass-file;
-	// -P/--pass is for the rare inline list case.
-	// / -W for pass-file（不用 -P）以免与 -P/--pass（内联口令
-	// 列表）冲突。操作员在脚本里同时设 user/pass wordlist 几乎总
-	// 需要 -u/--user 加 -W/--pass-file；-P/--pass 是罕见的内联
-	// 列表场景。
-	pf.StringVarP(&flagPassFile, "pass-file", "W", "",
+	pf.StringVar(&flagPassFile, "pass-file", "",
 		"passwords dictionary file")
 
 	// 7. Output files / 输出文件
-	pf.StringVarP(&flagOutputTXT, "output-txt", "o", "",
-		"path to TXT result file (default: <project>/result.txt or ./result.txt)")
-	pf.StringVarP(&flagOutputJSON, "output-json", "j", "",
-		"path to NDJSON result file (default: <project>/result.json or ./result.json)")
+	// Two-letter shorts -ot / -oj / -oc for the output namespace,
+	// following nmap's `-oN / -oX / -oG / -oA` precedent. -os
+	// (SARIF) is intentionally omitted — SARIF is a niche GitHub
+	// Code Scanning integration, not worth a short. Note:
+	// shorthand is empty ("") because pflag v1.0.9 rejects >1-char
+	// shorthands at registration time; the rewrite is done in
+	// cmd/multishort.go before cobra sees the args.
+	pf.StringVar(&flagOutputTXT, "output-txt", "",
+		"path to TXT result file (default: <project>/<YYYY-MM-DD>/fgqm_result.txt or ./runs/default/<YYYY-MM-DD>/fgqm_result.txt — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
+	pf.StringVar(&flagOutputJSON, "output-json", "",
+		"path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.json or ./runs/default/<YYYY-MM-DD>/fgqm_result.json — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
 	pf.StringVar(&flagOutputCSV, "output-csv", "",
-		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written.")
+		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written. Falls under the same <YYYY-MM-DD>/ bucket as fgqm_result.txt/json unless explicitly overridden.")
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
 		"path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written.")
 	// v0.4: --output-rotate NMB,N rotates TXT/JSON/CSV/SARIF outputs

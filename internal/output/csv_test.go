@@ -51,7 +51,7 @@ func TestTruncateForCSV(t *testing.T) {
 
 func TestOpenOutput_WithCSV(t *testing.T) {
 	dir := t.TempDir()
-	csvPath := filepath.Join(dir, "result.csv")
+	csvPath := filepath.Join(dir, "fgqm_result.csv")
 
 	out, err := OpenOutput(OutputConfig{
 		ResultCSVPath: csvPath,
@@ -85,7 +85,7 @@ func TestOpenOutput_WithCSV(t *testing.T) {
 
 func TestWriteResult_CSVHeaderAndRow(t *testing.T) {
 	dir := t.TempDir()
-	csvPath := filepath.Join(dir, "result.csv")
+	csvPath := filepath.Join(dir, "fgqm_result.csv")
 	out, err := OpenOutput(OutputConfig{ResultCSVPath: csvPath})
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)
@@ -171,7 +171,7 @@ func TestWriteResult_CSVHeaderAndRow(t *testing.T) {
 
 func TestWriteResult_CSVCleartext(t *testing.T) {
 	dir := t.TempDir()
-	csvPath := filepath.Join(dir, "result.csv")
+	csvPath := filepath.Join(dir, "fgqm_result.csv")
 	out, err := OpenOutput(OutputConfig{ResultCSVPath: csvPath, ShowCleartext: true})
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)

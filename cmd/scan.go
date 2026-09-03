@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,8 +47,9 @@ var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Run a scan (default action of fg-qimen)",
 	Long: `Run a scan. By default this is ephemeral (oneshot) mode, writing
-results to ./result.txt and ./result.json in the current directory.
-Pass -p <name> to switch into persistent project mode.`,
+results to ./runs/default/<YYYY-MM-DD>/fgqm_result.txt and the corresponding
+.json in the current directory. Pass --project <name> to switch into
+persistent project mode.`,
 	// Reuse the root RunE so flags and behavior are identical.
 	// 复用根 RunE，flags 和行为完全一致。
 	RunE: runScan,
@@ -122,8 +124,43 @@ func runScan(cmd *cobra.Command, args []string) error {
 	var (
 		prog    *tui.Program
 		runDone chan struct{}
+		// sessOut is set after openOutputSinks (further down).
+		// The signal goroutine can only reach preHardExit via a
+		// second SIGINT or drain timeout — both take long enough
+		// that the assignment is guaranteed to have happened first.
+		// / sessOut 在下面的 openOutputSinks 之后赋值。信号 goroutine
+		// 只能经第二次 SIGINT 或 drain 超时到达 preHardExit——两者
+		// 都足够慢，赋值必先完成。
+		sessOut *output.Output
 	)
 	preHardExit := func() {
+		// Flush + close all result sinks BEFORE we touch the TUI.
+		// os.Exit(1) below skips the deferred sess.Out.Close() in
+		// runScan, so without this explicit close the last
+		// bufio-buffered writes (default 4 KB per sink) and the
+		// SARIF in-memory buffer would never reach disk. We use
+		// Close (not just Flush) so SARIF — which is single-doc
+		// and only emits at Close time — also lands on disk.
+		//
+		// 在动 TUI 前 flush + close 所有结果 sink。下面 os.Exit(1)
+		// 会跳过 runScan 里 defer 的 sess.Out.Close()，少了这个
+		// 显式 close 的话，最后每 sink 的 bufio 缓冲（默认 4 KB）
+		// 和 SARIF 内存缓冲都不会落盘。这里用 Close（而不是单
+		// Flush）是为了让 SARIF——单文档，只在 Close 时输出——
+		// 也写到磁盘。
+		//
+		// Idempotency: Output.Close is documented as safe on a
+		// partially-initialized Output; calling it here even when
+		// the deferred Close will eventually run too (it won't,
+		// but defensively) is fine. We discard the error because
+		// os.Exit(1) is the next thing that happens anyway and
+		// there's no operator-readable surface to log to.
+		//
+		// 幂等性：Output.Close 文档明对部分初始化的 Output 安全；
+		// 即便这里调了后面 defer 也会跑（实际上不会，但防御性写）
+		// 也没问题。丢弃错误是因为接下来就是 os.Exit(1)，没有
+		// 操作员能读的输出面来记录。
+		closeOutputForHardExit(sessOut)
 		if prog != nil && runDone != nil {
 			prog.Quit()
 			<-runDone
@@ -162,6 +199,22 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if err := openOutputSinks(sess, cfg); err != nil {
 		return err
 	}
+	// Hand the result sink back to preHardExit so the hard-exit
+	// path (2nd SIGINT or drain timeout) can synchronously flush
+	// + close it before os.Exit(1) — otherwise the deferred
+	// sess.Out.Close() never runs and the last buffered writes
+	// (4 KB per sink) plus the SARIF document buffer are lost.
+	// The signal goroutine can only fire hardExit after at least
+	// one signal round-trip or a multi-second drain timeout, both
+	// of which guarantee this assignment has happened.
+	//
+	// 把结果汇回传给 preHardExit，让硬退出路径（第二次 SIGINT
+	// 或 drain 超时）能在 os.Exit(1) 前同步 flush + close——
+	// 否则 defer 的 sess.Out.Close() 不会跑，最后的缓冲写入
+	//（每 sink 4 KB）和 SARIF 文档缓冲都会丢。信号 goroutine
+	// 至少要经过一次信号往返或多秒的 drain 超时才能触发
+	// hardExit，两种情况都保证此赋值已发生。
+	sessOut = sess.Out
 
 	// Phase D (audit roadmap): load optional user-supplied
 	// web-fingerprint ruleset. Loaded AFTER session init so the
@@ -200,6 +253,39 @@ func runScan(cmd *cobra.Command, args []string) error {
 // TUI 模式下 buildSession 还会通过 prog / runDone 出参回写 *tui.Program
 // 和 bubbletea-Run-done channel，让 runScan 的 preHardExit 闭包能正常
 // 工作。TUI Run goroutine 和 drainCh watcher 也在这里启动。
+//
+// closeOutputForHardExit synchronously flushes + closes the multi-
+// format result sinks. Called from preHardExit because os.Exit(1)
+// bypasses the deferred sess.Out.Close() in runScan, and the
+// in-memory bufio buffers (default 4 KB per sink) plus the SARIF
+// document buffer would otherwise be lost. / 在硬退出路径上同步
+// flush + close 多格式结果 sink。从 preHardExit 调用，因为
+// os.Exit(1) 会绕过 runScan 里 defer 的 sess.Out.Close()，否则
+// 内存里的 bufio 缓冲（默认每 sink 4 KB）加上 SARIF 文档缓冲都
+// 会丢。
+//
+// Safe with nil (no-op). Idempotent with Output.Close — the
+// existing implementation documents safe-call on a partially-
+// initialized Output, and the second call after a successful
+// first would no-op the closers (each writes through a
+// bufio.Writer that's set to nil post-Close). / 对 nil 安全（空
+// 操作）。与 Output.Close 幂等——实现里文档明对部分初始化的
+// Output 安全，第二次调用时 closer 会跳过（每个底层 writer
+// Close 后会被置 nil）。
+//
+// We discard the returned error because the next thing that
+// happens is os.Exit(1) — there's no operator-readable surface
+// to surface the error to, and the alternative (a stderr line
+// before exit) would race with the TUI teardown. / 丢弃返错因为
+// 接下来就是 os.Exit(1)——没有操作员能读的输出面，stderr 打一行
+// 又会和 TUI 拆除抢。
+func closeOutputForHardExit(o *output.Output) {
+	if o == nil {
+		return
+	}
+	_ = o.Close()
+}
+
 func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Project, drainCh chan struct{}, prog **tui.Program, runDone *chan struct{}) (*session.Session, func(), error) {
 	sess, err := session.NewSession(ctx, cfg, cfg.Project)
 	if err != nil {
@@ -390,6 +476,12 @@ func loadResumeState(sess *session.Session, cfg *types.Config) error {
 // openOutputSinks 打开多格式结果汇并挂到 sess。默认在项目目录下
 // （项目模式）或当前目录（即扫即走）。
 func openOutputSinks(sess *session.Session, cfg *types.Config) error {
+	// Capture the local-time once so all sinks for this run land
+	// in the same daily bucket (a scan that crosses midnight
+	// doesn't split its results across two folders). / 一次性
+	// 抓本地时间，让本次 run 的所有 sink 都进同一日桶（跨午夜
+	// 的扫描不会把结果拆到两个目录）。
+	now := time.Now()
 	// resolveOutputPath may reject user-supplied paths that
 	// escape the cwd (Stage 18 / P1#18 / F-05 fix). Fail fast
 	// here so we don't half-open some sinks before discovering
@@ -398,23 +490,33 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 	// resolveOutputPath 可能拒绝跳出 cwd 的用户路径（Stage 18 /
 	// P1#18 / F-05 修法）。这里快速失败，避免开了部分 sink 之后
 	// 才暴露别的。
-	resultTXT, err := resolveOutputPath(cfg, flagOutputTXT, "result.txt")
+	resultTXT, err := resolveOutputPath(cfg, flagOutputTXT, "fgqm_result.txt", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	resultJSON, err := resolveOutputPath(cfg, flagOutputJSON, "result.json")
+	resultJSON, err := resolveOutputPath(cfg, flagOutputJSON, "fgqm_result.json", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	credsPath, err := resolveOutputPath(cfg, "", "creds.txt")
+	credsPath, err := resolveOutputPath(cfg, "", "fgqm_creds.txt", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	rdpJSON, err := resolveOutputPath(cfg, "", "rdp.json")
+	rdpJSON, err := resolveOutputPath(cfg, "", "fgqm_rdp.json", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	rdpTXT, err := resolveOutputPath(cfg, "", "rdp.txt")
+	rdpTXT, err := resolveOutputPath(cfg, "", "fgqm_rdp.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	// Alive-host list (one IP per line, deduped). Always on by
+	// default — operators pipe it directly into nmap / masscan /
+	// curl loops, and there's no harm in writing it (an empty
+	// scan produces an empty file). / 存活主机列表（每行一个 IP，
+	// 去重）。默认始终开启——操作员直接管道给 nmap / masscan /
+	// curl 循环，写个空文件没坏处。
+	alivePath, err := resolveOutputPath(cfg, "", "fgqm_alive.txt", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
@@ -426,7 +528,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 	// 空路径即禁用 sink，所以最简模式是 flag 未提供时传空串。
 	var resultCSV string
 	if cfg.OutputCSV != "" {
-		resultCSV, err = resolveOutputPath(cfg, flagOutputCSV, "result.csv")
+		resultCSV, err = resolveOutputPath(cfg, flagOutputCSV, "fgqm_result.csv", now)
 		if err != nil {
 			return fmt.Errorf("output path: %w", err)
 		}
@@ -435,7 +537,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 	// / SARIF 是 opt-in（v0.4）：GitHub Code Scanning 原生摄取。
 	var resultSARIF string
 	if flagOutputSARIF != "" {
-		resultSARIF, err = resolveOutputPath(cfg, flagOutputSARIF, "result.sarif")
+		resultSARIF, err = resolveOutputPath(cfg, flagOutputSARIF, "fgqm_result.sarif", now)
 		if err != nil {
 			return fmt.Errorf("output path: %w", err)
 		}
@@ -450,6 +552,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 		RotateMaxFiles:  flagOutputRotateFiles,
 		RDPJSONPath:     rdpJSON,
 		RDPTXTPath:      rdpTXT,
+		ResultAlivePath: alivePath,
 		// P0#2: result.txt gets the redaction gate; creds.txt is
 		// always cleartext (operator's working file).
 		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员
@@ -545,21 +648,73 @@ func openProject(cfg *types.Config) (*workspace.Project, error) {
 
 // resolveOutputPath resolves a possibly-empty output path to a default
 // inside the project root (project mode) or the ./runs/default/
-// directory (ephemeral mode). User-supplied paths via -o / -j are
-// returned as-is.
+// directory (ephemeral mode), bucketed by the local-date `now`
+// (YYYY-MM-DD) and stamped on the filename with HH-MM-SS so
+// multiple runs on the same day don't overwrite each other.
+// User-supplied paths via -o / -j bypass the bucketing AND the
+// stamp (operators who pass an explicit path want their exact
+// path, not an auto-decorated one).
 //
-// resolveOutputPath 把可能为空的输出路径解析为默认值：
-//   - 项目模式：./runs/projects/<name>/<file>
-//   - 即扫即走：./runs/default/<file>
-//   - 显式 -o / -j：原样返回
-func resolveOutputPath(cfg *types.Config, flagValue, defaultName string) (string, error) {
+// resolveOutputPath 把可能为空的输出路径解析为默认值，按 `now`
+// 的本地日期（YYYY-MM-DD）分桶，文件名再加 HH-MM-SS 时间戳：
+//   - 项目模式：./runs/projects/<name>/<YYYY-MM-DD>/<file>_<HH-MM-SS>
+//   - 即扫即走：./runs/default/<YYYY-MM-DD>/<file>_<HH-MM-SS>
+//   - 显式 -o / -j：原样返回（不分桶 + 不加时间戳）
+//
+// Why bucket by date + stamp by time: an operator who runs
+// fg-qimen every day against the same project would otherwise
+// see one day's results clobber the previous day's (date bucket
+// fixes that), AND two runs on the same day would clobber each
+// other (timestamp suffix fixes that). Bucketing by local-date
+// gives the operator a per-day audit trail in the same project
+// root, the HH-MM-SS stamp gives per-run isolation within a day,
+// while fg.db (the persistent state / dedup DB) stays at the
+// project root and is shared across all runs. / 为什么按日分桶
+// + 文件加时间戳：操作员每天对同一项目跑 fg-qimen 时，结果文件
+// 会互相覆盖（日桶解决这个），同一天多次跑也会互相覆盖（时
+// 间戳后缀解决这个）。按本地日分桶给同项目根保留每日审计轨迹，
+// HH-MM-SS 给同日内每次 run 隔离，fg.db 保持在项目根跨所有
+// run 共享。
+func resolveOutputPath(cfg *types.Config, flagValue, defaultName string, now time.Time) (string, error) {
 	if flagValue != "" {
 		return safeOutputPath(flagValue)
 	}
+	day := dailyRunSubdir(now)
+	stamped := stampFileName(defaultName, now)
 	if cfg.Project != "" {
-		return filepath.Join("runs", "projects", cfg.Project, defaultName), nil
+		return filepath.Join("runs", "projects", cfg.Project, day, stamped), nil
 	}
-	return filepath.Join("runs", "default", defaultName), nil
+	return filepath.Join("runs", "default", day, stamped), nil
+}
+
+// dailyRunSubdir formats `t` as the YYYY-MM-DD bucket name used
+// under each project / ephemeral root. The format is intentionally
+// fixed-width ISO so directory listings sort chronologically. The
+// caller is expected to pass a local-time `t` (we don't pin a TZ
+// here — operators reason in local time and the daily bucket name
+// should match their calendar day).
+//
+// dailyRunSubdir 把 `t` 格式化为项目 / 即扫即走根下用的 YYYY-MM-DD
+// 桶名。格式固定 ISO 让目录列表按时间排序。调用方传本地时间 `t`
+// （不固定 TZ——操作员按本地时区想，日桶名应匹配他们日历日）。
+func dailyRunSubdir(t time.Time) string {
+	return t.Format("2006-01-02")
+}
+
+// stampFileName inserts the run timestamp between the base and
+// the extension of `name`. The timestamp is local HH-MM-SS,
+// dash-separated (Windows doesn't allow `:` in filenames, and
+// the dashes match the YYYY-MM-DD style for visual consistency).
+// "fgqm_result.txt" at 14:30:22 → "fgqm_result_14-30-22.txt".
+// No extension → suffix appended raw. / stampFileName 在文件名
+// 基与扩展名之间插入运行时间戳。本地 HH-MM-SS，连字符分隔
+// （Windows 不允许文件名带冒号，连字符与 YYYY-MM-DD 风格一致）。
+// 无扩展名则直接追加。
+func stampFileName(name string, t time.Time) string {
+	ts := t.Format("15-04-05")
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	return base + "_" + ts + ext
 }
 
 // safeOutputPath sanitizes a user-supplied output path. The

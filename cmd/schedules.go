@@ -9,11 +9,11 @@
 //
 // Use case: an operator wants to register a recurring scan
 // against a project without having to set up cron on the
-// host itself. They can `schedules add -p corp --cron "0 9 *
+// host itself. They can `schedules add --project corp --cron "0 9 *
 // * *"` and the schedule lives in the project DB until
 // explicitly removed.
 // / 用例：操作员想在不依赖宿主机 cron 的情况下，给项目注册
-// 循环扫描。`schedules add -p corp --cron "0 9 * * *"`，调度
+// 循环扫描。`schedules add --project corp --cron "0 9 * * *"`，调度
 // 存项目 DB 直到显式 remove。
 package cmd
 
@@ -117,7 +117,7 @@ func runSchedulesList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(all) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "(no schedules in project %q — run `fg-qimen schedules add -p %s --cron \"...\"` to add one)\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "(no schedules in project %q — run `fg-qimen schedules add --project %s --cron \"...\"` to add one)\n",
 			flagProject, flagProject)
 		return nil
 	}
@@ -154,7 +154,7 @@ func runSchedulesRemove(cmd *cobra.Command, args []string) error {
 // detectScheduleMode returns ("at", opts.At), ("in", opts.In),
 // ("cron", opts.Cron), or ("", ""). The flag set is
 // intentionally shared with the scan command — running
-// `fg-qimen schedules add -p corp --cron "0 9 * * *"` reads
+// `fg-qimen schedules add --project corp --cron "0 9 * * *"` reads
 // the same --cron flag as `fg-qimen scan --cron "0 9 * * *"`,
 // and the resolution / validation in scheduler.Resolve is
 // shared too. / detectScheduleMode 返 ("at", opts.At)、

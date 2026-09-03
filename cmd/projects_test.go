@@ -339,7 +339,7 @@ func TestRunProjectsInfo(t *testing.T) {
 	// / 放一个 targets.txt 和 result.txt，让文件列表显示非
 	// "(missing)"。
 	dir := filepath.Join(tmp, "runs", "projects", "alpha")
-	for _, fn := range []string{"targets.txt", "result.txt"} {
+	for _, fn := range []string{"targets.txt", "fgqm_result.txt"} {
 		if err := writeFile(filepath.Join(dir, fn), "stub"); err != nil {
 			t.Fatalf("setup write %s: %v", fn, err)
 		}
@@ -357,7 +357,7 @@ func TestRunProjectsInfo(t *testing.T) {
 		"runs/projects/alpha",
 		"DB:",
 		"targets.txt",
-		"result.txt",
+		"fgqm_result.txt",
 	} {
 		if !strings.Contains(out, must) {
 			t.Errorf("expected %q in output, got %q", must, out)
