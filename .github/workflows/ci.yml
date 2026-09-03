@@ -194,6 +194,15 @@ jobs:
           path: coverage.out
           retention-days: 14
 
+      - name: doc drift check (EN vs zh-CN)
+        if: matrix.os == 'ubuntu-latest'
+        # Fail CI if the EN and zh-CN doc files have drifted
+        # in section header count. Catches the most common
+        # bilingual-doc mistake: updating only one side.
+        # / 如果 EN 和 zh-CN 文档小节 header 数漂移则 CI 失败。
+        # 抓最常见的双语错误：只更新一边。
+        run: python3 scripts/ci-doc-drift-check.py
+
   # govulncheck: scan for known-vulnerable Go module versions. Uses
   # the Go vuln database (https://vuln.go.dev/). Fails on any call
   # graph entry that depends on a vulnerable version. / 扫描已知

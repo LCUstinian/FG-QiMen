@@ -10,20 +10,26 @@ fg-qimen --help                # all flags grouped by category
 fg-qimen scan --help           # subcommand-specific
 ```
 
-Flags are grouped into 9 categories in the help output:
+Flags are grouped into 9 categories in the help output. Short-form
+flags follow the v0.5.1 convention (see [CHANGELOG](../CHANGELOG.md)):
+all lowercase, mnemonic, 1-letter for unique concepts
+(`-H`, `-f`, `-a`, `-r`, `-t`, `-u`, `-p`, `-v`) and 2-letter
+for namespaced flags (`-ot`, `-oj`, `-oc`, `-uf`, `-pf`); the
+sole uppercase is `-H` (avoids the `-h`/`--help` collision that
+cobra reserves). Run `fg-qimen --help` for the authoritative list.
 
-| Group | Examples |
-|-------|----------|
-| Target | `--host`, `--hosts-file` |
-| Workspace | `--project`, `--project-key`, `--mode`, `--resume`, `--no-state` |
-| Ports | `--ports`, `--exclude-ports`, `--alive-only` |
-| Network | `--proxy`, `--socks5`, `--iface`, `--port-timeout`, `--web-timeout` |
-| Concurrency | `--threads`, `--timeout`, `--shutdown-timeout` |
-| Credentials | `--user`, `--pass`, `--user-file`, `--pass-file` |
-| Output | `--output-txt`, `--output-json`, `--output-csv`, `--rotate-bytes`, `--rotate-files` |
-| Schedule | `--at`, `--in`, `--cron`, `--tz`, `--daemon`, `--schedule-dry-run` |
-| Behavior | `--silent`, `--no-tui`, `--no-batch`, `--no-icmp`, `--verbose`, `--plugins` |
-| Safety | `--show-creds`, `--insecure-tls`, `--insecure-ssh`, `--known-hosts` |
+| Group | Short | Long |
+|-------|-------|------|
+| Target | `-H`, `-f` | `--host`, `--hosts-file` |
+| Workspace | — | `--project`, `--project-key`, `--mode`, `-r`/`--resume`, `--no-state` |
+| Ports | `-a` | `--ports`, `--exclude-ports`, `-a`/`--alive-only` |
+| Network | — | `--proxy`, `--socks5`, `--iface`, `--port-timeout`, `--web-timeout` |
+| Concurrency | `-t` | `-t`/`--threads`, `--timeout`, `--shutdown-timeout` |
+| Credentials | `-u`, `-p`, `-uf`, `-pf` | `--user`, `--pass`, `--user-file`, `--pass-file` |
+| Output | `-ot`, `-oj`, `-oc` | `--output-txt`, `--output-json`, `--output-csv`, `--rotate-bytes`, `--rotate-files` |
+| Schedule | — | `--at`, `--in`, `--cron`, `--tz`, `--daemon`, `--schedule-dry-run` |
+| Behavior | `-v` | `--silent`, `--no-tui`, `--no-batch`, `--no-icmp`, `-v`/`--verbose`, `--plugins` |
+| Safety | — | `--show-creds`, `--insecure-tls`, `--insecure-ssh`, `--known-hosts` |
 
 ## Environment variables
 

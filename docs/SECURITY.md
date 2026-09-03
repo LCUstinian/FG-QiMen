@@ -108,7 +108,7 @@ To enable encryption, set `FG_QIMEN_PROJECT_KEY`:
 export FG_QIMEN_PROJECT_KEY=$(openssl rand -hex 32)
 
 # Run the scan; new writes are AES-256-GCM encrypted:
-fg-qimen -p myproject -H 10.0.0.0/24 -mode linked
+fg-qimen --project myproject -H 10.0.0.0/24 --mode linked
 ```
 
 Key derivation:
@@ -176,7 +176,7 @@ with an explicit error to stderr.
 To opt out (NOT recommended in production):
 
 ```bash
-fg-qimen -p myproject --insecure-ssh -H 10.0.0.0/24 -mode linked
+fg-qimen --project myproject --insecure-ssh -H 10.0.0.0/24 --mode linked
 ```
 
 ## TLS verification
@@ -199,7 +199,7 @@ self-signed test environments.
   Go-managed heap memory; a process memory dump can recover them
   pre-GC. To minimise: pass `--insecure-ssh=false`,
   `--no-batch=false`, set `FG_QIMEN_PROJECT_KEY`, and prefer file
-  dictionaries over inline `-u`/`-P` for shared multi-user hosts.
+  dictionaries over inline `-u`/`-p` for shared multi-user hosts.
 
 ## Reporting vulnerabilities
 
