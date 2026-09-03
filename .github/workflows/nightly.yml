@@ -50,7 +50,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: '1.26.8'
           cache: true
 
       # Step 1: compile + test on linux/amd64 — mirrors release.yml
