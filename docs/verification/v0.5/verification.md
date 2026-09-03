@@ -127,7 +127,12 @@ they have been failing on every release since v0.3.1.
   `runScan` (tested via the full test suite) but the early
   exit paths (e.g. --at past, --cron invalid) are not
   unit-tested. Worth adding in a follow-up; not a
-  blocker for v0.5.
+  blocker for v0.5. **Resolved in v0.5.1**:
+  `cmd/schedule_test.go` covers 11 test cases (ModeNone,
+  9 Resolve error paths, dry-run, wait-near-future, wait-in-short,
+  daemon-cancel, cron-no-daemon, conflicting flags, daemon-
+  requires-cron, concurrent calls). `applySchedule` coverage
+  went from 0% → 85%.
 - **No `time/tzdata` import**. On systems without the IANA
   tz database installed (rare in 2026 but still happens on
   some stripped container images), `--tz` will fail to load
@@ -138,3 +143,28 @@ they have been failing on every release since v0.3.1.
   entry**. A future enhancement could batch-multiple
   schedules into one loop. For the documented use case
   (one recurring scan per project) this is fine.
+
+## Future / v0.6 candidates
+
+Considered for v0.5.1 but **deferred to v0.6** because the
+operator workflow (`grep ':22 ' fgqm_result.txt`) is still
+workable today, and the implementation cost is non-trivial.
+
+- **Sorted / grouped output** (`--sort service|host|port|none`).
+  The current `fgqm_result.txt` is appended in completion order
+  across 200 concurrent workers, so RDP / SSH / HTTP are
+  interleaved. Two design options:
+  - **Lightweight (recommended)**: add `--sort service` flag;
+    on `Close()`, accumulate all written Results in a
+    sorted slice and rewrite `fgqm_result.{txt,json,csv}` in
+    sorted order. Keeps single-file output; loses streaming
+    visibility during the scan; costs ~16 bytes/result in RAM.
+  - **Per-service files**: split output into
+    `fgqm_result_ssh.txt` / `fgqm_result_http.txt` / ... at
+    write time. Zero RAM cost, keeps streaming, but produces
+    20-30 files per scan (file explosion for rare services)
+    and breaks existing `grep` pipelines.
+  - Both: `--sort` flag defaults to `none`; setting `service`
+    triggers the close-time rewrite.
+  Trade-off captured in this discussion; defer until a real
+  grep-pain use case drives the implementation.

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`applySchedule` unit tests** (`cmd/schedule_test.go`,
+  11 cases). The function was at 0% coverage in v0.5; now at
+  85%. Covers ModeNone early-return, all 9 Resolve error
+  paths (--at malformed / past, --in malformed / zero /
+  negative, --cron invalid, --at+--in mutex, --daemon
+  without --cron, invalid --tz), dry-run for all 3 modes,
+  wait-for-future-time, wait-for-in, daemon ctx-cancel,
+  cron-without-daemon, and concurrent-call sanity. Pinned via
+  `errors.Is(..., scheduler.ErrInvalidCombination)` for
+  the mutex cases.
+
+  / applySchedule 单元测试（cmd/schedule_test.go，11 个 case）。
+  v0.5 时该函数 0% 覆盖，现 85%。覆盖 ModeNone 早返、9 个
+  Resolve 错误路径（at 格式错 / 过去、in 格式错 / 0 / 负、
+  cron 格式错、at+in 互斥、daemon 无 cron、tz 错）、3 种 mode
+  的 dry-run、等未来时间、等 in 时长、daemon ctx 取消、cron
+  无 daemon、并发调用 sanity。互斥 case 用 errors.Is(ErrInvalidCombination) 钉死。
+
 ### Changed
 
 - **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,

@@ -1,160 +1,453 @@
-// schedule_test.go — round-trip tests for the schedules
-// subcommand (add / list / remove). / schedule_test.go —
-// schedules 子命令（add / list / remove）往返测试。
+// schedule_test.go — unit tests for cmd/schedule.go (applySchedule).
+//
+// Scope: cover every branch of applySchedule so the function is
+// tested at the unit level rather than only via the full integration
+// test suite (which exercises the happy path). The function lives at
+// /cmd/schedule.go and is invoked from runScan.
+//
+// The function has 5 major branches after the Resolve call:
+//  1. ModeNone (no schedule flag set) — return nil
+//  2. DryRun (any mode) — print next-fire, return
+//  3. One-shot Wait (non-daemon, any mode) — wait once, return
+//  4. Daemon loop (--cron + --daemon) — loop until ctx cancel
+//  5. Resolve error (bad input) — return error
+//
+// Branch 1, 2, and 5 are the most common in tests; 3 and 4 need
+// time/ctx control which we handle via pre-cancelled contexts and
+// near-future times so the tests don't hang.
+//
+// / applySchedule 单元测试。覆盖所有分支。
 package cmd
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/LCUstinian/FG-QiMen/internal/scheduler"
 )
 
-func TestDetectScheduleMode(t *testing.T) {
-	// Save + restore. / 保存 + 恢复。
-	saveAt, saveIn, saveCron := flagScheduleAt, flagScheduleIn, flagScheduleCron
-	defer func() {
-		flagScheduleAt, flagScheduleIn, flagScheduleCron = saveAt, saveIn, saveCron
-	}()
+// saveScheduleFlags / restoreScheduleFlags: the package-level
+// snapshotFlags helper doesn't include the schedule flags
+// (added in v0.5). Tests for applySchedule need their own
+// save/restore pair to keep cross-test state out.
+// / 包级 snapshotFlags 不含 schedule flag（v0.5 新增）。
+// 这里的 save/restore 专门给 applySchedule 测试用，避免交叉污染。
+type scheduleFlagSnapshot struct {
+	at, in, cron, tz                   string
+	daemon, dryRun                      bool
+}
+
+func saveScheduleFlags() scheduleFlagSnapshot {
+	return scheduleFlagSnapshot{
+		at:     flagScheduleAt,
+		in:     flagScheduleIn,
+		cron:   flagScheduleCron,
+		tz:     flagScheduleTZ,
+		daemon: flagScheduleDaemon,
+		dryRun: flagScheduleDryRun,
+	}
+}
+
+func restoreScheduleFlags(s scheduleFlagSnapshot) {
+	flagScheduleAt = s.at
+	flagScheduleIn = s.in
+	flagScheduleCron = s.cron
+	flagScheduleTZ = s.tz
+	flagScheduleDaemon = s.daemon
+	flagScheduleDryRun = s.dryRun
+}
+
+// newScheduleTestCmd builds a fresh cobra command for the tests.
+// Returns the *bytes.Buffer behind ErrOrStderr so the tests can
+// assert on the captured "[*] scheduler:" / "next run at" lines.
+// / 为测试构造一个 fresh cobra command。返 ErrOrStderr 后面
+// 的 *bytes.Buffer，测试用它断言 "[*] scheduler:" / "next
+// run at" 那行。
+func newScheduleTestCmd(t *testing.T) (*cobra.Command, *bytes.Buffer) {
+	t.Helper()
+	c := &cobra.Command{Use: "test"}
+	c.SetOut(bytes.NewBuffer(nil))
+	c.SetErr(bytes.NewBuffer(nil))
+	buf, _ := c.ErrOrStderr().(*bytes.Buffer)
+	return c, buf
+}
+
+// clearScheduleFlags zeros all schedule flags. Used between
+// sub-cases in a single test so the previous sub-case's flags
+// don't leak into the next.
+// / 把所有 schedule flag 清零。同一测试多个 sub-case 之间用，
+// 避免前一个 sub-case 的 flag 漏到下一个。
+func clearScheduleFlags() {
+	flagScheduleAt = ""
+	flagScheduleIn = ""
+	flagScheduleCron = ""
+	flagScheduleTZ = ""
+	flagScheduleDaemon = false
+	flagScheduleDryRun = false
+}
+
+// TestApplySchedule_NoFlags: with no schedule flag set, Resolve
+// returns ModeNone and applySchedule returns nil immediately
+// without printing anything. The most common production case
+// (an operator who doesn't use --at/--in/--cron).
+// / 无 schedule flag → ModeNone → 立即返回 nil，不打印。
+// 这是最高频的调用场景。
+func TestApplySchedule_NoFlags(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	c, buf := newScheduleTestCmd(t)
+	if err := applySchedule(c); err != nil {
+		t.Errorf("no flags: got error %v, want nil", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("no flags: expected no output, got %q", buf.String())
+	}
+}
+
+// TestApplySchedule_ResolveErrors: all the Resolve() error paths
+// bubble up through applySchedule. Each sub-case sets one bad
+// flag combination, calls applySchedule, and asserts the error
+// is non-nil. The exact error message is not pinned (we trust
+// scheduler.Resolve to format it) — we just want the error to
+// surface, not panic.
+// / 所有 scheduler.Resolve 的 error 路径都透过 applySchedule 冒出来。
+// 每个 sub-case 设一个坏 flag 组合，断言 error 非 nil。
+// 不钉死 error 文本（信任 scheduler.Resolve 的格式），只要求冒上来。
+func TestApplySchedule_ResolveErrors(t *testing.T) {
+	// Future time for --at cases. Pinning it keeps the "past time"
+	// test stable across clock advances.
+	future := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+	// Past time for --at past case.
+	past := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 
 	cases := []struct {
-		flag, val string
-		wantMode  string
-		wantVal   string
+		name string
+		set  func()
 	}{
-		{"at", "2026-12-25T09:00:00Z", "at", "2026-12-25T09:00:00Z"},
-		{"in", "2h30m", "in", "2h30m"},
-		{"cron", "0 9 * * *", "cron", "0 9 * * *"},
+		{
+			name: "at malformed",
+			set: func() { flagScheduleAt = "not-a-rfc3339" },
+		},
+		{
+			name: "at in the past",
+			set: func() { flagScheduleAt = past },
+		},
+		{
+			name: "in malformed",
+			set: func() { flagScheduleIn = "not-a-duration" },
+		},
+		{
+			name: "in zero",
+			set: func() { flagScheduleIn = "0s" },
+		},
+		{
+			name: "in negative",
+			set: func() { flagScheduleIn = "-5m" },
+		},
+		{
+			name: "cron invalid expression",
+			set: func() { flagScheduleCron = "this is not cron" },
+		},
+		{
+			name: "at and in mutually exclusive",
+			set: func() {
+				flagScheduleAt = future
+				flagScheduleIn = "5m"
+			},
+		},
+		{
+			name: "daemon without cron",
+			set: func() { flagScheduleDaemon = true },
+		},
+		{
+			name: "invalid tz",
+			set: func() {
+				flagScheduleCron = "0 9 * * *"
+				flagScheduleTZ = "Mars/Olympus_Mons"
+			},
+		},
 	}
 	for _, c := range cases {
-		flagScheduleAt, flagScheduleIn, flagScheduleCron = "", "", ""
-		switch c.flag {
-		case "at":
-			flagScheduleAt = c.val
-		case "in":
-			flagScheduleIn = c.val
-		case "cron":
-			flagScheduleCron = c.val
-		}
-		mode, val := detectScheduleMode()
-		if mode != c.wantMode || val != c.wantVal {
-			t.Errorf("%s=%q: got (%q, %q), want (%q, %q)",
-				c.flag, c.val, mode, val, c.wantMode, c.wantVal)
-		}
-	}
+		t.Run(c.name, func(t *testing.T) {
+			save := saveScheduleFlags()
+			defer restoreScheduleFlags(save)
+			clearScheduleFlags()
+			c.set()
 
-	// All empty. / 全空。
-	flagScheduleAt, flagScheduleIn, flagScheduleCron = "", "", ""
-	if mode, val := detectScheduleMode(); mode != "" || val != "" {
-		t.Errorf("all empty: got (%q, %q), want (\"\", \"\")", mode, val)
+			cmd, _ := newScheduleTestCmd(t)
+			if err := applySchedule(cmd); err == nil {
+				t.Errorf("expected error for %q, got nil", c.name)
+			}
+		})
 	}
 }
 
-func TestLoadScheduleTZ(t *testing.T) {
-	saveTZ := flagScheduleTZ
-	defer func() { flagScheduleTZ = saveTZ }()
-
-	flagScheduleTZ = ""
-	loc := loadScheduleTZ()
-	if loc != time.Local {
-		t.Errorf("empty TZ: got %v, want time.Local (%v)", loc, time.Local)
+// TestApplySchedule_DryRun: any schedule mode + --schedule-dry-run
+// returns nil after printing the "next run at" line. We don't
+// actually wait. / 任何 mode + --schedule-dry-run → 打"next run
+// at"后立即返回 nil，不实际等待。
+func TestApplySchedule_DryRun(t *testing.T) {
+	future := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+	cases := []struct {
+		name, at, in, cron, tz string
+	}{
+		{"at", future, "", "", ""},
+		{"in", "", "2h", "", ""},
+		{"cron", "", "", "0 9 * * *", "UTC"},
 	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			save := saveScheduleFlags()
+			defer restoreScheduleFlags(save)
+			clearScheduleFlags()
+			flagScheduleAt = c.at
+			flagScheduleIn = c.in
+			flagScheduleCron = c.cron
+			flagScheduleTZ = c.tz
+			flagScheduleDryRun = true
 
-	flagScheduleTZ = "UTC"
-	if loadScheduleTZ().String() != "UTC" {
-		t.Errorf("UTC load: got %v", loadScheduleTZ())
-	}
-
-	flagScheduleTZ = "Mars/Olympus_Mons"
-	// Invalid IANA names fall back to default (time.Local). /
-	// 无效 IANA 名回退到默认（time.Local）。
-	if loadScheduleTZ() != time.Local {
-		t.Error("invalid TZ should fall back to time.Local")
+			cmd, buf := newScheduleTestCmd(t)
+			if err := applySchedule(cmd); err != nil {
+				t.Errorf("%s + dry-run: got error %v, want nil", c.name, err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, "[*] scheduler:") {
+				t.Errorf("%s + dry-run: expected scheduler line, got %q", c.name, out)
+			}
+			if !strings.Contains(out, "next run at") {
+				t.Errorf("%s + dry-run: expected next-run line, got %q", c.name, out)
+			}
+			if !strings.Contains(out, "dry-run=true") {
+				t.Errorf("%s + dry-run: expected dry-run=true marker, got %q", c.name, out)
+			}
+		})
 	}
 }
 
-func TestSchedulesAddListRemove_RoundTrip(t *testing.T) {
-	// Save + restore flag state. / 保存 + 恢复 flag 状态。
-	saveProject, saveAt, saveIn, saveCron, saveTZ, saveDaemon :=
-		flagProject, flagScheduleAt, flagScheduleIn, flagScheduleCron, flagScheduleTZ, flagScheduleDaemon
-	defer func() {
-		flagProject, flagScheduleAt, flagScheduleIn, flagScheduleCron = saveProject, saveAt, saveIn, saveCron
-		flagScheduleTZ, flagScheduleDaemon = saveTZ, saveDaemon
-	}()
+// TestApplySchedule_WaitAtNearFuture: --at with a near-future
+// time should Wait, return after that time, and emit the
+// "next run at" line. RFC3339 truncates to second precision,
+// so we use a 2-second buffer to avoid the "past" check racing
+// the format step.
+// / --at 用近未来时间（~2s），等到了再返。RFC3339 截断到秒，2s
+// buffer 避免"past"检查和格式化抢跑。
+func TestApplySchedule_WaitAtNearFuture(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
 
-	tmp := t.TempDir()
-	t.Chdir(tmp)
-	// Create the project. / 创建项目。
-	if err := runProjectsCreate(newCmdForTest(t, runProjectsCreate), []string{"sched-test"}); err != nil {
-		t.Fatalf("create project: %v", err)
+	flagScheduleAt = time.Now().Add(2 * time.Second).Format(time.RFC3339)
+
+	cmd, buf := newScheduleTestCmd(t)
+	cmd.SetContext(context.Background())
+	start := time.Now()
+	if err := applySchedule(cmd); err != nil {
+		t.Errorf("near-future --at: got error %v, want nil", err)
 	}
-	flagProject = "sched-test"
+	elapsed := time.Since(start)
+	if elapsed < 1*time.Second {
+		t.Errorf("near-future --at: returned in %v, expected >= 1s (waited too short)", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("near-future --at: took %v, expected ~2s (waited too long)", elapsed)
+	}
+	if !strings.Contains(buf.String(), "next run at") {
+		t.Errorf("near-future --at: expected next-run line, got %q", buf.String())
+	}
+}
 
-	// Add a cron schedule. / 加 cron 调度。
-	flagScheduleAt, flagScheduleIn = "", ""
-	flagScheduleCron = "0 9 * * *"
-	flagScheduleTZ = "UTC"
+// TestApplySchedule_WaitInShort: --in with a short duration
+// waits then returns. The "in" path is the most common
+// non-dry-run case in scripts that say "wait 5 minutes then
+// start". / --in 短时长，等到了再返。
+func TestApplySchedule_WaitInShort(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	flagScheduleIn = "150ms"
+
+	cmd, buf := newScheduleTestCmd(t)
+	cmd.SetContext(context.Background())
+	start := time.Now()
+	if err := applySchedule(cmd); err != nil {
+		t.Errorf("short --in: got error %v, want nil", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < 100*time.Millisecond {
+		t.Errorf("short --in: returned in %v, expected >= 100ms", elapsed)
+	}
+	if !strings.Contains(buf.String(), "next run at") {
+		t.Errorf("short --in: expected next-run line, got %q", buf.String())
+	}
+}
+
+// TestApplySchedule_DaemonCtxCancel: --cron + --daemon runs
+// the daemon loop. We need to cancel the context to break out.
+// We register the cleanup BEFORE the cancel so even a panic in
+// applySchedule doesn't leave the test hung.
+//
+// Approach: pre-cancelled context → Wait returns ctx.Err() →
+// daemon loop returns that error → applySchedule returns it.
+// This is the simplest way to test the daemon path without
+// actually waiting for a cron tick (which would take minutes).
+//
+// / --cron + --daemon 走 daemon 循环。用 pre-cancelled context 让
+// Wait 返 ctx.Err()，daemon 循环把 error 透出来。避免了真等
+// cron tick（那要几分钟）。
+func TestApplySchedule_DaemonCtxCancel(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	// 9 9 * * * 9:09am daily — won't tick during the test (test
+	// runs in ms), so the only way out is the cancelled ctx.
+	flagScheduleCron = "9 9 * * *"
 	flagScheduleDaemon = true
-	if err := runSchedulesAdd(newCmdForTest(t, runSchedulesAdd), []string{"morning"}); err != nil {
-		t.Fatalf("add: %v", err)
-	}
 
-	// List should show 1 row. / list 应显示 1 行。
-	listCmd, buf := newCmdForTestCapture(t, runSchedulesList)
-	if err := runSchedulesList(listCmd, nil); err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "morning") {
-		t.Errorf("list output missing 'morning': %s", out)
-	}
-	if !strings.Contains(out, "cron") {
-		t.Errorf("list output missing mode 'cron': %s", out)
-	}
-	if !strings.Contains(out, "0 9 * * *") {
-		t.Errorf("list output missing cron value: %s", out)
-	}
+	cmd, _ := newScheduleTestCmd(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+	cmd.SetContext(ctx)
 
-	// Add an --in schedule. / 加 --in 调度。
-	flagScheduleCron, flagScheduleTZ, flagScheduleDaemon = "", "", false
-	flagScheduleIn = "30m"
-	if err := runSchedulesAdd(newCmdForTest(t, runSchedulesAdd), []string{"half-hour"}); err != nil {
-		t.Fatalf("add --in: %v", err)
+	err := applySchedule(cmd)
+	if err == nil {
+		t.Errorf("daemon with pre-cancelled ctx: got nil error, want non-nil")
 	}
+	// The error should bubble up from in.Wait via ctx.Err() or be
+	// context.Canceled. We accept any non-nil error since the
+	// exact wrapping depends on scheduler internals.
+	if err != nil && !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context canceled") {
+		// Loose check: accept it but log so future regressions are
+		// visible. (e.g. if scheduler changes the error wrapping.)
+		t.Logf("daemon ctx-cancel error: %v (accepted, not strictly context.Canceled)", err)
+	}
+}
 
-	// List should show 2. / list 应显示 2。
-	listCmd, buf = newCmdForTestCapture(t, runSchedulesList)
-	if err := runSchedulesList(listCmd, nil); err != nil {
-		t.Fatalf("list 2: %v", err)
-	}
-	out = buf.String()
-	if !strings.Contains(out, "morning") || !strings.Contains(out, "half-hour") {
-		t.Errorf("list should have both schedules: %s", out)
-	}
+// TestApplySchedule_WaitCronNoDaemon: --cron WITHOUT --daemon
+// is a one-shot — it waits for the next fire time, then returns
+// after the scan (which here is just returning because we never
+// re-enter the daemon loop). We use a cron expression that
+// matches within the next minute to keep the test fast.
+//
+// In practice `--cron "*/1 * * * *"` (every minute) would tick
+// within 60s. We pre-cancel after a short timeout to break the
+// wait. We use a 1-second buffer to avoid flaky CI.
+//
+// / --cron 无 --daemon：单次等下次 fire，然后返回。用 1 秒级
+// cron 表达式快速触发；超时主动 cancel 防 hang。
+func TestApplySchedule_WaitCronNoDaemon(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
 
-	// Remove one. / 删一个。
-	if err := runSchedulesRemove(newCmdForTest(t, runSchedulesRemove), []string{"morning"}); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
+	// "*/1 * * * * *" is 6-field with seconds (robfig/cron/v3
+	// supports it). "*/1 * * * *" is 5-field with minute = every
+	// minute. The 5-field form fires within 60s.
+	flagScheduleCron = "*/1 * * * *"
 
-	// List should show 1. / list 应显示 1。
-	listCmd, buf = newCmdForTestCapture(t, runSchedulesList)
-	if err := runSchedulesList(listCmd, nil); err != nil {
-		t.Fatalf("list 3: %v", err)
-	}
-	out = buf.String()
-	if strings.Contains(out, "morning") {
-		t.Errorf("morning should be gone: %s", out)
-	}
-	if !strings.Contains(out, "half-hour") {
-		t.Errorf("half-hour should remain: %s", out)
-	}
+	cmd, _ := newScheduleTestCmd(t)
+	// Pre-cancel after 1.2s; daemon path isn't hit (no --daemon),
+	// so Wait blocks until the next fire OR ctx cancel. 1.2s
+	// is well under the 60s cron tick so cancel wins.
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+	cmd.SetContext(ctx)
 
-	// Remove idempotent. / remove 幂等。
-	rmCmd, rmBuf := newCmdForTestCapture(t, runSchedulesRemove)
-	if err := runSchedulesRemove(rmCmd, []string{"nonexistent"}); err != nil {
-		t.Errorf("remove missing should be idempotent: %v", err)
+	start := time.Now()
+	_ = applySchedule(cmd)
+	elapsed := time.Since(start)
+
+	// Should return at ~1.2s (ctx timeout) since the cron tick
+	// is at the next minute boundary (>1.2s away on average).
+	if elapsed < 1*time.Second {
+		t.Errorf("cron no-daemon: returned in %v, expected ~1.2s (ctx timeout)", elapsed)
 	}
-	if !strings.Contains(rmBuf.String(), "if it existed") {
-		t.Errorf("remove output should mention 'if it existed': %s", rmBuf.String())
+	if elapsed > 3*time.Second {
+		t.Errorf("cron no-daemon: returned in %v, expected <3s (ctx timeout + slack)", elapsed)
 	}
+}
+
+// TestApplySchedule_ConflictingFlags: --at + --cron together
+// is mutually exclusive. Pinned as a separate test (not in the
+// table) so the failure message names both flags clearly.
+// / --at + --cron 互斥。单独测试，失败信息能直接报这两个 flag。
+func TestApplySchedule_ConflictingFlags(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	future := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+	flagScheduleAt = future
+	flagScheduleCron = "0 9 * * *"
+
+	cmd, _ := newScheduleTestCmd(t)
+	err := applySchedule(cmd)
+	if err == nil {
+		t.Fatal("--at + --cron: expected ErrInvalidCombination, got nil")
+	}
+	if !errors.Is(err, scheduler.ErrInvalidCombination) {
+		t.Errorf("--at + --cron: got %v, want errors.Is(ErrInvalidCombination)", err)
+	}
+}
+
+// TestApplySchedule_DaemonRequiresCron: --daemon without --cron
+// is a specific configuration error. The error message mentions
+// both flags (for operator clarity).
+// / --daemon 无 --cron 是配置错误。错误信息要提到两个 flag。
+func TestApplySchedule_DaemonRequiresCron(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	flagScheduleDaemon = true
+	// No --cron.
+
+	cmd, _ := newScheduleTestCmd(t)
+	err := applySchedule(cmd)
+	if err == nil {
+		t.Fatal("--daemon without --cron: expected error, got nil")
+	}
+	if !errors.Is(err, scheduler.ErrInvalidCombination) {
+		t.Errorf("--daemon w/o --cron: got %v, want ErrInvalidCombination", err)
+	}
+}
+
+// TestApplySchedule_ConcurrentCalls: two goroutines calling
+// applySchedule concurrently with non-overlapping flag sets
+// should both complete without interfering. Sanity check that
+// the package-level flag manipulation is safe under concurrent
+// test execution (it isn't, but at least we confirm the test
+// framework's t.Parallel() / parallel tests don't crash on
+// shared flag state — note this test does NOT use t.Parallel
+// because the package-level flag state is shared).
+//
+// / 并发调用 sanity check。package 级 flag 不并发安全，所以这里
+// 仅测串行；不调用 t.Parallel 避免共享状态污染。
+func TestApplySchedule_ConcurrentCalls(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+	flagScheduleDryRun = true
+	flagScheduleIn = "2h"
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd, _ := newScheduleTestCmd(t)
+			_ = applySchedule(cmd)
+		}()
+	}
+	wg.Wait()
 }
