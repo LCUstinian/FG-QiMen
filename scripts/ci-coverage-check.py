@@ -9,6 +9,30 @@ the runner's default PATH not matching what the workflow
 file expected, plus SIGPIPE on the tail -1 in some GHA
 image variants). Python 3 is pre-installed on every
 ubuntu-latest image.
+
+Threshold history:
+  - v0.4: 60% floor (initial)
+  - v0.5.1: 60% floor kept. cmd/ coverage pushed from 59.6%
+    to 64.4% via new tests for applySchedule (100%),
+    applyTransport, applyHTTPForm, detectScheduleMode,
+    loadScheduleTZ, daemon-loop 6-field cron. The total
+    stayed around 60.5% because of 30+ adapted plugins
+    (jenkins, ssh, ftp, kafka, mqtt, etc.) that are 0%
+    covered today. / v0.5.1：维持 60%。cmd/ 覆盖率从 59.6%
+    推到 64.4%（applySchedule 100% + applyTransport +
+    applyHTTPForm + detectScheduleMode + loadScheduleTZ +
+    daemon-loop 6-field cron 等新测试）。总覆盖率仍 ~60.5%
+    因 30+ adapted plugin 0% 覆盖拖累。
+  - v0.6 target: 65%. Blocked on plugin fake-server
+    infrastructure — adapted plugins run real I/O (TCP
+    connect, SMTP/IMAP, HTTP, MQTT broker, etc.) and need
+    httptest / fake-TCP fixtures to be unit-testable. The
+    cmd/ package itself is at 64.4% on unit-testable code;
+    the gap to 65% is purely plugin coverage. / v0.6 目标：
+    65%。被 plugin fake-server 基础设施卡住——adapted plugin
+    跑真 I/O（TCP connect、SMTP/IMAP、HTTP、MQTT broker 等），
+    需要 httptest / fake-TCP fixture 才能单元测。cmd/ 单元可
+    测代码已达 64.4%；到 65% 的差距完全是 plugin 覆盖。
 """
 import re
 import subprocess
@@ -44,6 +68,8 @@ def main() -> int:
     print(f"Total coverage: {pct:.1f}%")
 
     # 3. Enforce the 60% floor. / 强制 60% 门槛。
+    # See docstring for why 65% is deferred to v0.6.
+    # 65% 是 v0.6 目标，见顶部 docstring。
     floor = 60.0
     if pct < floor:
         print(f"FAIL: coverage {pct:.1f}% < {floor:.0f}% threshold")

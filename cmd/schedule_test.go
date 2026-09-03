@@ -40,8 +40,8 @@ import (
 // / 包级 snapshotFlags 不含 schedule flag（v0.5 新增）。
 // 这里的 save/restore 专门给 applySchedule 测试用，避免交叉污染。
 type scheduleFlagSnapshot struct {
-	at, in, cron, tz                   string
-	daemon, dryRun                      bool
+	at, in, cron, tz string
+	daemon, dryRun   bool
 }
 
 func saveScheduleFlags() scheduleFlagSnapshot {
@@ -135,27 +135,27 @@ func TestApplySchedule_ResolveErrors(t *testing.T) {
 	}{
 		{
 			name: "at malformed",
-			set: func() { flagScheduleAt = "not-a-rfc3339" },
+			set:  func() { flagScheduleAt = "not-a-rfc3339" },
 		},
 		{
 			name: "at in the past",
-			set: func() { flagScheduleAt = past },
+			set:  func() { flagScheduleAt = past },
 		},
 		{
 			name: "in malformed",
-			set: func() { flagScheduleIn = "not-a-duration" },
+			set:  func() { flagScheduleIn = "not-a-duration" },
 		},
 		{
 			name: "in zero",
-			set: func() { flagScheduleIn = "0s" },
+			set:  func() { flagScheduleIn = "0s" },
 		},
 		{
 			name: "in negative",
-			set: func() { flagScheduleIn = "-5m" },
+			set:  func() { flagScheduleIn = "-5m" },
 		},
 		{
 			name: "cron invalid expression",
-			set: func() { flagScheduleCron = "this is not cron" },
+			set:  func() { flagScheduleCron = "this is not cron" },
 		},
 		{
 			name: "at and in mutually exclusive",
@@ -166,7 +166,7 @@ func TestApplySchedule_ResolveErrors(t *testing.T) {
 		},
 		{
 			name: "daemon without cron",
-			set: func() { flagScheduleDaemon = true },
+			set:  func() { flagScheduleDaemon = true },
 		},
 		{
 			name: "invalid tz",
@@ -422,6 +422,83 @@ func TestApplySchedule_DaemonRequiresCron(t *testing.T) {
 	}
 }
 
+// TestDetectScheduleMode: pure-logic switch that picks the
+// active schedule flag. At most one of --at / --in / --cron
+// should be set; empty when none. All three flags live as
+// package-level vars so we save/restore the snapshot.
+// / detectScheduleMode 是个纯逻辑 switch，挑出当前激活的
+// schedule flag。--at / --in / --cron 最多设一个；都没设时
+// 返 ("", "")。flag 是包级变量，所以 save/restore 一下。
+func TestDetectScheduleMode(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+
+	cases := []struct {
+		at, in, cron string
+		wantMode     string
+		wantVal      string
+	}{
+		{"2026-12-25T09:00:00Z", "", "", "at", "2026-12-25T09:00:00Z"},
+		{"", "2h30m", "", "in", "2h30m"},
+		{"", "", "0 9 * * *", "cron", "0 9 * * *"},
+		// All empty: no schedule mode. / 全空：无 schedule mode。
+		{"", "", "", "", ""},
+		// Precedence: --at wins over --in and --cron. (Real callers
+		// should not set multiple, but the function picks the first
+		// non-empty in priority order — pin that contract.)
+		// / 优先级：--at 优先于 --in 和 --cron。（真调用方不应
+		// 多个，但函数按优先级选首个非空——钉住这契约。）
+		{"X", "Y", "Z", "at", "X"},
+	}
+	for _, c := range cases {
+		flagScheduleAt, flagScheduleIn, flagScheduleCron = c.at, c.in, c.cron
+		mode, val := detectScheduleMode()
+		if mode != c.wantMode || val != c.wantVal {
+			t.Errorf("at=%q in=%q cron=%q: got (%q, %q), want (%q, %q)",
+				c.at, c.in, c.cron, mode, val, c.wantMode, c.wantVal)
+		}
+	}
+}
+
+// TestLoadScheduleTZ: --tz empty → time.Local; valid IANA →
+// loaded location; invalid IANA → falls back to time.Local.
+// The "no panic" guarantee is the load-bearing part — even on
+// a stripped system without the IANA tz db, this must return
+// a usable *time.Location (time.Local).
+// / loadScheduleTZ：--tz 空 → time.Local；合法 IANA → 加载；
+// 非法 IANA → 回退 time.Local。"不 panic" 才是承重部分——
+// 即使在精简系统（没 IANA tz db）上，也必须返可用的
+// *time.Local。
+func TestLoadScheduleTZ(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+
+	flagScheduleTZ = ""
+	if loc := loadScheduleTZ(); loc != time.Local {
+		t.Errorf("empty TZ: got %v, want time.Local (%v)", loc, time.Local)
+	}
+
+	flagScheduleTZ = "UTC"
+	if loc := loadScheduleTZ(); loc.String() != "UTC" {
+		t.Errorf("UTC: got %v, want UTC", loc)
+	}
+
+	// Invalid IANA name: must NOT panic; should fall back to
+	// time.Local. We don't pin the exact return — both
+	// time.Local and a parsed location (if Mars somehow loaded
+	// on some odd system) are acceptable.
+	// / 非法 IANA 名：必须不 panic；应该回退 time.Local。我们
+	// 不钉死返回值——time.Local 和解析后的 location（如果某
+	// 怪系统真能加载 Mars）都接受。
+	flagScheduleTZ = "Mars/Olympus_Mons"
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("loadScheduleTZ(Mars/...) panicked: %v", r)
+		}
+	}()
+	_ = loadScheduleTZ()
+}
+
 // TestApplySchedule_DaemonLoops: --cron + --daemon with a
 // 6-field cron that fires every second (* * * * * *). The
 // first Wait succeeds after ~1s, the post-Wait code runs
@@ -477,6 +554,7 @@ func TestApplySchedule_DaemonLoops(t *testing.T) {
 			count, buf.String())
 	}
 }
+
 // applySchedule concurrently with non-overlapping flag sets
 // should both complete without interfering. Sanity check that
 // the package-level flag manipulation is safe under concurrent

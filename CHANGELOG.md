@@ -10,22 +10,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`applySchedule` unit tests** (`cmd/schedule_test.go`,
-  11 cases). The function was at 0% coverage in v0.5; now at
-  85%. Covers ModeNone early-return, all 9 Resolve error
-  paths (--at malformed / past, --in malformed / zero /
-  negative, --cron invalid, --at+--in mutex, --daemon
-  without --cron, invalid --tz), dry-run for all 3 modes,
+  12 cases including daemon-loops). The function was at 0%
+  coverage in v0.5; now at **100%**. Covers ModeNone early-
+  return, all 9 Resolve error paths (--at malformed / past,
+  --in malformed / zero / negative, --cron invalid,
+  --at+--in mutex, --daemon without --cron, invalid --tz),
+  dry-run for all 3 modes,
   wait-for-future-time, wait-for-in, daemon ctx-cancel,
   cron-without-daemon, and concurrent-call sanity. Pinned via
   `errors.Is(..., scheduler.ErrInvalidCombination)` for
   the mutex cases.
 
-  / applySchedule 单元测试（cmd/schedule_test.go，11 个 case）。
-  v0.5 时该函数 0% 覆盖，现 85%。覆盖 ModeNone 早返、9 个
-  Resolve 错误路径（at 格式错 / 过去、in 格式错 / 0 / 负、
-  cron 格式错、at+in 互斥、daemon 无 cron、tz 错）、3 种 mode
-  的 dry-run、等未来时间、等 in 时长、daemon ctx 取消、cron
-  无 daemon、并发调用 sanity。互斥 case 用 errors.Is(ErrInvalidCombination) 钉死。
+  / applySchedule 单元测试（cmd/schedule_test.go，含
+  daemon-loops 12 个 case）。v0.5 时该函数 0% 覆盖，现
+  **100%**。覆盖 ModeNone 早返、9 个 Resolve 错误路径（at
+  格式错 / 过去、in 格式错 / 0 / 负、cron 格式错、at+in
+  互斥、daemon 无 cron、tz 错）、3 种 mode 的 dry-run、等
+  未来时间、等 in 时长、daemon ctx 取消、cron 无 daemon、
+  并发调用 sanity、daemon 循环跑 ≥2 次（验证 post-Wait
+  代码）。互斥 case 用 errors.Is(ErrInvalidCombination)
+  钉死。
+
+- **More cmd/ tests** (`cmd/cmd_test.go`,
+  `cmd/schedule_test.go`). Added tests for `applyTransport`
+  (nil + flag propagation + empty-KnownHosts protection),
+  `applyHTTPForm` (empty + populated), `detectScheduleMode`
+  (all 4 mode + precedence), and `loadScheduleTZ` (empty /
+  UTC / invalid-IANA no-panic). cmd/ coverage 59.6% → 64.4%
+  on unit-testable code. The total coverage stays around 60.5%
+  because of 30+ adapted plugins (jenkins/ssh/ftp/kafka/mqtt
+  etc.) at 0% — those need fake-server infrastructure
+  (tracked as v0.6 goal).
+
+  / 更多 cmd/ 测试（cmd/cmd_test.go、cmd/schedule_test.go）。
+  加 applyTransport（nil + flag 传递 + 空 KnownHosts 保护）、
+  applyHTTPForm（空 + 填）、detectScheduleMode（4 种 mode +
+  优先级）、loadScheduleTZ（空 / UTC / 非法 IANA 不 panic）
+  测试。cmd/ 单元可测代码 59.6% → 64.4%。总覆盖率仍 ~60.5%
+  因 30+ adapted plugin 0% 覆盖——需要 fake-server 基础
+  设施（v0.6 目标）。
+
+### Changed
+
+- **Coverage floor kept at 60%** (`scripts/ci-coverage-check.py`).
+  The original A2 goal was 65%, but the 30+ adapted plugins
+  at 0% coverage drag the total to 60.5% — 65% is
+  unreachable without investing in plugin fake-server
+  fixtures (v0.6 work). The floor stays at 60% with
+  extensive docstring explaining the 65% deferral. cmd/
+  unit-testable code is already at 64.4%.
+
+  / 覆盖率门槛维持 60%（scripts/ci-coverage-check.py）。
+  A2 原目标 65%，但 30+ adapted plugin 0% 覆盖把总覆盖率拖
+  到 60.5%——没 fake-server fixture（v0.6 工作）到不了 65%。
+  门槛维持 60%，docstring 详细说明 65% 推迟原因。cmd/ 单
+  元可测代码已达 64.4%。
+
+- **6-field cron expressions** (`internal/scheduler/cron.go`).
+  Changed parser from `cron.ParseStandard` (5-field) to
+  `cron.NewParser(SecondOptional | ...)` (5 or 6 fields). The
+  documented 5-field form (`0 9 * * *` etc.) still works; 6
+  fields (`* * * * * *` = every second) are now valid for
+  fast tests and short-interval daemon jobs.
+
+  / 6 字段 cron 表达式（internal/scheduler/cron.go）。解析器
+  从 cron.ParseStandard（5 字段）改为 cron.NewParser
+  (SecondOptional | ...)，5 或 6 字段都支持。文档化的 5
+  字段形式（`0 9 * * *` 等）仍可用；6 字段（`* * * * * *`
+  = 每秒）现在合法，用于快速测试和短间隔 daemon 任务。
+
+- **Embed `time/tzdata` in binary** (`main.go`). Adds ~400 KB
+  (compressed) to the binary so `--tz` works on stripped
+  container images that don't ship `/usr/share/zoneinfo`.
+  Without this, a missing system tz DB silently falls back
+  to `time.Local` (UTC offset 0 in many minimal containers),
+  producing wrong cron fire times. v0.5.1 makes this default-
+  on to eliminate the "works on my machine, breaks in CI"
+  surprise.
+
+  / 二进制内嵌 time/tzdata（main.go）。二进制 +~400 KB（压
+  缩后）让 --tz 在精简容器镜像（没 /usr/share/zoneinfo）
+  上也能工作。少了这个，系统 tz DB 缺失会静默回退
+  time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时
+  间静默错。v0.5.1 改为默认开启，消除"我机器行 CI 挂"
+  的尴尬。
+
+- **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
+  `cmd/multishort_test.go`, `cmd/{root,resume,scan,schedules}.go`,
+  `internal/core/credential/pool.go`, `README*`). Single-letter
+  shorts are now all lowercase and mnemonic; 2-letter shorts
 
 ### Changed
 
