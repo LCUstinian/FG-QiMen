@@ -422,7 +422,61 @@ func TestApplySchedule_DaemonRequiresCron(t *testing.T) {
 	}
 }
 
-// TestApplySchedule_ConcurrentCalls: two goroutines calling
+// TestApplySchedule_DaemonLoops: --cron + --daemon with a
+// 6-field cron that fires every second (* * * * * *). The
+// first Wait succeeds after ~1s, the post-Wait code runs
+// (in.Base = now, recompute next, reprint), then the second
+// Wait sees the pre-cancelled context and returns ctx.Err().
+// This covers the post-Wait branches that TestApplySchedule_DaemonCtxCancel
+// (pre-cancelled) does NOT exercise.
+//
+// / --cron + --daemon 配每秒触发的 6-field cron。第一次 Wait
+// 约 1s 后成功，post-Wait 代码跑（in.Base = now、重算 next、
+// 重打），第二次 Wait 看到 pre-cancelled ctx 返 ctx.Err()。
+// 覆盖 TestApplySchedule_DaemonCtxCancel 跑不到的 post-Wait
+// 分支。
+func TestApplySchedule_DaemonLoops(t *testing.T) {
+	save := saveScheduleFlags()
+	defer restoreScheduleFlags(save)
+	clearScheduleFlags()
+
+	// 6-field cron, every second. robfig/cron/v3 supports the
+	// seconds field; this is the fastest non-trivial cron.
+	flagScheduleCron = "* * * * * *"
+	flagScheduleDaemon = true
+
+	// 2.3s budget: lets the first Wait complete (~1s) and the
+	// post-Wait line print, then the second Wait sees the
+	// cancelled ctx and exits.
+	ctx, cancel := context.WithTimeout(context.Background(), 2300*time.Millisecond)
+	defer cancel()
+
+	cmd, buf := newScheduleTestCmd(t)
+	cmd.SetContext(ctx)
+
+	start := time.Now()
+	_ = applySchedule(cmd)
+	elapsed := time.Since(start)
+
+	// Sanity: should run for at least 1.5s (first Wait must
+	// succeed before ctx cancel). 3s upper bound is the ctx
+	// timeout + slack.
+	if elapsed < 1*time.Second {
+		t.Errorf("daemon loops: returned in %v, expected >= 1s (first Wait should succeed)", elapsed)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("daemon loops: took %v, expected <3s (ctx timeout + slack)", elapsed)
+	}
+
+	// The "next run at" line prints once before the loop, and
+	// again after every successful Wait. So >= 2 occurrences
+	// means the post-Wait code path was exercised.
+	count := strings.Count(buf.String(), "next run at")
+	if count < 2 {
+		t.Errorf("daemon loops: expected >= 2 'next run at' lines (initial + post-Wait), got %d in:\n%s",
+			count, buf.String())
+	}
+}
 // applySchedule concurrently with non-overlapping flag sets
 // should both complete without interfering. Sanity check that
 // the package-level flag manipulation is safe under concurrent

@@ -112,7 +112,24 @@ func ParseCron(raw string, loc *time.Location) (Cron, error) {
 			_ = os.Unsetenv("TZ")
 		}
 	}()
-	sched, err := cron.ParseStandard(raw)
+	// ParseStandard is the 5-field parser. We use a custom
+	// parser with SecondOptional so operators can write
+	// `* * * * * *` (every second) for fast tests, while
+	// 5-field expressions (the documented form) still work.
+	// The seconds field, when present, makes cron tick at
+	// sub-minute granularity; for real use, the 5-field form
+	// (`0 9 * * *` etc.) is the intended one.
+	//
+	// / ParseStandard 是 5 字段解析器。我们用带 SecondOptional
+	// 的自定义解析器，操作员可写 `* * * * * *`（每秒）跑快
+	// 速测试，5 字段（文档形式）仍工作。有 seconds 字段时
+	// cron 以 sub-minute 粒度触发；实际使用 5 字段（`0 9
+	// * * *` 等）是预期形式。
+	parser := cron.NewParser(
+		cron.SecondOptional | cron.Minute | cron.Hour |
+			cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+	)
+	sched, err := parser.Parse(raw)
 	if err != nil {
 		return Cron{}, fmt.Errorf("cron %q: %w", raw, err)
 	}

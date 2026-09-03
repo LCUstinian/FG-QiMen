@@ -29,6 +29,27 @@ func TestParseCron_Valid(t *testing.T) {
 	}
 }
 
+// TestParseCron_6Field: 6-field cron with seconds (e.g.
+// "* * * * * *" = every second) is supported via SecondOptional.
+// This unlocks sub-minute cron expressions, useful for fast
+// tests and short-interval daemon jobs. The 5-field form above
+// remains the canonical real-use form.
+// / 6 字段带秒的 cron（如 `* * * * * *` = 每秒）通过
+// SecondOptional 支持。解锁 sub-minute cron 表达式，用于快速
+// 测试和短间隔 daemon 任务。5 字段仍是真实使用的规范形式。
+func TestParseCron_6Field(t *testing.T) {
+	spec, err := ParseCron("* * * * * *", utc())
+	if err != nil {
+		t.Fatalf("ParseCron 6-field: %v", err)
+	}
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	next := spec.Next(from)
+	// Every second → next fire is within 1 second of `from`.
+	if d := next.Sub(from); d > time.Second {
+		t.Errorf("every-second cron: next = %v (Δ=%v), expected < 1s after from", next, d)
+	}
+}
+
 func TestParseCron_Descriptor(t *testing.T) {
 	// @hourly / @daily are robfig's descriptor syntax.
 	// / @hourly / @daily 是 robfig 的 descriptor 语法。
@@ -45,7 +66,6 @@ func TestParseCron_Invalid(t *testing.T) {
 	cases := []string{
 		"",            // empty
 		"* * * *",     // only 4 fields
-		"* * * * * *", // 6 fields without Second option
 		"60 0 * * *",  // minute out of range
 		"0 24 * * *",  // hour out of range
 		"0 0 32 * *",  // day out of range
