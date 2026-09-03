@@ -76,10 +76,16 @@ runs/projects/<name>/
 ├── fg.db                  # bbolt state
 ├── targets.txt            # hand-editable target list (no fgqm_ prefix — operators edit it directly)
 └── <YYYY-MM-DD>/
-    ├── fgqm_result.txt / .json / .csv / .sarif
+    ├── fgqm_result_HH-MM-SS.txt / .json / .csv / .sarif
     ├── fgqm_creds.txt     # always cleartext
     └── fgqm_rdp.json / .txt   # RDP deep fingerprint
 ```
+
+The `HH-MM-SS` suffix (added in v0.5.1) is the local-time start
+stamp, captured once at scan start so two same-day runs don't
+clobber each other. All result files in a single scan share the
+same suffix. Explicit paths via `-ot` / `-oj` / `-oc` bypass the
+suffix.
 
 The `fgqm_` prefix marks every result artifact as fg-qimen's,
 so they stand out in mixed directories (`ls runs/` →

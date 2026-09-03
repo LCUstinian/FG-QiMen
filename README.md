@@ -148,11 +148,22 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Output formats
 
-- `fgqm_result.txt` — human-readable lines
-- `fgqm_result.json` — NDJSON (one JSON object per line)
-- `fgqm_result.csv` — RFC 4180, one row per result
+Result files carry a `HH-MM-SS` local-time start stamp in the
+filename (added in v0.5.1) so two same-day runs don't clobber
+each other. The directory is bucketed by `YYYY-MM-DD`; the time
+suffix goes on the file. Examples: `fgqm_result_14-30-22.txt`,
+`fgqm_creds.txt` (no stamp — the file is opened `O_APPEND` and
+the dedup is on the in-memory `State`).
+
+- `fgqm_result_HH-MM-SS.txt` — human-readable lines
+- `fgqm_result_HH-MM-SS.json` — NDJSON (one JSON object per line)
+- `fgqm_result_HH-MM-SS.csv` — RFC 4180, one row per result
 - `fgqm_creds.txt` — credential hits (cleartext; operator's working file)
-- `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
+- `fgqm_rdp_HH-MM-SS.json` / `fgqm_rdp_HH-MM-SS.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
+- `fgqm_alive.txt` — one IP per line (dedup'd host list for `nmap -iL` / `masscan --targets` / `curl` loops)
+
+Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
+and the stamp.
 
 ### Plugins (44 plugins / authenticators)
 
