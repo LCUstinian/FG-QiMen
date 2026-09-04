@@ -152,6 +152,7 @@ fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project c
 - `fgqm_result.csv` — RFC 4180，每条结果一行
 - `fgqm_creds.txt` — 凭据命中（明文；操作员的工作文件）
 - `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP 深度指纹（hostname、build、NLA 标志、OS）
+- `fgqm_alive_HH-MM-SS.txt` — 每行一个 IP（去重后的存活主机列表，供 `nmap -iL` / `masscan --targets` / `curl` 循环使用）。与其他带时间戳的 sink（`fgqm_result_*`、`fgqm_rdp_*`）使用相同的日分桶（`YYYY-MM-DD/`）+ `HH-MM-SS` 文件名时间戳。
 
 ### 插件（44 个插件 / 认证器）
 
