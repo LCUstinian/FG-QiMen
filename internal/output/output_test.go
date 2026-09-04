@@ -22,6 +22,11 @@
 // not interleave. TestOutput_ConcurrentWritesDifferentSinks covers
 // this.
 //
+// v0.5.1 update: TestWriteResult_AliveSinkConcurrent adds concurrent
+// writes against the SAME alive sink, exercising the dedup-map
+// thread-safety contract that keeps `nmap -iL` output free of
+// duplicates even under 200 workers.
+//
 // output_test.go — internal/output 多格式结果汇的单测。
 package output
 
@@ -466,5 +471,142 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 		if n != want {
 			t.Errorf("%s: got %d JSON lines, want %d", p, n, want)
 		}
+	}
+}
+
+// aliveOutput opens a minimal Output inside the given dir, with
+// only the alive sink configured (plus the always-required
+// creds/rdp/result paths so OpenOutput doesn't error on missing
+// fields). Used by the four alive-behavior tests below; the dir
+// is passed explicitly (rather than derived from alivePath) so
+// callers can pass a t.TempDir() even when alivePath == "" (the
+// NilWhenDisabled case), keeping all output isolated from cwd.
+// / aliveOutput 在给定 dir 里打开一个最小 Output，只配 alive
+// sink（加上始终需要的 creds/rdp/result 字段以避免 OpenOutput
+// 报错）。dir 显式传（而不是从 alivePath 推导）——这样 alivePath
+// == "" 时（NilWhenDisabled 用例）调用方还能传 t.TempDir()，
+// 保持所有输出和 cwd 隔离。
+func aliveOutput(t *testing.T, dir, alivePath string) *Output {
+	t.Helper()
+	base := func(name string) string { return filepath.Join(dir, name) }
+	out, err := OpenOutput(OutputConfig{
+		ResultTXTPath:   base("r.txt"),
+		ResultJSONPath:  base("r.json"),
+		CredsPath:       base("c.txt"),
+		RDPJSONPath:     base("rj.json"),
+		RDPTXTPath:      base("rt.txt"),
+		ResultAlivePath: alivePath,
+	})
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+	return out
+}
+
+// TestWriteResult_AliveSinkDedup: the same host pushed N times yields
+// exactly one line in the alive file. Pins the aliveSeen dedup-map
+// contract under aliveMu.
+// / 同一 host 推 N 次 → alive 文件中只 1 行。钉死 aliveMu 守护下
+// aliveSeen 去重 map 的契约。
+func TestWriteResult_AliveSinkDedup(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.txt")
+	o := aliveOutput(t, dir, alivePath)
+	defer o.Close()
+
+	for i := 0; i < 5; i++ {
+		if err := o.WriteResult(&types.Result{Host: "10.0.0.1", Port: 22, Service: "ssh"}); err != nil {
+			t.Fatalf("WriteResult[%d]: %v", i, err)
+		}
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	lines := readLines(t, alivePath)
+	if len(lines) != 1 || lines[0] != "10.0.0.1" {
+		t.Errorf("alive file lines = %v, want [%q]", lines, "10.0.0.1")
+	}
+}
+
+// TestWriteResult_AliveSinkEmptyHost: r.Host == "" produces no
+// write. Defensive against stray blank lines that would break
+// `nmap -iL` (which treats blank lines as syntax errors in some
+// versions).
+// / r.Host == "" 不写入。防御性避免出现空行——某些版本
+// `nmap -iL` 把空行当语法错。
+func TestWriteResult_AliveSinkEmptyHost(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.txt")
+	o := aliveOutput(t, dir, alivePath)
+	defer o.Close()
+
+	if err := o.WriteResult(&types.Result{Host: "", Port: 22, Service: "ssh"}); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	lines := readLines(t, alivePath)
+	if len(lines) != 0 {
+		t.Errorf("alive file lines = %v, want [] (no empty-host writes)", lines)
+	}
+}
+
+// TestWriteResult_AliveSinkConcurrent: 100 goroutines pushing the
+// same host → file contains exactly one line. Pins aliveMu +
+// aliveSeen thread-safety contract for the 200-worker scheduler
+// fan-out.
+// / 100 goroutine 推同一 host → 文件中只 1 行。钉死 aliveMu +
+// aliveSeen 线程安全契约，应对 200-worker 调度扇出。
+func TestWriteResult_AliveSinkConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.txt")
+	o := aliveOutput(t, dir, alivePath)
+	defer o.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = o.WriteResult(&types.Result{Host: "10.0.0.1", Port: 22})
+		}()
+	}
+	wg.Wait()
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	lines := readLines(t, alivePath)
+	if len(lines) != 1 || lines[0] != "10.0.0.1" {
+		t.Errorf("alive file under concurrency = %v, want [%q]", lines, "10.0.0.1")
+	}
+}
+
+// TestWriteResult_AliveSinkNilWhenDisabled: ResultAlivePath == ""
+// must leave out.alive nil so WriteResult safely no-ops the
+// alive-sink branch (no panic, no file creation).
+// / ResultAlivePath == "" 时 out.alive 必为 nil，WriteResult 在
+// alive-sink 分支上安全 no-op（不 panic，不创建文件）。
+func TestWriteResult_AliveSinkNilWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	o := aliveOutput(t, dir, "") // alive sink disabled
+	defer o.Close()
+
+	if err := o.WriteResult(&types.Result{Host: "10.0.0.1", Port: 22}); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "alive*"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("disabled alive sink created files: %v", matches)
 	}
 }
