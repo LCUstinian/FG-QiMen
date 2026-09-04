@@ -1,3 +1,6 @@
+> [English version](../SECURITY.md)
+
+
 # Security Model
 ## Threat model
 ## HARD rules

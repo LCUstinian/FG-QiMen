@@ -1,6 +1,8 @@
 # Security Model
 
-> FG-QiMen is a scanner + credential tester, not an attack tool. This
+> [中文版本](../SECURITY.zh-CN.md)
+
+FG-QiMen is a scanner + credential tester, not an attack tool. This
 > document is the contract between the project and its operators.
 
 ## Threat model

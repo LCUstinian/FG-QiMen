@@ -1,6 +1,8 @@
 # Configuration
 
-> How to configure FG-QiMen — flags, environment variables, dictionary
+> [中文版本](../CONFIGURATION.zh-CN.md)
+
+How to configure FG-QiMen — flags, environment variables, dictionary
 > files.
 
 ## Flag discovery

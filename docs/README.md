@@ -1,5 +1,7 @@
 # FG-QiMen documentation
 
+> [中文版本](README.zh-CN.md)
+
 This is the canonical index for FG-QiMen's user-facing and developer-facing
 documentation. The structure is:
 

@@ -6,7 +6,7 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 和**插件 worker（consumer）**解耦。支持三种运行模式（`scan` / `crack` /
 `linked`）和两种工作模式（即扫即走 vs 带 bbolt 状态的增量项目工作区）。
 
-[English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.md)
+[English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
 ┌─ FG-QIMEN v0.5 ──── project: corp-intranet ──── mode: linked ─┐
@@ -30,7 +30,7 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 FG-QiMen **故意不包含任何漏洞利用代码**。扫描器用标准认证握手测试已知
 服务；命中时凭据写入 `fgqm_creds.txt` 即终止——不执行 `Session.Exec`、不上
 WebShell、不植入持久化。完整的"不做漏洞利用"契约（明确禁止的能力清单）
-见 [`docs/SECURITY.md`](docs/SECURITY.md)。
+见 [`docs/SECURITY.md`](docs/SECURITY.zh-CN.md)。
 
 ---
 
@@ -88,7 +88,7 @@ echo "10.0.1.0/24"   >> runs/projects/corp-intranet/targets.txt
 
 # linked 模式（扫描 + 凭据测试 一把过）
 fg-qimen --project corp-intranet -f runs/projects/corp-intranet/targets.txt --mode linked \
-    -u root admin -p 123456 admin P@ssw0rd
+    -u root,admin -p 123456,admin P@ssw0rd
 
 # 续传 / 查看信息
 fg-qimen resume --project corp-intranet
@@ -143,7 +143,7 @@ fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project c
 - **TUI**：Bubbletea + Lipgloss 赛博朋克配色（黑底绿/琥珀/红）；非 TTY
   自动降级纯文本。
 
-完整架构文档：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+完整架构文档：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.zh-CN.md)。
 
 ### 输出格式
 
@@ -228,13 +228,14 @@ fg-qimen version                                 # 显示版本
 fg-qimen completion bash                         # 生成 shell 补全
 ```
 
-### 5 个最常用 flag（覆盖 ~90% 场景）
+### 6 个最常用 flag（覆盖 ~90% 场景）
 
 | 短 | 长 | 例子 | 用途 |
 |---|---|---|---|
 | `-H` | `--host` | `-H 10.0.0.0/24` | 目标 IP / CIDR / 范围 / 逗号列表 |
-| (无) | `--project` | `--project corp` | 命名项目（持久化到 bbolt；省则即扫即走） |
-| `-u` | `--user` | `-u root admin` | 内联用户名 |
+| — | `--project` | `--project corp` | 命名项目（持久化到 bbolt；省则即扫即走） |
+| `-u` | `--user` | `-u root,admin` | 内联用户名（多个用逗号分隔） |
+| `-p` | `--pass` | `-p admin,root` | 内联密码（多个用逗号分隔） |
 | `-uf` | `--user-file` | `-uf users.txt` | 用户名字典文件（每行一个） |
 | `-pf` | `--pass-file` | `-pf pass.txt` | 密码字典文件（每行一个） |
 
@@ -266,7 +267,7 @@ fg-qimen scan --project corp --mode crack -uf users.txt -pf pass.txt
 fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 ```
 
-> **短参约定**（v0.5.1+）：全小写，mnemonic 优先，命名空间用 2 字母（output-* / user-pass-file）。`-H` 是唯一大写（避 `-h`/`--help` 冲突）。从 v0.5.0 的迁移表见 [CHANGELOG](CHANGELOG.md)。
+> **短参约定**（v0.5.1+）：全小写，mnemonic 优先，命名空间用 2 字母（output-* / user-pass-file）。`-H` 是唯一大写（避 `-h`/`--help` 冲突）。从 v0.5.0 的迁移表见 [CHANGELOG](CHANGELOG.zh-CN.md)。
 
 ### 完整 flag 参考（v0.5.1 — 45 个 flag，14 个有短选项）
 
@@ -316,7 +317,7 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 |     | `--known-hosts` | （空） | Safety | `known_hosts` 文件路径（设为非空后 `InsecureIgnoreHostKey` 自动转 false） |
 
 完整 CLI 用法模板（按工作流分类）见
-[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)。当前 `fg-qimen --help`
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.zh-CN.md)。当前 `fg-qimen --help`
 输出是权威参考。
 
 ---
@@ -413,7 +414,7 @@ sha256sum fg-qimen-local
 
 ## 路线图
 
-下一里程碑（完整历史见 [CHANGELOG.md](CHANGELOG.md)）：
+下一里程碑（完整历史见 [CHANGELOG.md](CHANGELOG.zh-CN.md)）：
 
 - **v0.4**：完整 crack-mode 重构；统一跨插件的代理；逐 attempt 读
   截止审计（v0.3.1 已对 7 个最严重的修了）。
@@ -433,7 +434,7 @@ FG-QiMen 站在多个开源项目的肩膀上。所有重用的代码均采用 M
 **不做漏洞利用** 的策略，并剥离原项目中所有接近"攻击面"的代码路径
 （unauthorized-access / write / POC）。
 
-完整第三方许可证文本：[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)。
+完整第三方许可证文本：[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)（许可证原文必须保留原语言）。
 
 FG-QiMen 源码以 MIT 许可证发布。见 [LICENSE](LICENSE)。
 

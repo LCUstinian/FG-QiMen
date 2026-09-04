@@ -1,6 +1,8 @@
 # Plugin Author Guide
 
-> How to add a new service Identify / Credential plugin to FG-QiMen.
+> [中文版本](../PLUGIN_GUIDE.zh-CN.md)
+
+How to add a new service Identify / Credential plugin to FG-QiMen.
 
 A plugin is a Go package under `internal/plugins/adapted/<category>/<protocol>/`
 that implements the `plugins.Plugin` interface and self-registers via `init()`.

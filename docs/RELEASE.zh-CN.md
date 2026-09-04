@@ -1,3 +1,6 @@
+> [English version](../RELEASE.md)
+
+
 # Release Procedure
 ## Pre-release checklist
 ## Cutting a release

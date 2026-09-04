@@ -1,3 +1,6 @@
+> [English version](README.md)
+
+
 # FG-QiMen documentation
 ## User-facing docs (top level)
 ## Verification (per version)

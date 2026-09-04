@@ -1,5 +1,7 @@
 # Changelog
 
+> [中文版本](CHANGELOG.zh-CN.md)
+
 All notable changes to FG-QiMen are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

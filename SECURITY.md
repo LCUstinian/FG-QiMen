@@ -1,6 +1,8 @@
 # Security Policy
 
-> GitHub recognises a `SECURITY.md` at the **repository root** for the
+> [中文版本](SECURITY.zh-CN.md)
+
+GitHub recognises a `SECURITY.md` at the **repository root** for the
 > security advisory flow. The full security model is in
 > [`docs/SECURITY.md`](docs/SECURITY.md); this file is the
 > **GitHub-required** policy.

@@ -1,3 +1,6 @@
+> [English version](../CONFIGURATION.md)
+
+
 # Configuration
 ## Flag discovery
 ## Environment variables

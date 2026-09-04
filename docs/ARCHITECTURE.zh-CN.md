@@ -1,3 +1,6 @@
+> [English version](../ARCHITECTURE.md)
+
+
 # Architecture
 ## Pipeline data flow
 ## Why channel-decoupled?

@@ -1,5 +1,7 @@
 # Architecture
 
+> [中文版本](../ARCHITECTURE.zh-CN.md)
+
 ## Pipeline data flow
 
 ```

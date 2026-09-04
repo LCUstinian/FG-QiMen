@@ -1,3 +1,6 @@
+> [English version](../PLUGIN_GUIDE.md)
+
+
 # Plugin Author Guide
 ## The interface
 ## Minimal Identify-only plugin (5 lines of real code)

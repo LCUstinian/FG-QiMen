@@ -1,6 +1,8 @@
 # Release Procedure
 
-> current — multi-platform automated release pipeline.
+> [中文版本](../RELEASE.zh-CN.md)
+
+current — multi-platform automated release pipeline.
 > current — 多平台自动发布流水线。
 
 This document describes how to cut a release of FG-QiMen. The pipeline
