@@ -230,6 +230,40 @@ func TestResolveOutputPathEphemeralMode(t *testing.T) {
 	}
 }
 
+// TestResolveOutputPath_AliveProjectMode: the alive-list path is the
+// same shape as fgqm_result.txt / fgqm_rdp.* — daily bucket +
+// HH-MM-SS stamp under runs/projects/<name>/. Pins the contract the
+// README §"Output files" line now states.
+// / 存活列表路径与 fgqm_result.txt / fgqm_rdp.* 同形——日桶 +
+// HH-MM-SS 时间戳，位于 runs/projects/<name>/ 下。钉死 README
+// 输出文件段落现在声明的契约。
+func TestResolveOutputPath_AliveProjectMode(t *testing.T) {
+	c := &types.Config{Project: "corp"}
+	want := filepath.Join("runs", "projects", "corp", "2026-09-02", "fgqm_alive_14-30-22.txt")
+	got, err := resolveOutputPath(c, "", "fgqm_alive.txt", fixedNow)
+	if err != nil {
+		t.Fatalf("resolveOutputPath: %v", err)
+	}
+	if got != want {
+		t.Errorf("alive project path = %q, want %q", got, want)
+	}
+}
+
+// TestResolveOutputPath_AliveEphemeralMode: same shape under
+// runs/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt.
+// / 同形，位于 runs/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt。
+func TestResolveOutputPath_AliveEphemeralMode(t *testing.T) {
+	c := &types.Config{Project: ""}
+	want := filepath.Join("runs", "default", "2026-09-02", "fgqm_alive_14-30-22.txt")
+	got, err := resolveOutputPath(c, "", "fgqm_alive.txt", fixedNow)
+	if err != nil {
+		t.Fatalf("resolveOutputPath: %v", err)
+	}
+	if got != want {
+		t.Errorf("alive ephemeral path = %q, want %q", got, want)
+	}
+}
+
 // TestResolveOutputPath_DifferentDatesYieldDifferentBuckets: two
 // runs on different local dates must produce different output
 // directories — that's the whole point of the bucketing. We pin
