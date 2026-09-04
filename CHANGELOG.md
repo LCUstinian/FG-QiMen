@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   etc.) at 0% — those need fake-server infrastructure
   (tracked as v0.6 goal).
 
+- **Default `fgqm_alive.txt` alive-host list sink**
+  (`cmd/scan.go`, `internal/output/output.go`,
+  `internal/output/output_test.go`, `README.md`,
+  `docs/verification/v0.5.1/verification.md`). One IP per line,
+  in-memory dedup'd under `aliveMu` so concurrent workers can't
+  double-write. Path is `runs/<default|projects/<name>>/<YYYY-MM-DD>/
+  fgqm_alive_<HH-MM-SS>.txt` — same daily-bucket + stamp scheme as
+  the other timestamped sinks. The empty-`Host` case is a no-op
+  (avoids stray blank lines that would break `nmap -iL`). The
+  README output-files list previously described the bare name
+  `fgqm_alive.txt`; this entry is the corresponding changelog
+  reference for that doc correction. 4 unit tests in
+  `internal/output/output_test.go` + 2 end-to-end path tests in
+  `cmd/cmd_test.go` pin the contract.
+
 ### Changed
 
 - **Coverage floor kept at 60%** (`scripts/ci-coverage-check.py`).
