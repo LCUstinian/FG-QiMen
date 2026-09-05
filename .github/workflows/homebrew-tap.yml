@@ -48,6 +48,7 @@ jobs:
             VERSION="${{ inputs.version }}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: fetch SHA256SUMS
         run: |
@@ -71,7 +72,7 @@ jobs:
 
       - name: update Formula/fg-qimen.rb
         env:
-          VERSION: ${{ env.version }}
+          VERSION: ${{ steps.ver.outputs.version }}
           SHA256: ${{ env.sha256 }}
         run: |
           FORMULA="tap/Formula/fg-qimen.rb"
