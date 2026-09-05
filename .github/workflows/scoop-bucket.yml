@@ -37,7 +37,7 @@ jobs:
     name: open Scoop bucket PR
     runs-on: windows-latest  # sha256sum tool differences — Windows runner matches user install path
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: derive version
         id: ver
