@@ -66,6 +66,32 @@ func DefaultOptions() Options {
 // Discovery 是调度器。用 New() 构造并调用 Run()。
 type Discovery struct {
 	opts Options
+
+	// result holds the live RunResult so external callers can poll
+	// Progress() during a Run. nil until Run starts; replaced atomically
+	// on each new Run so a second Run doesn't race the first's readers.
+	// / result 持有实时 RunResult 让外部调用方在 Run 期间可以 poll
+	// Progress()。Run 启动前为 nil；每次 Run 启动时原子替换，避免
+	// 第二次 Run 与第一次的 reader 竞争。
+	result atomic.Pointer[RunResult]
+}
+
+// Progress returns the number of probes attempted so far in the
+// current (or most recent) Run. Returns 0 if no Run has started or
+// if the current Run has finished and its result was reset.
+//
+// Used by the TUI / scanner orchestrator to surface mid-run alive
+// progress to operators, so a slow sweep doesn't look like a hang.
+//
+// / Progress 返回当前（或最近一次）Run 已尝试的 probe 数。未启动
+// Run 时返回 0；Run 结束并重置 result 后也返回 0。供 TUI / scanner
+// 调度器向操作员推送 alive 中途进度，避免慢 sweep 看上去像挂死。
+func (d *Discovery) Progress() int64 {
+	r := d.result.Load()
+	if r == nil {
+		return 0
+	}
+	return r.Tried.Load()
 }
 
 // New constructs a Discovery with the given options.
@@ -137,6 +163,11 @@ func (d *Discovery) Run(ctx context.Context, hosts []string) (*RunResult, error)
 	}
 
 	result := &RunResult{Hits: make(map[string]Hit, len(hosts))}
+	// Publish the result so external callers polling Progress() can see
+	// the live Tried counter incrementing as workers probe. / 公开
+	// result 让外部 poll Progress() 的调用方能看到 worker probe 时
+	// Tried 计数在递增。
+	d.result.Store(result)
 
 	// Per-host work item. / 单个主机的 work item。
 	type work struct {

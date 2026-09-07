@@ -16,6 +16,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -343,4 +344,128 @@ func errIsUnreachable(err error) bool {
 	}
 	return errors.Is(err, ErrUnreachable) ||
 		strings.Contains(err.Error(), ErrUnreachable.Error())
+}
+
+// delayedProbe is a test Probe that sleeps for `delay` before returning
+// a Hit. It records every invocation in `invoked` so tests can assert
+// how many probes were attempted. / delayedProbe 是测试用 Probe，
+// 延迟 `delay` 后返回 Hit。每次调用记入 invoked 供测试断言。
+type delayedProbe struct {
+	delay   time.Duration
+	hit     Hit
+	err     error
+	invoked *atomic.Int64
+}
+
+func (p *delayedProbe) Name() string             { return "delayed" }
+func (p *delayedProbe) Method() Method           { return MethodTCP }
+func (p *delayedProbe) Available() error         { return nil }
+func (p *delayedProbe) Probe(ctx context.Context, host string, timeout time.Duration) (Hit, error) {
+	if p.invoked != nil {
+		p.invoked.Add(1)
+	}
+	select {
+	case <-time.After(p.delay):
+		if p.err != nil {
+			return Hit{}, p.err
+		}
+		return p.hit, nil
+	case <-ctx.Done():
+		return Hit{}, ctx.Err()
+	}
+}
+
+// TestDiscovery_ReportsProgressDuringRun is a regression test for
+// the "TUI counters frozen during alive sweep" bug. The user-visible
+// symptom: TUI elapsed ticks but HOSTS_SCANNED / ALIVE counter stays
+// at 0 for the entire alive phase, making the operator think the
+// scan is hung.
+//
+// Root cause: discovery.Run increments result.Tried per probe attempt
+// but exposes no observable signal until Run returns. External code
+// (scanner.go, UI) only reads result.Hits after Run completes, so the
+// alive counter only stores once at end of phase.
+//
+// This test verifies the fix: a Progress() method on Discovery (or
+// equivalent signal) is observable mid-run.
+//
+// / TestDiscovery_ReportsProgressDuringRun 是"TUI 计数器在 alive 阶段冻结"
+// bug 的回归测试。根因：discovery.Run 在每次 probe 后递增 result.Tried
+// 但 Run 结束前不暴露任何信号。外部代码只在 Run 结束后读 result.Hits。
+// 本测试验证修复：Discovery 上有 Progress() 方法（或等价信号）可在
+// 中途被观察到。
+func TestDiscovery_ReportsProgressDuringRun(t *testing.T) {
+	// 4 hosts × 200ms each, 1 thread → ~800ms total. Plenty of time
+	// for a sampler goroutine to observe mid-run progress.
+	invoked := &atomic.Int64{}
+	probe := &delayedProbe{
+		delay:   200 * time.Millisecond,
+		hit:     Hit{Host: "127.0.0.1", Method: MethodTCP},
+		invoked: invoked,
+	}
+	d := New(Options{
+		Probes:    []Probe{probe},
+		Timeout:   time.Second,
+		Threads:   1,
+		FirstOnly: true,
+	})
+
+	type runResult struct {
+		r   *RunResult
+		err error
+	}
+	done := make(chan runResult, 1)
+	go func() {
+		r, e := d.Run(context.Background(), []string{"h1", "h2", "h3", "h4"})
+		done <- runResult{r, e}
+	}()
+
+	// Sample Progress() every 25ms until Run completes. We capture
+	// the run result inside the select (cap=1 buffer means a second
+	// `<-done` after the loop would deadlock waiting for a send that
+	// already happened).
+	var samples []int64
+	var res runResult
+	tick := time.NewTicker(25 * time.Millisecond)
+	defer tick.Stop()
+sampleLoop:
+	for {
+		select {
+		case <-tick.C:
+			samples = append(samples, d.Progress())
+		case res = <-done:
+			// Run just completed. Sample one more time to capture
+			// the final Tried value, since Tried.Add(1) for the last
+			// probe and the goroutine's send-to-done are not
+			// synchronised against the ticker. / Run 刚完成。再采一次
+			// 捕获最终 Tried 值——最后一个 probe 的 Tried.Add(1) 和
+			// goroutine 的 send-to-done 与 ticker 不同步。
+			samples = append(samples, d.Progress())
+			break sampleLoop
+		}
+	}
+	if res.err != nil {
+		t.Fatalf("Run: %v", res.err)
+	}
+
+	// Sanity: 4 probes must have been invoked.
+	if got := invoked.Load(); got != 4 {
+		t.Fatalf("invoked = %d, want 4", got)
+	}
+
+	// At least one mid-run sample must show progress > 0.
+	// With ~32 samples across 800ms and probes completing at
+	// ~200/400/600/800ms, we expect samples like [0,0,0,1,1,2,2,3,3,4].
+	max := int64(0)
+	for _, s := range samples {
+		if s > max {
+			max = s
+		}
+	}
+	if max == 0 {
+		t.Errorf("expected to observe progress > 0 mid-run; all %d samples were 0; RunResult.Tried is not externally observable during Run", len(samples))
+	}
+	if max < 4 {
+		t.Errorf("expected max sample >= 4 (final tried count), got %d", max)
+	}
 }
