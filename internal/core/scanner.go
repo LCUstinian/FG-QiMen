@@ -28,6 +28,16 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
+// aliveProbesFn returns the alive.Options to use for the discovery
+// phase. Tests override this package-level var to inject custom probes
+// for deterministic timing; production code leaves it pointing at
+// alive.DefaultOptions.
+//
+// / aliveProbesFn 返回存活发现阶段的 Options。测试覆盖这个包级
+// 变量以注入自定义 probe 来获得确定性时序；生产代码保留它指向
+// alive.DefaultOptions。
+var aliveProbesFn = alive.DefaultOptions
+
 // RunScan is the main entry point for a single scan invocation.
 // RunScan 是单次扫描的主入口。
 //
@@ -100,7 +110,7 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	}
 
 	// Stage 0: alive (core/alive). / 阶段 0：存活发现。
-	aliveOpts := alive.DefaultOptions()
+	aliveOpts := aliveProbesFn()
 	if cfg.Timeout > 0 {
 		aliveOpts.Timeout = cfg.Timeout
 	}
@@ -112,7 +122,31 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// 屏幕静默"计数器不动"看上去像"是不是没启动？"
 	sess.Log.Info("[*] alive: probing %d host(s) (timeout %s, threads %d)",
 		len(targets), aliveOpts.Timeout, aliveOpts.Threads)
+	// v0.5.2: poll Discovery.Progress() into Counters.AliveProbed
+	// during the alive sweep so the TUI counter advances instead of
+	// sitting at 0 for the whole phase (looked like a hang to
+	// operators). The goroutine exits when alive.Run returns.
+	//
+	// v0.5.2：alive 阶段期间 poll Discovery.Progress() 写入
+	// Counters.AliveProbed，让 TUI 计数器随扫描推进而递增而非整个
+	// 阶段都停在 0（操作员以为挂了）。alive.Run 返回后 goroutine 退出。
+	alivePollCtx, alivePollCancel := context.WithCancel(ctx)
+	defer alivePollCancel()
+	go func() {
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-alivePollCtx.Done():
+				return
+			case <-tick.C:
+				sess.State.Counters.AliveProbed.Store(aliveDiscovery.Progress())
+			}
+		}
+	}()
 	aliveRes, _ := aliveDiscovery.Run(ctx, targetAddrs(targets))
+	alivePollCancel() // stop the poller before storing final value
+	sess.State.Counters.AliveProbed.Store(aliveDiscovery.Progress())
 	sess.State.Counters.Alive.Store(int64(len(aliveRes.Hits)))
 	if len(aliveRes.Hits) > 0 && len(aliveRes.Hits) < len(targets) {
 		sess.Log.Info("[*] alive: %d/%d hosts responded", len(aliveRes.Hits), len(targets))

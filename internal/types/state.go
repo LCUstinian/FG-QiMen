@@ -50,21 +50,23 @@ type State struct {
 // 注意：不要按值复制 Counters（含 sync/atomic.Int64 有 noCopy 锁）。
 // 用 Snapshot() 获取纯 int64 副本用于日志/显示。
 type Counters struct {
-	Alive   atomic.Int64
-	Ports   atomic.Int64
-	Results atomic.Int64
-	Creds   atomic.Int64
-	Errors  atomic.Int64
+	Alive       atomic.Int64
+	AliveProbed atomic.Int64 // v0.5.2: probes attempted in current alive sweep (UI progress)
+	Ports       atomic.Int64
+	Results     atomic.Int64
+	Creds       atomic.Int64
+	Errors      atomic.Int64
 }
 
 // CountersView is a plain-int64 snapshot of Counters for safe display/logging.
 // CountersView 是 Counters 的纯 int64 快照，可安全地用于显示/日志。
 type CountersView struct {
-	Alive   int64
-	Ports   int64
-	Results int64
-	Creds   int64
-	Errors  int64
+	Alive       int64
+	AliveProbed int64
+	Ports       int64
+	Results     int64
+	Creds       int64
+	Errors      int64
 }
 
 // NewState creates a fresh State with counters zeroed.
@@ -114,11 +116,12 @@ func (s *State) Seen(hash string) bool {
 // Snapshot 返回当前计数器的纯 int64 视图，可安全复制用于显示/日志。
 func (s *State) Snapshot() CountersView {
 	return CountersView{
-		Alive:   s.Counters.Alive.Load(),
-		Ports:   s.Counters.Ports.Load(),
-		Results: s.Counters.Results.Load(),
-		Creds:   s.Counters.Creds.Load(),
-		Errors:  s.Counters.Errors.Load(),
+		Alive:       s.Counters.Alive.Load(),
+		AliveProbed: s.Counters.AliveProbed.Load(),
+		Ports:       s.Counters.Ports.Load(),
+		Results:     s.Counters.Results.Load(),
+		Creds:       s.Counters.Creds.Load(),
+		Errors:      s.Counters.Errors.Load(),
 	}
 }
 

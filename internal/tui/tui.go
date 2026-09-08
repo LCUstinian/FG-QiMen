@@ -428,8 +428,9 @@ func (m Model) View() string {
 		spinner = symDone
 	}
 	stats := fmt.Sprintf(
-		"%s alive=%d  ports=%d  results=%d  creds=%d  errors=%d   elapsed=%s",
-		spinner, m.counters.Alive, m.counters.Ports, m.counters.Results,
+		"%s alive=%d probed=%d  ports=%d  results=%d  creds=%d  errors=%d   elapsed=%s",
+		spinner, m.counters.Alive, m.counters.AliveProbed,
+		m.counters.Ports, m.counters.Results,
 		m.counters.Creds, m.counters.Errors, m.elapsed,
 	)
 	// Pause indicator is appended to the stats bar so the operator
@@ -595,6 +596,7 @@ func (m Model) renderStatsCol() string {
 	// 且我们要严格列对齐。
 	rows := [][2]string{
 		{"alive", fmt.Sprintf("%d", m.counters.Alive)},
+		{"probed", fmt.Sprintf("%d", m.counters.AliveProbed)},
 		{"ports", fmt.Sprintf("%d", m.counters.Ports)},
 		{"results", fmt.Sprintf("%d", m.counters.Results)},
 		{"creds", fmt.Sprintf("%d", m.counters.Creds)},
