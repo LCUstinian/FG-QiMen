@@ -20,6 +20,40 @@ import (
 	"time"
 )
 
+// Scan-stage constants. State.Stage holds the current stage's integer
+// value. The integer ordering (Idle=0, Alive=1, ..., Done=5) is part
+// of the public contract — do NOT reorder when adding new stages.
+// / Scan-stage 常量。State.Stage 持有当前阶段的整数值。整数顺序
+// 是公开契约的一部分——新增阶段时不要重排。
+const (
+	StageIdle     int32 = 0
+	StageAlive    int32 = 1
+	StagePortScan int32 = 2
+	StageIdentify int32 = 3
+	StageCred     int32 = 4
+	StageDone     int32 = 5
+)
+
+// StageName returns a short human-readable label for a stage value.
+// Unknown / unset stages return "IDLE".
+// / StageName 返回阶段值的短人类可读标签。未知 / 未设置返回 "IDLE"。
+func StageName(stage int32) string {
+	switch stage {
+	case StageAlive:
+		return "ALIVE"
+	case StagePortScan:
+		return "PORT-SCAN"
+	case StageIdentify:
+		return "IDENTIFY"
+	case StageCred:
+		return "CRED"
+	case StageDone:
+		return "DONE"
+	default:
+		return "IDLE"
+	}
+}
+
 // State is the shared mutable state for a single scan run.
 // State 是单次扫描运行的共享可变状态。
 //
@@ -38,6 +72,13 @@ type State struct {
 	// StartTime is when the scan started (for elapsed display).
 	// StartTime 是扫描开始时间（用于已用时间显示）。
 	StartTime time.Time
+
+	// v0.5.2 additions for TUI information density.
+	Stage           atomic.Int32
+	TotalHosts      atomic.Int64
+	TotalPorts      atomic.Int64
+	PluginHits      sync.Map // string → *atomic.Int64
+	ErrorCategories sync.Map // string → *atomic.Int64
 }
 
 // Counters is a struct of atomic counters.
@@ -67,6 +108,7 @@ type CountersView struct {
 	Results     int64
 	Creds       int64
 	Errors      int64
+	Stage       int64 // v0.5.2: current scan stage (StageIdle=0, StageAlive=1, ...)
 }
 
 // NewState creates a fresh State with counters zeroed.
@@ -122,7 +164,39 @@ func (s *State) Snapshot() CountersView {
 		Results:     s.Counters.Results.Load(),
 		Creds:       s.Counters.Creds.Load(),
 		Errors:      s.Counters.Errors.Load(),
+		Stage:       int64(s.Stage.Load()),
 	}
+}
+
+// PluginHitsView returns a snapshot of plugin-name → hit count as a
+// plain map (atomic load per entry). Read-only; safe to call from
+// the TUI's stats handler.
+// / PluginHitsView 返回 plugin-name → hit count 快照 map（每项
+// atomic load）。只读；可从 TUI 的 stats handler 安全调用。
+func (s *State) PluginHitsView() map[string]int64 {
+	out := make(map[string]int64)
+	s.PluginHits.Range(func(k, v any) bool {
+		if c, ok := v.(*atomic.Int64); ok {
+			out[k.(string)] = c.Load()
+		}
+		return true
+	})
+	return out
+}
+
+// ErrorCategoriesView returns a snapshot of category → count as a
+// plain map (atomic load per entry).
+// / ErrorCategoriesView 返回 category → count 快照 map（每项
+// atomic load）。
+func (s *State) ErrorCategoriesView() map[string]int64 {
+	out := make(map[string]int64)
+	s.ErrorCategories.Range(func(k, v any) bool {
+		if c, ok := v.(*atomic.Int64); ok {
+			out[k.(string)] = c.Load()
+		}
+		return true
+	})
+	return out
 }
 
 // (P2 dead-code purge: SetPaused / IsPaused / pauseMu / paused /
