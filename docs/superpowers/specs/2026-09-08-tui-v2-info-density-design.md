@@ -133,9 +133,11 @@ func (s *State) ErrorCategoriesView() map[string]int64 {
 package core
 
 import (
+    "context"
     "errors"
     "net"
     "strings"
+    "syscall"
 )
 
 // ClassifyError maps an error from plugin execution to a stable
@@ -156,26 +158,41 @@ func ClassifyError(err error) string {
     if errors.As(err, &netErr) && netErr.Timeout() {
         return "timeout"
     }
+    // OS-level errno sentinel unwrap (Linux/Darwin/Windows).
+    // / 系统级 errno sentinel 解包（Linux/Darwin/Windows）。
+    if errors.Is(err, syscall.ECONNREFUSED) {
+        return "refused"
+    }
+    if errors.Is(err, syscall.ECONNRESET) {
+        return "reset"
+    }
+    if errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
+        return "unreach"
+    }
+    // Fallback: substring match on lowercased error text.
+    // / 回退：在小写错误文本上做子串匹配。
     s := strings.ToLower(err.Error())
     switch {
-    case strings.Contains(s, "timeout"):
+    case strings.Contains(s, "timeout"), strings.Contains(s, "i/o timeout"):
         return "timeout"
     case strings.Contains(s, "refused"):
         return "refused"
     case strings.Contains(s, "reset"):
         return "reset"
     case strings.Contains(s, "no such host"),
-         strings.Contains(s, "dns"):
+        strings.Contains(s, "dns"):
         return "dns"
     case strings.Contains(s, "permission"),
-         strings.Contains(s, "denied"):
+        strings.Contains(s, "denied"):
         return "perm"
     case strings.Contains(s, "auth"):
         return "auth"
     case strings.Contains(s, "tls"),
-         strings.Contains(s, "ssl"),
-         strings.Contains(s, "handshake"):
+        strings.Contains(s, "ssl"),
+        strings.Contains(s, "handshake"):
         return "tls"
+    case strings.Contains(s, "unreachable"), strings.Contains(s, "no route"):
+        return "unreach"
     }
     return "other"
 }
@@ -309,6 +326,70 @@ Concrete format strings are detailed in Section 5 of the implementation plan.
 ### 4.5 Helper functions
 
 ```go
+// rateTracker keeps a 5-tick sliding window of snapshot counters
+// and computes smoothed per-second rates. EWMA with α=0.5 gives
+// faster decay than pure mean, so a brief burst still shows up
+// quickly. / rateTracker 保留 5 tick 的滑动窗口并计算平滑的每秒
+// 速率。α=0.5 EWMA 衰减比纯均值快，瞬时突增仍能迅速体现。
+type rateTracker struct {
+    lastHits  int64
+    lastPorts int64
+    lastAt    time.Time
+    emaHits   float64
+    emaPorts  float64
+}
+
+func (r *rateTracker) update(now time.Time, hits, ports int64) (rateHits, ratePorts float64) {
+    if !r.lastAt.IsZero() {
+        dt := now.Sub(r.lastAt).Seconds()
+        if dt > 0 {
+            dH := float64(hits - r.lastHits)
+            dP := float64(ports - r.lastPorts)
+            if dH < 0 { dH = 0 } // counter reset or wrap — treat as 0
+            if dP < 0 { dP = 0 }
+            instHits := dH / dt
+            instPorts := dP / dt
+            const alpha = 0.5
+            r.emaHits = alpha*instHits + (1-alpha)*r.emaHits
+            r.emaPorts = alpha*instPorts + (1-alpha)*r.emaPorts
+        }
+    }
+    r.lastHits = hits
+    r.lastPorts = ports
+    r.lastAt = now
+    return r.emaHits, r.emaPorts
+}
+
+// stageETASpec tells the ETA calculator which (done, total) pair to
+// use based on the current stage — different stages have different
+// denominators. / stageETASpec 告诉 ETA 计算器基于当前阶段用哪对
+// (done, total) 计数。不同阶段的分母不同。
+type stageETASpec struct {
+    useAliveRatio bool   // alive/port-scan phases
+    usePortRatio  bool   // port-scan / identify phases
+    useHitRate    bool   // identify phase (estimated via hits/sec)
+}
+
+func computeETA(start, now time.Time, stage int32, view CountersView) string {
+    elapsed := now.Sub(start).Seconds()
+    if elapsed <= 0 {
+        return ""
+    }
+    switch int(stage) {
+    case int(types.StageAlive):
+        if view.AliveProbed > 0 && view.TotalHosts > 0 && view.AliveProbed < view.TotalHosts {
+            rem := elapsed * float64(view.TotalHosts-view.AliveProbed) / float64(view.AliveProbed)
+            return fmt.Sprintf("~%ds", int(rem))
+        }
+    case int(types.StagePortScan), int(types.StageIdentify):
+        if view.Ports > 0 && view.TotalPorts > 0 && view.Ports < view.TotalPorts {
+            rem := elapsed * float64(view.TotalPorts-view.Ports) / float64(view.Ports)
+            return fmt.Sprintf("~%ds", int(rem))
+        }
+    }
+    return "" // cred stage + done stage: ETA undefined
+}
+
 // topN returns the top n (key, count) pairs from m sorted by count desc.
 // Returns slice of [name, countString] tuples for TUI rendering.
 // / topN 从 m 取计数前 n 名，返回排序好的 [name, countString] 对。
@@ -316,30 +397,41 @@ func topN(m map[string]int64, n int) [][2]string {
     type kv struct{ k string; v int64 }
     var all []kv
     for k, v := range m {
+        if v <= 0 { continue } // skip empty buckets
         all = append(all, kv{k, v})
     }
     sort.Slice(all, func(i, j int) bool { return all[i].v > all[j].v })
-    out := make([][2]string, 0, n)
+    if len(all) == 0 {
+        return nil
+    }
+    out := make([][][2]string, 0, n)
     for i := 0; i < len(all) && i < n; i++ {
         out = append(out, [2]string{all[i].k, fmt.Sprintf("%d", all[i].v)})
     }
     return out
 }
 
-// formatETA computes "ETA ~Xs" given elapsed, total, done.
-// Returns "" if total or done are zero (can't compute).
-// / formatETA 计算给定 elapsed/total/done 下的 "ETA ~Xs"。
-// total 或 done 为 0 时返回 ""（无法计算）。
-func formatETA(start, now time.Time, done, total int64) string {
-    if total <= 0 || done <= 0 || done >= total {
-        return ""
+// normalisePluginName lowercases and strips version-like suffixes
+// so the same plugin doesn't show up as 3 rows ("ssh", "SSH",
+// "ssh/2.0"). Called at the scanner.go dispatch write site, not
+// in TUI render.
+// / normalisePluginName 小写化并去掉版本后缀，让同一个 plugin
+// 不以 3 行显示。在 scanner.go dispatch 写入点调用，TUI 渲染不调。
+func normalisePluginName(name string) string {
+    n := strings.ToLower(strings.TrimSpace(name))
+    // Strip trailing "/x.y" or "-x.y" suffixes (e.g. "ssh/2.0" -> "ssh").
+    // / 去掉尾部 "/x.y" 或 "-x.y" 后缀。
+    for _, sep := range []string{"/", "-"} {
+        if i := strings.Index(n, sep); i >= 0 {
+            tail := n[i+1:]
+            // Only strip if tail looks like a version: starts with digit.
+            // / 只在 tail 像版本号（以数字开头）时去掉。
+            if len(tail) > 0 && tail[0] >= '0' && tail[0] <= '9' {
+                n = n[:i]
+            }
+        }
     }
-    elapsed := now.Sub(start).Seconds()
-    if elapsed <= 0 {
-        return ""
-    }
-    remaining := elapsed * float64(total-done) / float64(done)
-    return fmt.Sprintf("~%ds", int(remaining))
+    return n
 }
 
 // bar renders a fixed-width horizontal bar of width w filled to ratio.
@@ -350,6 +442,45 @@ func bar(ratio float64, w int) string {
     if ratio > 1 { ratio = 1 }
     filled := int(float64(w) * ratio)
     return strings.Repeat("█", filled) + strings.Repeat("░", w-filled)
+}
+```
+
+### 4.6 Empty-state placeholders
+
+TUI panels must render meaningful placeholders when their backing map is empty, so the dashboard doesn't look broken during early scan / sparse scans:
+
+```go
+// In TUI View:
+//   if len(m.topPlugins) == 0 { fmt.Fprintln(&b, "  (no hits yet)") }
+//   if len(m.topErrors)  == 0 { fmt.Fprintln(&b, "  (no errors yet)") }
+```
+
+### 4.7 Memory bounds
+
+PluginHits and ErrorCategories can theoretically grow unbounded if plugins emit a huge variety of service names. Cap each map at 256 entries; oldest evicted by recency (LRU not implemented in v0.5.2 — cap is hard, oldest silently dropped). Realistic max plugin count in FG-QiMen is ~50, so the cap is defensive only.
+
+```go
+const maxPluginHitsEntries = 256 // defensive cap; real max is ~50 plugins
+
+// bumpSyncMap with cap: skip increment if cap reached (avoids leaking
+// goroutine-local garbage strings).
+// / bumpSyncMap 带上限：达上限跳过递增（避免泄漏 goroutine-local
+// 垃圾字符串）。
+func bumpSyncMap(m *sync.Map, key string, max int) {
+    // Fast path: existing entry.
+    if v, ok := m.Load(key); ok {
+        if c, ok := v.(*atomic.Int64); ok { c.Add(1) }
+        return
+    }
+    // Cap check: count current entries before adding new key.
+    // / 上限检查：加新 key 前先数当前条目。
+    count := 0
+    m.Range(func(_, _ any) bool { count++; return true })
+    if count >= max {
+        return // cap reached — drop the increment silently
+    }
+    v, _ := m.LoadOrStore(key, &atomic.Int64{})
+    if c, ok := v.(*atomic.Int64); ok { c.Add(1) }
 }
 ```
 
@@ -379,19 +510,31 @@ func bar(ratio float64, w int) string {
 ## 6. Acceptance criteria
 
 1. `go test -race ./...` green (Windows race-detector DLL known issue excepted).
-2. `internal/core/errors_test.go` covers: timeout, refused, reset, dns, perm, auth, tls, other, nil.
+2. `internal/core/errors_test.go::TestClassifyError` covers each category:
+   - `nil`, `context.DeadlineExceeded`, `&net.OpError{Op: "dial", Err: timeout}` → "timeout"
+   - `syscall.ECONNREFUSED`, `errors.New("connection refused")` → "refused"
+   - `syscall.ECONNRESET`, `errors.New("connection reset by peer")` → "reset"
+   - `errors.New("no such host")`, `errors.New("dns lookup failed")` → "dns"
+   - `errors.New("permission denied")`, `errors.New("auth failed")` → "perm" / "auth"
+   - `errors.New("tls handshake failure")` → "tls"
+   - `errors.New("no route to host")`, `syscall.EHOSTUNREACH` → "unreach"
+   - Anything else → "other"
 3. `internal/core/scanner_test.go::TestScanner_TracksStageAndPluginHits` PASS:
-   - Stage.Store at each transition verifiable via Snapshot.
-   - PluginHits contains expected entries with correct counts.
+   - Stage.Store transitions verifiable via Snapshot.Stage.
+   - PluginHits contains entries normalised to lowercase with version suffix stripped ("SSH/2.0" → "ssh").
    - ErrorCategories contains expected entries on injected errors.
+   - PluginHits capped at 256 (defensive); entries beyond cap silently dropped.
 4. `internal/tui/program_test.go::TestDispatcher_RendersRateAndPlugins` PASS:
-   - After two statsMsg deltas, rate fields updated.
-   - topPlugins / topErrors populated from Session view methods.
+   - After 6 statsMsg deltas, rate fields stabilise (not jumpy single-tick values).
+   - topPlugins / topErrors populated from State.PluginHitsView/ErrorCategoriesView.
+   - Empty maps render placeholders, not blank panels.
+   - Per-stage ETA: alive uses probed/total ratio; port-scan/identify uses ports/totalPorts; cred/done empty.
 5. Running the binary against `/24` real targets (operator smoke test):
    - Dashboard shows `[ ALIVE ▶ ]` then `[ PORT-SCAN ▶ ]` then `[ IDENTIFY ▶ ]` then `[ DONE ✓ ]`.
-   - Rate row ticks each second with non-zero values once work is happening.
+   - Rate row ticks each second with smoothed (not jumpy) values once work is happening.
    - Top plugins bar chart shows >= 1 entry after first plugin identifies a hit.
    - Error categories line shows non-zero counts once connection attempts fail.
+   - ETA shows reasonable value during alive and port-scan phases; empty during cred/done.
 
 ---
 
