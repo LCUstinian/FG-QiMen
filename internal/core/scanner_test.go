@@ -38,9 +38,9 @@ type delayedProbe struct {
 	invoked *atomic.Int64
 }
 
-func (p *delayedProbe) Name() string             { return "delayed" }
-func (p *delayedProbe) Method() alive.Method     { return alive.MethodTCP }
-func (p *delayedProbe) Available() error         { return nil }
+func (p *delayedProbe) Name() string         { return "delayed" }
+func (p *delayedProbe) Method() alive.Method { return alive.MethodTCP }
+func (p *delayedProbe) Available() error     { return nil }
 func (p *delayedProbe) Probe(ctx context.Context, host string, timeout time.Duration) (alive.Hit, error) {
 	if p.invoked != nil {
 		p.invoked.Add(1)
