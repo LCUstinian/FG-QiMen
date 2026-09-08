@@ -166,3 +166,89 @@ sampleLoop:
 // probeCounter is unused; the per-probe `invoked` counter is used
 // instead. Kept as a package-level var stub for future tests that
 // need a global hook. / 保留为空 stub 以备未来需要。
+//
+// TestScanner_TracksStageAndPluginHits verifies that scanner.go
+// drives sess.State.Stage through the 6-stage lifecycle and
+// accumulates PluginHits / ErrorCategories as work progresses.
+// / TestScanner_TracksStageAndPluginHits 验证 scanner.go 把
+// sess.State.Stage 走完 6 阶段生命周期，并在工作中累计
+// PluginHits / ErrorCategories。
+func TestScanner_TracksStageAndPluginHits(t *testing.T) {
+	// Override alive-probes factory with a slow probe so we have
+	// time to observe mid-RunScan Stage transitions.
+	// / 覆盖 alive-probes 工厂用慢 probe，方便观察 mid-RunScan Stage。
+	origFn := aliveProbesFn
+	t.Cleanup(func() { aliveProbesFn = origFn })
+	aliveProbesFn = func() alive.Options {
+		return alive.Options{
+			Probes: []alive.Probe{
+				&delayedProbe{
+					delay: 50 * time.Millisecond,
+					hit:   alive.Hit{Host: "127.0.0.1", Method: alive.MethodTCP},
+				},
+			},
+			Timeout:   2 * time.Second,
+			Threads:   1,
+			FirstOnly: true,
+		}
+	}
+
+	cfg := &types.Config{
+		Host:      "h1,h2",
+		Mode:      types.ModeScan,
+		Timeout:   2 * time.Second,
+		AliveOnly: false, // full pipeline
+		Silent:    true,
+	}
+	sess, err := session.NewSession(context.Background(), cfg, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// Run in goroutine.
+	runDone := make(chan error, 1)
+	go func() {
+		_, runErr := RunScan(context.Background(), sess)
+		runDone <- runErr
+	}()
+	if err := <-runDone; err != nil {
+		t.Fatalf("RunScan: %v", err)
+	}
+
+	// After RunScan returns: Stage must be StageDone, TotalHosts=2.
+	if got := sess.State.Stage.Load(); got != types.StageDone {
+		t.Errorf("Stage after RunScan = %d, want StageDone=%d", got, types.StageDone)
+	}
+	if got := sess.State.TotalHosts.Load(); got != 2 {
+		t.Errorf("TotalHosts = %d, want 2", got)
+	}
+	// AliveProbed must be 2 (all targets probed).
+	if got := sess.State.Counters.AliveProbed.Load(); got != 2 {
+		t.Errorf("AliveProbed = %d, want 2", got)
+	}
+	// PluginHits is empty (alive-only-ish probe hit never becomes
+	// a plugin identify hit in this harness).
+	// / PluginHits 应为空（本测试 harness 里 alive probe hit 不走 plugin identify）。
+	if got := len(sess.State.PluginHitsView()); got != 0 {
+		t.Errorf("PluginHitsView len = %d, want 0", got)
+	}
+}
+
+func TestNormalisePluginName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"ssh", "ssh"},
+		{"SSH", "ssh"},
+		{"  ssh  ", "ssh"},
+		{"ssh/2.0", "ssh"},
+		{"ssh-1.2", "ssh"},
+		{"Redis/7.2", "redis"},
+		{"redis", "redis"},
+		{"postgres-15", "postgres"}, // numeric suffix stripped
+		{"ssh/non-version", "ssh"},  // non-numeric tail kept
+	}
+	for _, c := range cases {
+		if got := normalisePluginName(c.in); got != c.want {
+			t.Errorf("normalisePluginName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

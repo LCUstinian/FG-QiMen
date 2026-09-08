@@ -18,7 +18,9 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
@@ -109,7 +111,19 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		return 0, nil
 	}
 
+	// TUI Spec A (Task 3): record total host count so the TUI can
+	// show "alive 2/4" progress instead of just "alive 2". Stored
+	// once at scan start so it stays correct if targets is later
+	// mutated. / TUI Spec A（Task 3）：记录总主机数，让 TUI 显示
+	// "alive 2/4" 而非仅 "alive 2"。在扫描开始时存一次，避免后
+	// 续 targets 被改时出错。
+	sess.State.TotalHosts.Store(int64(len(targets)))
+
 	// Stage 0: alive (core/alive). / 阶段 0：存活发现。
+	// TUI Spec A (Task 3): publish Stage transition so the TUI can
+	// render the current phase label. / TUI Spec A（Task 3）：发布
+	// Stage 转换，让 TUI 渲染当前阶段标签。
+	sess.State.Stage.Store(types.StageAlive)
 	aliveOpts := aliveProbesFn()
 	if cfg.Timeout > 0 {
 		aliveOpts.Timeout = cfg.Timeout
@@ -166,6 +180,11 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		go bw.Run(ctx)
 	}
 
+	// TUI Spec A (Task 3): publish Stage transition out of alive
+	// into port-scan. / TUI Spec A（Task 3）：发布 Stage 从 alive
+	// 切到 port-scan。
+	sess.State.Stage.Store(types.StagePortScan)
+
 	if cfg.AliveOnly {
 		sess.UI.Done(summaryString(sess))
 		return 0, nil
@@ -202,6 +221,15 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve ports: %w", err)
 	}
+	// TUI Spec A (Task 3): record the maximum number of port-scan
+	// probes that will be attempted (len(targets) * len(ports)).
+	// The channel-based producer/consumer doesn't have a static
+	// portScanItems slice, so we use the upper bound — the TUI
+	// uses this for "ports X/Y" progress display. / TUI Spec A
+	//（Task 3）：记录端口扫描的最大探测数（targets × ports）。基于
+	// 通道的 producer/consumer 没有静态 portScanItems slice，所以
+	// 取上界——TUI 用来显示 "ports X/Y" 进度。
+	sess.State.TotalPorts.Store(int64(len(targets)) * int64(len(ports)))
 
 	wg.Add(1)
 	go func() {
@@ -334,6 +362,25 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			return 0, fmt.Errorf("load credentials: %w", err)
 		}
 	}
+	// TUI Spec A (Task 3): publish Stage transition into IDENTIFY.
+	// Set here (just before the worker pool is spawned) so the TUI
+	// shows the IDENTIFY label for the duration of plugin dispatch.
+	// In ModeScan (no creds) the stage stays at IDENTIFY until done.
+	// / TUI Spec A（Task 3）：发布 Stage 到 IDENTIFY。在 worker 池
+	// 启动前设置，让 TUI 在 plugin 分发期间显示 IDENTIFY 标签。
+	// ModeScan（无 creds）阶段停留在 IDENTIFY 直到结束。
+	sess.State.Stage.Store(types.StageIdentify)
+	if wantCredential(cfg.Mode) {
+		// In modes that exercise cred dispatch (ModeLinked, ModeCrack)
+		// the worker pool interleaves identify + cred per item, so
+		// the cred "stage" is overlapped with identify in time.
+		// Transitioning Stage here at the pool boundary is the
+		// closest stable boundary we have. / 在跑凭据派发的 mode
+		//（ModeLinked、ModeCrack）里，worker 池在每个 item 上交
+		// 错 identify + cred，凭据"阶段"在时间上与 identify 重叠。
+		// 在池边界转换 Stage 是我们能找到的最稳的边界。
+		sess.State.Stage.Store(types.StageCred)
+	}
 	var workersWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
 		workersWG.Add(1)
@@ -373,6 +420,12 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// 率翻倍。)
 
 	wg.Wait()
+	// TUI Spec A (Task 3): publish Stage transition into DONE.
+	// Set after wg.Wait() returns so the TUI label flips at the
+	// moment all worker goroutines have exited. / TUI Spec A
+	//（Task 3）：发布 Stage 到 DONE。在 wg.Wait() 返回后设置，
+	// 让 TUI 标签在所有 worker goroutine 都退出后切换。
+	sess.State.Stage.Store(types.StageDone)
 	sess.UI.Done(summaryString(sess))
 	return 0, nil
 }
@@ -421,6 +474,17 @@ func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		sess.UI.Done(summaryString(sess))
 		return 0, nil
 	}
+	// TUI Spec A (Task 3): crack mode skips alive+scan but still
+	// has a host and port count for the TUI. / TUI Spec A（Task 3）：
+	// crack 模式跳过 alive+scan 但仍有 host 与 port 数给 TUI。
+	sess.State.TotalHosts.Store(int64(len(targets)))
+	sess.State.TotalPorts.Store(int64(len(targets)) * int64(len(ports)))
+	// TUI Spec A (Task 3): crack mode jumps straight to IDENTIFY
+	// (no StageAlive, no StagePortScan — those stages are skipped).
+	// / TUI Spec A（Task 3）：crack 模式直接进入 IDENTIFY（跳过
+	// StageAlive、StagePortScan——这两阶段被跳过）。
+	sess.State.Stage.Store(types.StageIdentify)
+	sess.State.Stage.Store(types.StageCred)
 	// The CrossIterator produces the Cartesian product host × port.
 	// We feed it into the same `items` channel the full pipeline
 	// uses so the plugin worker + result sink code path is shared.
@@ -510,6 +574,10 @@ func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// 率翻倍。)
 
 	wg.Wait()
+	// TUI Spec A (Task 3): crack pipeline terminates at StageDone
+	// exactly like full pipeline. / TUI Spec A（Task 3）：crack 流
+	// 水与 full pipeline 一样在 StageDone 终止。
+	sess.State.Stage.Store(types.StageDone)
 	sess.UI.Done(summaryString(sess))
 	return 0, nil
 }
@@ -538,3 +606,61 @@ func summaryString(sess *session.Session) string {
 // plugins.All().)
 // （P2 死代码清理：v0.2 审计删了 PluginsAll。core 外的调用者应直接
 // 导入 internal/plugins，用 plugins.All()。）
+
+// normalisePluginName lowercases and strips version-like suffixes
+// so the same plugin doesn't show up as 3 rows ("ssh", "SSH",
+// "ssh/2.0"). Called at the scanner.go dispatch write site, not
+// in TUI render.
+// / normalisePluginName 小写化并去掉版本后缀，让同一个 plugin
+// 不以 3 行显示。在 scanner.go dispatch 写入点调用，TUI 渲染不调。
+func normalisePluginName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	// Strip trailing "/x.y" or "-x.y" suffixes. Both numeric tails
+	// (versions like "ssh/2.0", "postgres-15") and non-numeric
+	// tails (like "ssh/non-version") get collapsed so the TUI's
+	// plugin-breakdown table stays compact. / 去掉尾部 "/x.y" 或
+	// "-x.y" 后缀。数字尾（版本号如 "ssh/2.0"、"postgres-15"）
+	// 和非数字尾（"ssh/non-version"）都折掉，让 TUI plugin 细分
+	// 表保持紧凑。
+	for _, sep := range []string{"/", "-"} {
+		if i := strings.Index(n, sep); i >= 0 {
+			n = n[:i]
+		}
+	}
+	return n
+}
+
+// maxSyncMapEntries caps PluginHits and ErrorCategories at 256 to
+// avoid leaking garbage strings from misbehaving plugins. Real max
+// in FG-QiMen is ~50 plugins, so the cap is defensive only.
+// / maxSyncMapEntries 把 PluginHits 和 ErrorCategories 上限设为
+// 256，避免行为不端的 plugin 泄漏垃圾字符串。真实上限约 50。
+const maxSyncMapEntries = 256
+
+// bumpSyncMap increments a *atomic.Int64 stored under key in a
+// sync.Map. Creates the entry if absent; silently drops the
+// increment when the cap is reached. / bumpSyncMap 递增 sync.Map
+// 中 key 下存储的 *atomic.Int64。如不存在则创建；达上限时静默
+// 丢弃。
+func bumpSyncMap(m *sync.Map, key string) {
+	if v, ok := m.Load(key); ok {
+		if c, ok := v.(*atomic.Int64); ok {
+			c.Add(1)
+		}
+		return
+	}
+	// Cap check: count current entries before adding new key.
+	// / 上限检查：加新 key 前先数当前条目。
+	count := 0
+	m.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	if count >= maxSyncMapEntries {
+		return // cap reached — drop the increment silently
+	}
+	v, _ := m.LoadOrStore(key, &atomic.Int64{})
+	if c, ok := v.(*atomic.Int64); ok {
+		c.Add(1)
+	}
+}

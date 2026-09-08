@@ -130,6 +130,14 @@ func runPluginWorker(
 						r.Time = nowOrZero(r.Time)
 						r.Plugin = p.Name()
 						r.Service = p.Name()
+						// TUI Spec A (Task 3): record plugin hit so the
+						// TUI's "Plugin hits" breakdown counts per-service
+						// finds. normalisePluginName collapses "ssh" /
+						// "SSH" / "ssh/2.0" into one row. / TUI Spec A
+						//（Task 3）：记录 plugin 命中，让 TUI 的"Plugin
+						// hits"细分按服务计数。normalisePluginName 把
+						// "ssh" / "SSH" / "ssh/2.0" 折成一行。
+						bumpSyncMap(&sess.State.PluginHits, normalisePluginName(r.Service))
 						sess.State.MarkSeen(hash)
 						if sess.Store != nil {
 							if sess.BatchWriter != nil {
@@ -251,6 +259,11 @@ func dispatchCred(
 		// 弃，让配错的 DSN / 防火墙 / 错端口看起来和干净跑一样。暴露到
 		// log 让操作员在 -v 下看到失败。
 		sess.Log.Warn("cred auth error: %s:%d [%s]: %v", host, port, serviceName, err)
+		// TUI Spec A (Task 3): categorise the error so the TUI can
+		// show "Errors: 4 timeout, 2 refused" instead of a flat count.
+		// / TUI Spec A（Task 3）：把错误归类，让 TUI 显示"Errors: 4
+		// timeout, 2 refused"而非扁平计数。
+		bumpSyncMap(&sess.State.ErrorCategories, ClassifyError(err))
 		return
 	}
 	if hit == nil {
