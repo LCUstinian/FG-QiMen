@@ -32,6 +32,16 @@ const statsThrottle = 250 * time.Millisecond
 type statsMsg struct {
 	view    types.CountersView
 	elapsed string
+	// when is the wall-clock time of this snapshot. Optional; when
+	// zero, View / rate-tracker fall back to time.Now(). The
+	// dispatcher populates it in v0.5.2+ so the EWMA rate stays
+	// stable when the renderer is paused (rate should keep
+	// counting even if no Update fires for a few seconds).
+	// when 是本快照的墙钟时间。可选；为 0 时 View / rate-tracker
+	// 回退到 time.Now()。v0.5.2+ dispatcher 填充它，让 EWMA 速率
+	// 在 renderer 暂停时保持稳定（即使几秒无 Update，速率仍累
+	// 计）。
+	when time.Time
 }
 
 type eventMsg struct {
@@ -82,6 +92,48 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if d.inner.runState == runIdle {
 			d.inner.runState = runScanning
 		}
+		// v0.5.2: rate / ETA / topN. The dispatcher is the only
+		// site that knows "this statsMsg just landed", so we fold
+		// the math here. View() reads the cached fields; tests
+		// inspect them directly after dispatching the message.
+		//
+		// v0.5.2：rate / ETA / topN。dispatcher 是唯一知道"这条
+		// statsMsg 刚落地"的站点，所以数学折在这里。View() 读
+		// 缓存字段；测试派发消息后直接检查。
+		now := m.when
+		if now.IsZero() {
+			now = time.Now()
+		}
+		if d.inner.start.IsZero() {
+			// Anchor ETA on the first statsMsg, not on
+			// NewModel() — the model may be constructed seconds
+			// before the pipeline actually starts.
+			// 把 ETA 锚定在第一条 statsMsg 而非 NewModel()——
+			// model 可能在 pipeline 真正启动前几秒就构造了。
+			d.inner.start = now
+		}
+		hits, ports := d.inner.rate.update(now, m.view.Creds, m.view.Ports)
+		d.inner.rateHits = hits
+		d.inner.ratePorts = ports
+		// computeETA needs TotalHosts / TotalPorts which the
+		// CountersView doesn't carry (those live on the State
+		// directly — see types/state.go). Pass them in alongside
+		// the snapshot so we don't have to widen CountersView in
+		// this task (the brief restricts changes to internal/tui).
+		// computeETA 需要 TotalHosts / TotalPorts，但 CountersView
+		// 不携带这两个（它们直接放在 State 上——见
+		// types/state.go）。把它们与快照一起传入，避免在本任务
+		// 加宽 CountersView（brief 限制只改 internal/tui）。
+		var totalHosts, totalPorts int64
+		if d.inner.state != nil {
+			totalHosts = d.inner.state.TotalHosts.Load()
+			totalPorts = d.inner.state.TotalPorts.Load()
+		}
+		d.inner.eta = computeETA(d.inner.start, now, int32(m.view.Stage), m.view, totalHosts, totalPorts)
+		if d.inner.state != nil {
+			d.inner.topPlugins = topN(d.inner.state.PluginHitsView(), 5)
+			d.inner.topErrors = topN(d.inner.state.ErrorCategoriesView(), 5)
+		}
 		return d, nil
 	case eventMsg:
 		// Stream straight into the model's pending buffer. The
@@ -123,8 +175,8 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Fall through to the wrapped model for key/window messages.
 	// 透传按键/窗口消息到底层 model。
 	newInner, cmd := d.inner.Update(msg)
-	if mm, ok := newInner.(Model); ok {
-		*d.inner = mm
+	if mm, ok := newInner.(*Model); ok {
+		*d.inner = *mm
 	}
 	return d, cmd
 }
@@ -260,7 +312,7 @@ func (p *Program) Stats(s *types.State) {
 	p.lastStats = view
 	p.lastElapsed = elapsed
 	p.lastWhen = now
-	p.p.Send(statsMsg{view: view, elapsed: elapsed})
+	p.p.Send(statsMsg{view: view, elapsed: elapsed, when: now})
 }
 
 // Event implements ui.UI — push a non-cred live event.

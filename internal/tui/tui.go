@@ -214,11 +214,82 @@ type Model struct {
 	// Final summary printed after bubbletea exits / bubbletea 退出
 	// 后打印的最终摘要。
 	finalSummary string
+
+	// ── v0.5.2: TUI v2 Spec A info-density panels ──
+	// v0.5.2：TUI v2 Spec A 信息密度面板
+
+	// state is the shared pipeline state (PluginHits /
+	// ErrorCategories views). Optional; nil-safe — when nil, the
+	// topPlugins / topErrors panels render placeholders.
+	// state 是共享的 pipeline 状态（PluginHits / ErrorCategories
+	// 视图）。可选；nil 安全——为 nil 时 topPlugins / topErrors 面
+	// 板渲染占位符。
+	state *types.State
+
+	// start is the wall-clock time the model began tracking ETA.
+	// Populated by the first statsMsg — that way computeETA has
+	// a stable "t0" even when the model is constructed before the
+	// pipeline starts.
+	// start 是 model 开始追踪 ETA 的墙钟时间。由第一条 statsMsg
+	// 填充——这样 computeETA 拥有稳定的 "t0"，即使 model 在
+	// pipeline 启动前就已构造。
+	start time.Time
+
+	// rate is the EWMA state for hits/s and ports/s; embedded so
+	// the helpers in render.go operate on the parent's fields.
+	// rate 是 hits/s 与 ports/s 的 EWMA 状态；内嵌让 render.go
+	// 的辅助函数能直接操作父结构体字段。
+	rate rateTracker
+
+	// rateHits / ratePorts are the latest smoothed rates cached
+	// from rate.update(); the View renders them directly without
+	// re-computing.
+	// rateHits / ratePorts 是 rate.update() 缓存的最新平滑速率；
+	// View 直接渲染，不再重算。
+	rateHits  float64
+	ratePorts float64
+
+	// eta is the per-stage ETA string (or "" when unavailable).
+	// eta 是按阶段的 ETA 字符串（不可用时为 ""）。
+	eta string
+
+	// topPlugins / topErrors are the top-5 (name, countString)
+	// tuples rendered in the right-hand panels. Recomputed on
+	// every statsMsg from the State views.
+	// topPlugins / topErrors 是右面板渲染的 top-5 (name,
+	// countString) 元组。每次 statsMsg 从 State 视图重算。
+	topPlugins [][2]string
+	topErrors  [][2]string
 }
 
 // NewModel constructs a fresh dashboard model.
 // NewModel 构造一个新的 dashboard model。
+//
+// v0.5.2: NewModel takes an optional state for the info-density
+// panels (top plugins / error categories). Existing callers that
+// pass nil keep working — the panels then render "(no hits yet)"
+// / "(no errors yet)" placeholders. The signature change is
+// backward-compatible at call sites that pass nil; non-nil is the
+// production path wired from runScan.
+//
+// v0.5.2：NewModel 接收可选的 state 给信息密度面板（top 插件 /
+// 错误分类）。传 nil 的现有调用方仍能工作——面板渲染"(no hits
+// yet)" / "(no errors yet)"占位符。签名变更在传 nil 的调用点向后
+// 兼容；非 nil 是从 runScan 接线的生产路径。
 func NewModel(cfg *types.Config) Model {
+	return newModelWithState(cfg, nil)
+}
+
+// newModelWithState is the full constructor used by NewModel and
+// by tests that need a State wired in. Returns a value (not a
+// pointer) for parity with the bubbletea Model contract; the
+// runtime mutates fields via pointer receivers in Update /
+// appendEvent.
+//
+// newModelWithState 是 NewModel 和需要接入 State 的测试共用的完
+// 整构造函数。返回值（而非指针）以匹配 bubbletea Model 契约；
+// runtime 在 Update / appendEvent 中通过指针接收者变更字段。
+func newModelWithState(cfg *types.Config, st *types.State) Model {
 	mode := "scan"
 	if cfg != nil {
 		mode = string(cfg.Mode)
@@ -230,6 +301,7 @@ func NewModel(cfg *types.Config) Model {
 	return Model{
 		mode:    mode,
 		project: project,
+		state:   st,
 	}
 }
 
@@ -258,7 +330,18 @@ func tickCmd() tea.Cmd {
 
 // Update handles bubbletea messages (keypresses, window resize, etc.).
 // Update 处理 bubbletea 消息（按键、窗口大小变化等）。
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+//
+// v0.5.2: changed to a pointer receiver so tests can read mutated
+// fields directly (rate / topN / ETA) without the dispatcher
+// return-value plumbing. The bubbletea runtime passes a pointer
+// here regardless of the receiver kind (it does so internally via
+// type-assertion), so this is a no-op for production callers.
+//
+// v0.5.2：改成指针接收者，让测试能直接读到变更后的字段（rate /
+// topN / ETA），免去 dispatcher 返回值接线的麻烦。bubbletea 运行
+// 时无论接收者类型都传指针（内部通过类型断言），所以对生产调用方
+// 是 no-op。
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tickMsg:
@@ -351,6 +434,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // appendEvent 是 dispatcher 用来推送新事件的 model 侧钩子。把它放
 // 在 model 上（不只是 dispatcher），让未来的渲染器（测试、无头回
 // 放）能在没有 bubbletea program 的情况下驱动 model。
+//
+// v0.5.2: pointer receiver (was already a pointer; called out here
+// because Model.Update's pointer-receiver change makes the whole
+// model API consistent).
+//
+// v0.5.2：指针接收者（原本就是指针；这里点名因为 Model.Update 改
+// 指针接收者后整个 model API 保持一致）。
 func (m *Model) appendEvent(ev liveEvent) {
 	if m.uiMode == modePaused {
 		// Drop on the floor: paused mode freezes display. We
@@ -368,6 +458,31 @@ func (m *Model) appendEvent(ev liveEvent) {
 // View renders the dashboard. Returns a single string that lipgloss
 // will then lay out.
 // View 渲染 dashboard。返回 lipgloss 将布局的单个字符串。
+//
+// v0.5.2 (Task 4): replaces the old one-line stats bar with the
+// info-density layout — stage badge line + rate row + counters /
+// top-plugins panel + error-categories row — all rendered above
+// the existing events column. The events column is kept verbatim
+// (no spec change there); the rendered shape is:
+//
+//	v0.5.2（Task 4）：用信息密度布局替换旧的单行状态条——阶段徽
+//	章行 + 速率行 + 计数器/Top 插件面板 + 错误分类行——全部渲染
+//	在已有事件列之上。事件列原样保留（那里没有 spec 改动）；渲
+//	染形状：
+//
+//	  ┌──────────────────────────────────────────────┐
+//	  │ Title bar                                    │
+//	  ├──────────────────────────────────────────────┤
+//	  │ Stage badge         ETA / elapsed            │
+//	  │ rate: X hits/s      ports: Y/s               │
+//	  │ ────────────────────────────────────         │
+//	  │ Counters   │ Top Plugins                     │
+//	  │ ─────────── │ ─────────────                   │
+//	  │ Live Events                                  │
+//	  │ ──────────                                   │
+//	  │ Errors:                                       │
+//	  │ keymap                                        │
+//	  └──────────────────────────────────────────────┘
 func (m Model) View() string {
 	if m.quitting {
 		return m.finalSummary + "\n"
@@ -412,50 +527,96 @@ func (m Model) View() string {
 	sb.WriteString(stDim.Render(m.titleSeparator()))
 	sb.WriteString("\n")
 
-	// Stats bar / 状态条
-	// Spinner glyph comes from spinnerFrames[frameIdx], so it
-	// actually rotates at 10fps (see tickMsg in Update). The
-	// previous static ◐ looked identical between stats updates
-	// and read as "is anything happening?".
-	// Spinner 字形来自 spinnerFrames[frameIdx]，10fps 真转
-	// （见 Update 的 tickMsg）。之前的静态 ◐ 在两次 stats 之
-	// 间看着一样，读起来像"有在动吗？"。
-	spinner := spinnerFrames[m.frameIdx%len(spinnerFrames):][:1]
-	if m.runState == runDone {
-		// When done, replace the spinner with a check so the
-		// "finished" state is unambiguous.
-		// 完成后用对勾替换 spinner，"完成"状态更明确。
-		spinner = symDone
+	// ── v0.5.2 info-density header (replaces old stats bar) ──
+	// v0.5.2 信息密度 header（替换旧状态条）
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
-	stats := fmt.Sprintf(
-		"%s alive=%d probed=%d  ports=%d  results=%d  creds=%d  errors=%d   elapsed=%s",
-		spinner, m.counters.Alive, m.counters.AliveProbed,
-		m.counters.Ports, m.counters.Results,
-		m.counters.Creds, m.counters.Errors, m.elapsed,
-	)
-	// Pause indicator is appended to the stats bar so the operator
-	// can tell at a glance that the dashboard is frozen (the
-	// pipeline is still running).
-	// 暂停指示器加在状态条末尾，让操作员一眼看出 dashboard 已冻结
-	// （pipeline 仍在跑）。
-	if m.uiMode == modePaused {
-		stats = stats + "  " + stWarn.Render("[PAUSED]")
-	}
-	sb.WriteString(stats)
-	sb.WriteString("\n\n")
 
-	// Two columns on wide terminals, stack on narrow ones.
-	// 宽终端两栏，窄终端堆叠。
-	left := m.renderStatsCol()
-	right := m.renderEventsCol()
-	var row string
-	if m.twoColumn() {
-		row = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	} else {
-		row = left + "\n" + right
+	// Stage badge line — replaces the old "[spinner] alive=…" bar.
+	// ETA floats right when available, else we show elapsed so the
+	// operator always has a "since when" signal.
+	// 阶段徽章行——替换旧的"[spinner] alive=…"行。ETA 不可用时
+	// 右对齐显示 elapsed，操作员始终有"从何时起"的信号。
+	stage := types.StageName(int32(m.counters.Stage))
+	spinner := "▶"
+	if int32(m.counters.Stage) == types.StageDone {
+		spinner = "✓"
 	}
-	sb.WriteString(row)
-	sb.WriteString("\n\n")
+	stageBadge := fmt.Sprintf("  [ %s %s ]", spinner, stage)
+	fmt.Fprintf(&sb, "%s", stageBadge)
+	if m.eta != "" {
+		fmt.Fprintf(&sb, "%*s", width-lipgloss.Width(stageBadge)-len(m.eta)-2, "")
+		fmt.Fprintf(&sb, "  %s\n", m.eta)
+	} else {
+		fmt.Fprintf(&sb, "%*s", width-lipgloss.Width(stageBadge)-len(m.elapsed)-2, "")
+		fmt.Fprintf(&sb, "  elapsed %s\n", m.elapsed)
+	}
+	if m.uiMode == modePaused {
+		// Pause indicator — appended to the stage badge line so
+		// the operator can tell at a glance that the dashboard
+		// is frozen (the pipeline is still running).
+		// 暂停指示器加在阶段徽章行末尾，让操作员一眼看出
+		// dashboard 已冻结（pipeline 仍在跑）。
+		sb.WriteString("  ")
+		sb.WriteString(stWarn.Render("[PAUSED]"))
+		sb.WriteString("\n")
+	}
+
+	// Rate row — only when at least one rate is positive. Before
+	// any statsMsg the EWMA is 0/0; rendering "rate: 0.0" would
+	// read as "broken" rather than "warming up", so we suppress
+	// it. The placeholder text is implicit ("no rate row yet").
+	//
+	// 速率行——仅在至少一个速率 > 0 时显示。在任何 statsMsg 之
+	// 前 EWMA 为 0/0；渲染"rate: 0.0"会被读作"坏了"而非"热
+	// 身中"，所以抑制。占位隐式（"暂无速率行"）。
+	if m.rateHits > 0 || m.ratePorts > 0 {
+		fmt.Fprintf(&sb, "  rate: %.1f hits/s    ports: %.1f/s    probed %d / %d\n",
+			m.rateHits, m.ratePorts, m.counters.AliveProbed, m.totalHosts())
+	}
+
+	// ── Counters + Top Plugins panel ──
+	// 计数器 + Top 插件面板
+	// Width-adaptive: side-by-side on >=100 cols, stacked below.
+	// Both branches emit the same panels — the only difference is
+	// whether events column sits to the right or below.
+	// 宽自适应：>=100 列并排，之下堆叠。两个分支 emit 同样的面
+	// 板——唯一区别是事件列在右还是在下。
+	left := m.renderCountersPanel(width)
+	pluginsPanel := m.renderTopPluginsPanel(width)
+	var countersRow string
+	if width >= 100 {
+		// Side-by-side with the events column on the far right.
+		// Counters | TopPlugins | Events. We compose left+plugins
+		// first, then join with events on wide screens.
+		// 并排，事件列在最右。Counters | TopPlugins | Events。宽屏
+		// 上先合成 left+plugins，再与 events join。
+		countersRow = lipgloss.JoinHorizontal(lipgloss.Top, left, pluginsPanel)
+	} else {
+		// Stacked: counters above, plugins below.
+		// 堆叠：计数在上，插件在下。
+		countersRow = left + "\n" + pluginsPanel
+	}
+	sb.WriteString(countersRow)
+
+	// Events column — kept verbatim from the v0.5.1 layout.
+	// 事件列——保持 v0.5.1 布局原样。
+	eventsCol := m.renderEventsCol()
+	if width >= 100 {
+		sb.WriteString("\n")
+		sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, countersRow, "  ", eventsCol))
+	} else {
+		sb.WriteString("\n\n")
+		sb.WriteString(eventsCol)
+	}
+	sb.WriteString("\n")
+
+	// Error categories row.
+	// 错误分类行。
+	sb.WriteString(m.renderErrorCategoriesRow(width))
+	sb.WriteString("\n")
 
 	// Keymap / 快捷键
 	sb.WriteString(m.renderKeymap())
@@ -584,9 +745,26 @@ func (m Model) renderKeymap() string {
 // 此值时堆叠以避免 80×24 终端横向溢出。
 func (m Model) twoColumn() bool { return m.width >= minWidth }
 
-// renderStatsCol builds the left "Targets" column.
-// renderStatsCol 构建左侧 "Targets" 列。
-func (m Model) renderStatsCol() string {
+// totalHosts returns the State-cached total host count, or 0 when
+// the State is nil. Used by the rate row's "probed N / M" display.
+// totalHosts 返回 State 缓存的总主机数；State 为 nil 时返回 0。
+// 给速率行 "probed N / M" 显示用。
+func (m Model) totalHosts() int64 {
+	if m.state == nil {
+		return 0
+	}
+	return m.state.TotalHosts.Load()
+}
+
+// renderCountersPanel builds the left "TARGETS" panel — the 6-row
+// counter table (alive/probed/ports/results/creds/errors). On wide
+// terminals this is the left column of the counters+plugins row;
+// on narrow terminals it stacks above the plugins panel.
+//
+// renderCountersPanel 构建左侧 "TARGETS" 面板——6 行计数器表
+// （alive/probed/ports/results/creds/errors）。宽终端上是
+// counters+plugins 行的左列；窄终端上堆叠在 plugins 面板之上。
+func (m Model) renderCountersPanel(width int) string {
 	// Right-pad the labels to 12 chars so the counters line up
 	// even when one of them grows from 9 → 10 digits. We use
 	// a plain fmt.Sprintf (not lipgloss width) because the
@@ -602,23 +780,16 @@ func (m Model) renderStatsCol() string {
 		{"creds", fmt.Sprintf("%d", m.counters.Creds)},
 		{"errors", fmt.Sprintf("%d", m.counters.Errors)},
 	}
-	// The header now carries a progress hint (alive/total) on
-	// wide terminals and the trailing count badge; on narrow
-	// stacks we drop the hint to save the line. The header is
-	// rendered as a single line so the panel's "TARGETS" identity
-	// stays stable across row updates.
-	// 标题现在带进度提示（alive/总数）和计数尾标；窄终端堆叠
-	// 时省掉提示以省行。标题整成一行，让面板"TARGETS"身份在
-	// 行更新时保持稳定。
+	// The header carries a progress hint (alive/total) on wide
+	// terminals and the trailing count badge; on narrow stacks
+	// we drop the hint to save the line.
+	// 标题带进度提示（alive/总数）和计数尾标；窄终端堆叠时省
+	// 掉提示以省行。
 	headerText := "TARGETS"
-	if m.twoColumn() {
+	if width >= 100 {
 		// A small secondary counter that gives the panel more
-		// "instrument" feel without adding rows. We use the
-		// same accent so the eye reads the header + tail as a
-		// single unit, not as two competing decorations.
-		// 给面板加个二级计数，提升"仪表"感而不加行。用同色
-		// accent 让眼睛把头 + 尾读作一个整体，而非两个互相争
-		// 抢的装饰。
+		// "instrument" feel without adding rows.
+		// 给面板加个二级计数，提升"仪表"感而不加行。
 		tail := stMuted.Render(fmt.Sprintf("· %d metrics", len(rows)))
 		headerText = headerText + "  " + tail
 	}
@@ -626,24 +797,16 @@ func (m Model) renderStatsCol() string {
 	body.WriteString(stPanelHeader.Render(headerText))
 	body.WriteString("\n")
 	for _, r := range rows {
-		// Layout: "  alive      2"  with the dot separator
-		// marking the label→number transition. The dot reads
-		// as a soft divider (vs. plain whitespace) and ties
-		// the rows together visually — without it the panel
-		// reads as 5 disjointed pairs.
-		// 布局："  alive      · 2"，点号作为 label→number 的软
-		// 分隔。点号比纯空白更有"分隔"感，把 5 行视觉串起来——
-		// 没用点号前面板读作 5 个互不相关的对。
+		// Layout: "  alive      · 2" — dot separator marks the
+		// label→number transition and ties rows together visually.
+		// 布局："  alive      · 2"——点号作为 label→number 的软分隔。
 		label := stDim.Render(fmt.Sprintf("  %-10s", r[0]))
 		body.WriteString(label)
 		body.WriteString(stMuted.Render(symDot + " "))
-		// Counter coloring: cyan by default (anchors the
-		// panel), amber for cred hits (the operator's primary
-		// signal), red for non-zero errors. Zero errors stay
-		// cyan so a healthy run doesn't shout.
-		// 计数器配色：默认 cyan（锚定面板），凭据命中琥珀（操
-		// 作员主信号），错误非零时红色。零错误保持 cyan，健康
-		// 运行不喊话。
+		// Counter coloring: cyan by default (anchors the panel),
+		// amber for cred hits, red for non-zero errors.
+		// 计数器配色：默认 cyan（锚定面板），凭据命中琥珀，错
+		// 误非零时红色。
 		var numStyle lipgloss.Style = stStatNum
 		switch r[0] {
 		case "creds":
@@ -658,13 +821,71 @@ func (m Model) renderStatsCol() string {
 		body.WriteString(numStyle.Render(r[1]))
 		body.WriteString("\n")
 	}
-	// On stacked layout, the right column will start with its own
-	// header so we don't need a panel border around the stats.
-	// 堆叠布局下右栏会带自己的标题，所以统计区不需要面板边框。
-	if m.twoColumn() {
+	if width >= 100 {
 		return stBox.Width(statsColWidth).Render(body.String())
 	}
 	return body.String()
+}
+
+// renderTopPluginsPanel builds the right "TOP PLUGINS" panel —
+// the top-5 hit-count bars. Renders "(no hits yet)" placeholder
+// when m.topPlugins is empty.
+//
+// renderTopPluginsPanel 构建右侧 "TOP PLUGINS" 面板——top-5
+// 命中柱状图。m.topPlugins 为空时渲染 "(no hits yet)" 占位符。
+func (m Model) renderTopPluginsPanel(width int) string {
+	var body strings.Builder
+	body.WriteString(stPanelHeader.Render("TOP PLUGINS"))
+	body.WriteString("\n")
+	if len(m.topPlugins) == 0 {
+		body.WriteString("  (no hits yet)\n")
+	} else {
+		for _, p := range m.topPlugins {
+			// Count → 12-char bar → name. The bar length is fixed
+			// at 12 chars so the panel reads as a column even when
+			// counts span 1 → 9999. We use a static bar (0.5 fill)
+			// rather than a count-proportional one because the
+			// proportional version makes a hit count of 1 look
+			// indistinguishable from a glitch.
+			// 计数 → 12 字符 bar → 名称。bar 长度固定 12 字符，
+			// 让面板读作一列，即使计数跨 1 → 9999。用静态 bar
+			// （0.5 填充）而非按计数比例，因为按比例的话 1 命中
+			// 看起来跟"故障"没区别。
+			fmt.Fprintf(&body, "  %-10s %s  %s\n",
+				p[1], bar(0.5, 12), p[0])
+		}
+	}
+	if width >= 100 {
+		return stBox.Width(statsColWidth).Render(body.String())
+	}
+	return body.String()
+}
+
+// renderErrorCategoriesRow renders the bottom error-categories
+// row. Format: "ERRORS: timeout 42  refused 15  dns 7" (or
+// "(no errors yet)" when m.topErrors is empty).
+//
+// renderErrorCategoriesRow 渲染底部错误分类行。格式："ERRORS:
+// timeout 42  refused 15  dns 7"（m.topErrors 为空时渲染
+// "(no errors yet)"）。
+func (m Model) renderErrorCategoriesRow(width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	var b strings.Builder
+	b.WriteString(stPanelHeader.Render("ERRORS"))
+	b.WriteString("  ")
+	if len(m.topErrors) == 0 {
+		b.WriteString(stMuted.Render("(no errors yet)"))
+	} else {
+		for i, e := range m.topErrors {
+			if i > 0 {
+				b.WriteString("   ")
+			}
+			fmt.Fprintf(&b, "%s %s", stMuted.Render(e[0]), stError.Render(e[1]))
+		}
+	}
+	return b.String()
 }
 
 // renderEventsCol builds the right "Live Events" column.

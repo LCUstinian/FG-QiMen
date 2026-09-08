@@ -9,7 +9,9 @@
 package tui
 
 import (
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,7 +146,7 @@ func TestModelLingerExits(t *testing.T) {
 	// 前两 tick：lingerLeft 递减，不退出。
 	for i := 0; i < 2; i++ {
 		newM, _ := m.Update(tickMsg(time.Time{}))
-		m = newM.(Model)
+		m = *newM.(*Model)
 		if m.quitting {
 			t.Fatalf("tick %d: quitting = true, want false (lingerLeft=%d)", i, m.lingerLeft)
 		}
@@ -180,12 +182,13 @@ func TestModelTickAdvancesSpinner(t *testing.T) {
 	// 进。
 	m.runState = runScanning
 	before := m.frameIdx
-	// Thread the returned model through: Model.Update is a value
-	// receiver, so the mutation is on a copy unless we re-bind.
-	// 串联返回的 model：Model.Update 是值接收者，不重绑等于在副
-	// 本上改。
+	// Thread the returned model through: Model.Update is a pointer
+	// receiver (v0.5.2) — direct mutation, but we still rebind so
+	// the assertion reads from the post-Update copy.
+	// 串联返回的 model：Model.Update 是指针接收者（v0.5.2）——
+	// 直接变更，但仍重绑让断言读到 Update 后的副本。
 	newM, _ := m.Update(tickMsg(time.Time{}))
-	m = newM.(Model)
+	m = *newM.(*Model)
 	if m.frameIdx != (before+1)%len(spinnerFrames) {
 		t.Errorf("frameIdx = %d, want %d", m.frameIdx, (before+1)%len(spinnerFrames))
 	}
@@ -370,4 +373,139 @@ func TestProgramCredFoundNilSafe(t *testing.T) {
 	}()
 	p.CredFound(nil)
 	p.CredFound(&types.Result{Host: "h", Cred: nil})
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// v0.5.2 TUI info-density panels (Task 4 of TUI v2 Spec A)
+// v0.5.2 TUI 信息密度面板（TUI v2 Spec A Task 4）
+// ─────────────────────────────────────────────────────────────────────
+
+// newTestState returns a fresh *types.State for tests. We use a
+// direct State (not a *session.Session) because the session package
+// imports internal/ui, which in turn imports internal/tui — adding
+// session back here would form an import cycle. The Model only needs
+// the State for PluginHitsView / ErrorCategoriesView, so a direct
+// *types.State is the minimum-surface wiring.
+// newTestState 为测试返回一个新的 *types.State。我们直接用 State
+// （而非 *session.Session），因为 session 包导入了 internal/ui，而
+// ui 又导 internal/tui —— 把 session 引回来会形成 import 环。Model
+// 只需要 State 的 PluginHitsView / ErrorCategoriesView，所以直接用
+// *types.State 是最小面积的接线。
+func newTestState(t *testing.T) *types.State {
+	t.Helper()
+	return types.NewState()
+}
+
+// newTestModelWithState returns a Model wired with the given State,
+// suitable for tests that need to inspect the rate / topN / ETA
+// fields after pushing statsMsg deltas. Mirrors the production
+// constructor's session plumbing — see NewProgram in program.go for
+// the wiring site.
+//
+// Renamed from newTestModel to avoid a clash with layout_test.go's
+// no-arg newTestModel (the layout helper returns a fresh Model with
+// safe defaults; this one wires a State for the v0.5.2 panels).
+//
+// newTestModelWithState 返回一个接上 State 的 Model，给需要查看
+// statsMsg delta 后 rate / topN / ETA 字段的测试用。镜像生产构造
+// 函数的 session 接线——接线点见 program.go 的 NewProgram。
+//
+// 改名为 newTestModelWithState 是为了不和 layout_test.go 的无参
+// newTestModel 冲突（layout 助手返回带安全默认值的空 Model；这个
+// 给 v0.5.2 面板接上 State）。
+func newTestModelWithState(s *types.State) *Model {
+	m := newModelWithState(nil, s)
+	return &m
+}
+
+// TestDispatcher_RendersRateAndPlugins verifies that after multiple
+// statsMsg deltas, the model's rate fields stabilise (EWMA) and
+// topPlugins / topErrors reflect the State view methods.
+// TestDispatcher_RendersRateAndPlugins 验证多次 statsMsg delta 后，
+// model 的 rate 字段稳定（EWMA），topPlugins/topErrors 反映 State
+// 的 view methods。
+func TestDispatcher_RendersRateAndPlugins(t *testing.T) {
+	st := newTestState(t)
+	// Pretend 5 plugins hit with these counts.
+	type kv struct {
+		name string
+		n    int64
+	}
+	seed := []kv{{"ssh", 47}, {"redis", 21}, {"mysql", 12}, {"http", 9}, {"postgres", 5}}
+	for _, k := range seed {
+		v, _ := st.PluginHits.LoadOrStore(k.name, &atomic.Int64{})
+		v.(*atomic.Int64).Store(k.n)
+	}
+
+	// Send 6 statsMsg deltas with monotonically increasing
+	// Creds and Ports (so rate is non-zero).
+	m := newTestModelWithState(st)
+	base := time.Now()
+	for i := 0; i < 6; i++ {
+		msg := statsMsg{
+			view: types.CountersView{
+				Alive: 12, AliveProbed: 256, Ports: int64(80 * (i + 1)),
+				Results: int64(5 * (i + 1)), Creds: int64(2 * (i + 1)),
+				Errors: 3, Stage: int64(types.StageIdentify),
+			},
+			elapsed: (time.Duration(i+1) * time.Second).String(),
+			when:    base.Add(time.Duration(i) * time.Second),
+		}
+		// Thread the returned dispatcher so the mutation applies
+		// (Model.Update is a value receiver — see tui.go).
+		// 串联返回的 dispatcher 让变更生效（Model.Update 是值接
+		// 收者——见 tui.go）。
+		newM, _ := dispatcher{inner: m}.Update(msg)
+		*m = *newM.(dispatcher).inner
+	}
+
+	// After 6 ticks, rate fields should be non-zero (since
+	// Creds and Ports each incremented by 12 / 80 * tick).
+	if got := m.rateHits; got <= 0 {
+		t.Errorf("rateHits = %v, want > 0 after 6 deltas", got)
+	}
+	if got := m.ratePorts; got <= 0 {
+		t.Errorf("ratePorts = %v, want > 0 after 6 deltas", got)
+	}
+	// topPlugins: top 5 by count = full seed list (sorted desc).
+	if len(m.topPlugins) != 5 {
+		t.Errorf("topPlugins len = %d, want 5", len(m.topPlugins))
+	}
+	if m.topPlugins[0][0] != "ssh" {
+		t.Errorf("topPlugins[0] = %q, want ssh", m.topPlugins[0][0])
+	}
+	// topErrors: empty (no errors seeded).
+	if len(m.topErrors) != 0 {
+		t.Errorf("topErrors len = %d, want 0", len(m.topErrors))
+	}
+}
+
+// TestDispatcher_RateEmptyState verifies placeholders.
+// TestDispatcher_RateEmptyState 验证空态占位符。
+func TestDispatcher_RateEmptyState(t *testing.T) {
+	st := newTestState(t)
+	m := newTestModelWithState(st)
+	msg := statsMsg{
+		view: types.CountersView{Stage: int64(types.StageAlive)},
+		when: time.Now(),
+	}
+	newM, _ := dispatcher{inner: m}.Update(msg)
+	*m = *newM.(dispatcher).inner
+	// topPlugins / topErrors should be nil/empty so View() renders
+	// "(no hits yet)" / "(no errors yet)".
+	// topPlugins/topErrors 应为空以便 View() 渲染占位符。
+	if len(m.topPlugins) != 0 {
+		t.Errorf("topPlugins = %v, want empty", m.topPlugins)
+	}
+	if len(m.topErrors) != 0 {
+		t.Errorf("topErrors = %v, want empty", m.topErrors)
+	}
+	// View() string should contain the placeholders.
+	v := m.View()
+	if !strings.Contains(v, "(no hits yet)") {
+		t.Errorf("View missing '(no hits yet)' placeholder: %q", v)
+	}
+	if !strings.Contains(v, "(no errors yet)") {
+		t.Errorf("View missing '(no errors yet)' placeholder: %q", v)
+	}
 }
