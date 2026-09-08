@@ -607,21 +607,29 @@ func summaryString(sess *session.Session) string {
 // （P2 死代码清理：v0.2 审计删了 PluginsAll。core 外的调用者应直接
 // 导入 internal/plugins，用 plugins.All()。）
 
-// normalisePluginName lowercases and strips version-like suffixes
-// so the same plugin doesn't show up as 3 rows ("ssh", "SSH",
-// "ssh/2.0"). Called at the scanner.go dispatch write site, not
-// in TUI render.
-// / normalisePluginName 小写化并去掉版本后缀，让同一个 plugin
-// 不以 3 行显示。在 scanner.go dispatch 写入点调用，TUI 渲染不调。
+// normalisePluginName lowercases and strips trailing /x or -x
+// segments unconditionally (not version-only) so the same plugin
+// doesn't show up as 3 rows ("ssh", "SSH", "ssh/2.0"). Called at
+// the scanner.go dispatch write site, not in TUI render.
+// / normalisePluginName 小写化并去掉尾部 /x 或 -x 段（无条件，不
+// 限于版本），让同一个 plugin 不以 3 行显示。在 scanner.go dispatch
+// 写入点调用，TUI 渲染不调。
 func normalisePluginName(name string) string {
 	n := strings.ToLower(strings.TrimSpace(name))
-	// Strip trailing "/x.y" or "-x.y" suffixes. Both numeric tails
-	// (versions like "ssh/2.0", "postgres-15") and non-numeric
-	// tails (like "ssh/non-version") get collapsed so the TUI's
-	// plugin-breakdown table stays compact. / 去掉尾部 "/x.y" 或
-	// "-x.y" 后缀。数字尾（版本号如 "ssh/2.0"、"postgres-15"）
-	// 和非数字尾（"ssh/non-version"）都折掉，让 TUI plugin 细分
-	// 表保持紧凑。
+	// Strip trailing "/x" or "-x" segments unconditionally. Both
+	// numeric tails (versions like "ssh/2.0", "postgres-15") and
+	// non-numeric tails (like "ssh/non-version") get collapsed so
+	// the TUI's plugin-breakdown table stays compact. The decision
+	// to strip non-numeric tails too was accepted in the Task 3
+	// review: the trade-off is "lose one / non-version suffix" vs
+	// "let 'ssh' / 'ssh-lite' show as two rows in the top-plugins
+	// panel", and the panel's grouping is what users actually
+	// wanted. / 去掉尾部 "/x" 或 "-x" 段（无条件）。数字尾（版
+	// 本号如 "ssh/2.0"、"postgres-15"）和非数字尾（"ssh/non-
+	// version"）都折掉，让 TUI plugin 细分表保持紧凑。Task 3 评审
+	// 接受了也剥非数字尾的决定：取舍是"丢一个 / non-version 后缀"
+	// vs "让 'ssh' / 'ssh-lite' 在 top-plugins 面板里出现两行"，面
+	// 板分组才是用户真正想要的。
 	for _, sep := range []string{"/", "-"} {
 		if i := strings.Index(n, sep); i >= 0 {
 			n = n[:i]

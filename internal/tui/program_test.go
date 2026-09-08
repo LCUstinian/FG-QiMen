@@ -509,3 +509,124 @@ func TestDispatcher_RateEmptyState(t *testing.T) {
 		t.Errorf("View missing '(no errors yet)' placeholder: %q", v)
 	}
 }
+
+// TestDispatcher_E2E_StateWiring exercises the production wiring
+// path: a model constructed by NewProgram (no State) receives a
+// statsMsg that carries the *types.State captured by Program.Stats
+// on its first call. The dispatcher must wire that State onto the
+// inner model so the info-density panels (topPlugins, topErrors,
+// TotalHosts / TotalPorts) become live. Without this wiring (the
+// pre-fix bug) the panels render placeholders forever in
+// production because `d.inner.state != nil` is always false.
+//
+// We simulate the production path by constructing a Model via
+// NewModel (no State — same as NewProgram does in cmd/scan.go),
+// then dispatching a statsMsg that carries the State. Asserting
+// the three production-relevant fields catches regressions.
+//
+// TestDispatcher_E2E_StateWiring 跑生产接线路径：NewProgram 构造的
+// model（无 State）收到第一条 statsMsg，其中携带 Program.Stats 首
+// 次调用捕获的 *types.State。dispatcher 必须把这个 State 接到内
+// 部 model 上，让信息密度面板（topPlugins、topErrors、TotalHosts
+// / TotalPorts）活起来。没有这一步接线（修前的 bug），面板在生
+// 产中永远渲染占位符，因为 `d.inner.state != nil` 一直为假。
+//
+// 我们模拟生产路径：用 NewModel 构造 model（无 State——和
+// cmd/scan.go 里 NewProgram 一样），再派发一条带 State 的
+// statsMsg。断言 3 个生产相关字段，捕捉回归。
+func TestDispatcher_E2E_StateWiring(t *testing.T) {
+	// Build a *types.State exactly as the pipeline does. Populate
+	// PluginHits / ErrorCategories via LoadOrStore (the same pattern
+	// scanner.go uses via bumpSyncMap — see pipeline_workers.go).
+	// Stage=Identify puts computeETA on the port-scan branch
+	// (Ports > 0 AND TotalPorts > 0 AND Ports < TotalPorts); we
+	// seed Ports=80, TotalPorts=100 so the condition holds and ETA
+	// renders. TotalHosts=10 makes m.totalHosts() stable.
+	//
+	// / 像 pipeline 那样构建 *types.State。用 LoadOrStore 填充
+	// PluginHits / ErrorCategories（和 scanner.go 经由 bumpSyncMap
+	// 用的模式一样——见 pipeline_workers.go）。Stage=Identify 让
+	// computeETA 走端口扫描分支（Ports > 0 且 TotalPorts > 0 且
+	// Ports < TotalPorts）；埋 Ports=80、TotalPorts=100 让条件成
+	// 立，ETA 能渲染。TotalHosts=10 让 m.totalHosts() 稳定。
+	st := types.NewState()
+	ph, _ := st.PluginHits.LoadOrStore("ssh", &atomic.Int64{})
+	ph.(*atomic.Int64).Store(47)
+	ph2, _ := st.PluginHits.LoadOrStore("redis", &atomic.Int64{})
+	ph2.(*atomic.Int64).Store(21)
+	ec, _ := st.ErrorCategories.LoadOrStore("timeout", &atomic.Int64{})
+	ec.(*atomic.Int64).Store(8)
+	st.Stage.Store(types.StageIdentify)
+	st.TotalHosts.Store(10)
+	st.TotalPorts.Store(100)
+
+	// Construct a model WITHOUT a state — mirrors what cmd/scan.go
+	// gets when it calls NewProgram(cfg). / 构造一个无 state 的
+	// model——镜像 cmd/scan.go 调 NewProgram(cfg) 时拿到的。
+	m := NewModel(nil)
+	if m.state != nil {
+		t.Fatalf("precondition: model.state = %v, want nil (matches cmd/scan.go path)", m.state)
+	}
+
+	// Send a statsMsg that carries the State — same shape
+	// Program.Stats sends after the first-call capture. / 派发一
+	// 条携带 State 的 statsMsg——和 Program.Stats 首次捕获后发的
+	// 一模一样。
+	//
+	// Two messages: the first anchors d.inner.start on `now`; the
+	// second advances `now` by a second so computeETA sees a
+	// positive elapsed. A single call would leave elapsed=0 and
+	// computeETA returns "" (the design from render.go:121-126).
+	//
+	// / 两条消息：第一条把 d.inner.start 锚在 now；第二条把 now 推
+	// 后 1 秒，让 computeETA 看到正的 elapsed。单条会让 elapsed=0，
+	// computeETA 返回 ""（render.go:121-126 的设计）。
+	base := time.Now()
+	for i, when := range []time.Time{base, base.Add(time.Second)} {
+		msg := statsMsg{
+			view: types.CountersView{
+				Alive: 5, AliveProbed: 10, Ports: 80, Results: 5,
+				Creds: 0, Errors: 3, Stage: int64(types.StageIdentify),
+			},
+			elapsed: time.Duration(i + 1).String(),
+			when:    when,
+			state:   st,
+		}
+		newM, _ := dispatcher{inner: &m}.Update(msg)
+		m = *newM.(dispatcher).inner
+	}
+
+	// Production assertions: the state must be wired, top plugins
+	// and errors must reflect the State views, and ETA must be
+	// non-empty (computeETA reads TotalHosts/TotalPorts via
+	// d.inner.state). / 生产断言：state 必须接上，top plugins 和
+	// errors 必须反映 State 视图，ETA 必须非空（computeETA 通过
+	// d.inner.state 读 TotalHosts/TotalPorts）。
+	if m.state != st {
+		t.Errorf("model.state = %v, want %v (state not wired)", m.state, st)
+	}
+	if len(m.topPlugins) == 0 {
+		t.Errorf("topPlugins is empty, want populated from PluginHitsView")
+	}
+	if m.topPlugins[0][0] != "ssh" {
+		t.Errorf("topPlugins[0] = %q, want ssh (highest hit count)", m.topPlugins[0][0])
+	}
+	if len(m.topErrors) == 0 {
+		t.Errorf("topErrors is empty, want populated from ErrorCategoriesView")
+	}
+	if m.topErrors[0][0] != "timeout" {
+		t.Errorf("topErrors[0] = %q, want timeout", m.topErrors[0][0])
+	}
+	if m.eta == "" {
+		t.Errorf("eta is empty, want non-empty (computeETA needs d.inner.state)")
+	}
+	// TotalHosts / TotalPorts are read directly via the wired state
+	// in the dispatcher's computeETA path. m.totalHosts() is the
+	// helper View() uses; assert it returns 10 to prove the wiring
+	// is live. / TotalHosts / TotalPorts 由 dispatcher 的 computeETA
+	// 路径通过接上的 state 直接读。m.totalHosts() 是 View() 用的
+	// 助手函数；断言它返回 10，证明接线生效。
+	if got := m.totalHosts(); got != 10 {
+		t.Errorf("m.totalHosts() = %d, want 10 (state.TotalHosts)", got)
+	}
+}

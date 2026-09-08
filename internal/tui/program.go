@@ -42,6 +42,21 @@ type statsMsg struct {
 	// 在 renderer 暂停时保持稳定（即使几秒无 Update，速率仍累
 	// 计）。
 	when time.Time
+	// state carries the shared pipeline *types.State used to
+	// populate the topPlugins / topErrors / TotalHosts / TotalPorts
+	// panels. Program.Stats() captures it on the first call and
+	// threads it through every subsequent statsMsg; the dispatcher
+	// then writes it onto the model so the info-density panels
+	// have a live source. Optional — tests that drive statsMsg
+	// directly without a state still work (the model's state
+	// field stays nil and the panels render placeholders).
+	// state 携带共享的 pipeline *types.State，用于填充 topPlugins
+	// / topErrors / TotalHosts / TotalPorts 面板。Program.Stats()
+	// 在第一次调用时捕获它并串联到后续每条 statsMsg；dispatcher
+	// 随后把它写到 model 上，让信息密度面板拿到实时数据源。可选
+	// —— 直接派发 statsMsg 不带 state 的测试仍能工作（model 的
+	// state 字段保持 nil，面板渲染占位符）。
+	state *types.State
 }
 
 type eventMsg struct {
@@ -91,6 +106,24 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 向（直到 doneMsg）；后续暂停/恢复不应倒转指示。
 		if d.inner.runState == runIdle {
 			d.inner.runState = runScanning
+		}
+		// v0.5.2 production wiring: Program.Stats captures the
+		// pipeline *types.State on the first call and threads it
+		// through every subsequent statsMsg. We write it onto the
+		// model here so the info-density panels (topPlugins,
+		// topErrors, TotalHosts / TotalPorts) have a live source.
+		// Without this, the dispatcher's `if d.inner.state != nil`
+		// guards at the bottom of this handler always fail and the
+		// panels render placeholders forever in production.
+		//
+		// v0.5.2 生产接线：Program.Stats 在第一次调用时捕获 pipeline
+		// *types.State 并串联到后续每条 statsMsg。这里写到 model
+		// 上让信息密度面板（topPlugins、topErrors、TotalHosts /
+		// TotalPorts）有实时数据源。没有这一步，handler 底部的
+		// `if d.inner.state != nil` 守卫永远失败，面板在生产中
+		// 一直渲染占位符。
+		if d.inner.state == nil && m.state != nil {
+			d.inner.state = m.state
 		}
 		// v0.5.2: rate / ETA / topN. The dispatcher is the only
 		// site that knows "this statsMsg just landed", so we fold
@@ -233,6 +266,18 @@ type Program struct {
 	// cfg 是 ShowCleartext（P0#3 redact）的真源。按值持有；cfg 实际
 	// 上是不可变的（cobra flags 启动时一次性填充）。TUI 不会修改它。
 	cfg *types.Config
+	// state is the shared pipeline *types.State captured by the
+	// first Stats() call. Held under mu; once set it's never
+	// changed (pipeline uses a single State for the whole scan).
+	// The dispatcher copies the pointer onto its inner model on
+	// the first statsMsg so the info-density panels have a live
+	// source.
+	//
+	// state 是首次 Stats() 调用捕获的共享 pipeline *types.State。
+	// 在 mu 下持有；设置后不再变（pipeline 单次扫描用同一个 State）。
+	// dispatcher 在第一条 statsMsg 把指针拷到内部 model 上，让信
+	// 息密度面板有实时数据源。
+	state *types.State
 }
 
 // NewProgram constructs a Program. The bubbletea event loop does NOT
@@ -291,13 +336,41 @@ func (p *Program) Banner(*types.Config) {}
 // throttle window are dropped, and the last dispatch is held
 // in lastStats so a no-op tick doesn't wake the render loop.
 //
+// v0.5.2 production wiring: the first Stats() call captures the
+// *types.State pointer so subsequent statsMsg dispatches can wire
+// it onto the inner model (the info-density panels depend on it).
+// The capture is a one-shot — a single State is used for the whole
+// scan, so re-capturing would be wasted work. Tests that drive
+// statsMsg directly without a State still work because state is
+// optional on statsMsg.
+//
 // Stats 实现 ui.UI——推送最新计数器快照。带短路：节流窗口内相同
 // 快照直接丢弃；最近一次派发记在 lastStats，空 tick 不会叫醒
 // 渲染循环。
+//
+// v0.5.2 生产接线：首次 Stats() 调用捕获 *types.State 指针，让后续
+// statsMsg 派发能把它接到内部 model 上（信息密度面板依赖它）。捕
+// 获是一次性的——单次扫描共用一个 State，重捕只会浪费。直接派发
+// statsMsg 不带 State 的测试仍能工作，因为 state 在 statsMsg 上是
+// 可选的。
 func (p *Program) Stats(s *types.State) {
 	if s == nil {
 		return
 	}
+	// First-call capture: the pipeline passes the same *State
+	// pointer every tick, so we just remember the first one and
+	// reuse it forever. Guarded by mu so a concurrent Stats()
+	// (rare, but possible across shutdown boundaries) can't race.
+	//
+	// 首次调用捕获：pipeline 每次 tick 都传同一个 *State 指针，
+	// 所以只记第一个，后续复用。mu 守护，避免并发 Stats()（罕见
+	// 但 shutdown 边界可能）赛跑。
+	p.mu.Lock()
+	if p.state == nil {
+		p.state = s
+	}
+	st := p.state
+	p.mu.Unlock()
 	view := s.Snapshot()
 	elapsed := time.Since(p.ran).Round(time.Second).String()
 	// Fast path: identical counters + elapsed within the throttle
@@ -312,7 +385,7 @@ func (p *Program) Stats(s *types.State) {
 	p.lastStats = view
 	p.lastElapsed = elapsed
 	p.lastWhen = now
-	p.p.Send(statsMsg{view: view, elapsed: elapsed, when: now})
+	p.p.Send(statsMsg{view: view, elapsed: elapsed, when: now, state: st})
 }
 
 // Event implements ui.UI — push a non-cred live event.

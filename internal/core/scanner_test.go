@@ -244,7 +244,7 @@ func TestNormalisePluginName(t *testing.T) {
 		{"Redis/7.2", "redis"},
 		{"redis", "redis"},
 		{"postgres-15", "postgres"}, // numeric suffix stripped
-		{"ssh/non-version", "ssh"},  // non-numeric tail kept
+		{"ssh/non-version", "ssh"},  // non-numeric tail stripped (matches unconditional-strip impl)
 	}
 	for _, c := range cases {
 		if got := normalisePluginName(c.in); got != c.want {
