@@ -541,7 +541,7 @@ func (m Model) View() string {
 	// 右对齐显示 elapsed，操作员始终有"从何时起"的信号。
 	stage := types.StageName(int32(m.counters.Stage))
 	spinner := "▶"
-	if int32(m.counters.Stage) == types.StageDone {
+	if int64(m.counters.Stage) == int64(types.StageDone) {
 		spinner = "✓"
 	}
 	stageBadge := fmt.Sprintf("  [ %s %s ]", spinner, stage)
@@ -615,7 +615,7 @@ func (m Model) View() string {
 
 	// Error categories row.
 	// 错误分类行。
-	sb.WriteString(m.renderErrorCategoriesRow(width))
+	sb.WriteString(m.renderErrorCategoriesRow())
 	sb.WriteString("\n")
 
 	// Keymap / 快捷键
@@ -868,10 +868,7 @@ func (m Model) renderTopPluginsPanel(width int) string {
 // renderErrorCategoriesRow 渲染底部错误分类行。格式："ERRORS:
 // timeout 42  refused 15  dns 7"（m.topErrors 为空时渲染
 // "(no errors yet)"）。
-func (m Model) renderErrorCategoriesRow(width int) string {
-	if width <= 0 {
-		width = 80
-	}
+func (m Model) renderErrorCategoriesRow() string {
 	var b strings.Builder
 	b.WriteString(stPanelHeader.Render("ERRORS"))
 	b.WriteString("  ")

@@ -1,0 +1,5 @@
+# Ensure Go source files always use LF, regardless of core.autocrlf.
+# Without this, the autocrlf=true default on Windows converts LF→CRLF
+# on checkout, which breaks `gofmt` and floods CI with whole-file
+# "File is not properly formatted" diffs.
+*.go text eol=lf

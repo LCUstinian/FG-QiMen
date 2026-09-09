@@ -77,7 +77,7 @@ func topN(m map[string]int64, n int) [][2]string {
 		k string
 		v int64
 	}
-	var all []kv
+	all := make([]kv, 0, len(m))
 	for k, v := range m {
 		if v <= 0 {
 			continue
@@ -104,7 +104,7 @@ func topN(m map[string]int64, n int) [][2]string {
 //   - StageAlive:      probed / totalHosts   (alive sweep progress)
 //   - StagePortScan:   ports / totalPorts    (port enumeration)
 //   - StageIdentify:   ports / totalPorts    (same envelope; identify
-//                                             also drives port counter)
+//     also drives port counter)
 //   - StageCred / StageDone: empty (no rate projection)
 //
 // totalHosts / totalPorts are passed separately because
