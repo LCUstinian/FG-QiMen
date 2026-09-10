@@ -30,14 +30,11 @@ vs persistent project workspace with bbolt state).
 
 ---
 
-## Hard rule: scanner, not attack tool
+## No exploit code
 
-FG-QiMen **deliberately does not include any vulnerability-exploitation code**.
-The scanner tries standard authentication handshakes against known services;
-on a hit, the credential is written to `fgqm_creds.txt` and the run stops — no
-`Session.Exec`, no webshell, no persistence. The full no-exploit contract
-(the explicit list of forbidden capabilities) lives in
-[`docs/SECURITY.md`](docs/SECURITY.md).
+Standard auth handshakes only — on a hit, the credential is written and the run
+stops. No `Session.Exec`, no webshell, no persistence. Full no-exploit
+contract: [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ---
 

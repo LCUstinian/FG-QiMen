@@ -29,12 +29,10 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 
 ---
 
-## 硬性原则：探测，不攻击
+## 无漏洞利用
 
-FG-QiMen **故意不包含任何漏洞利用代码**。扫描器用标准认证握手测试已知
-服务；命中时凭据写入 `fgqm_creds.txt` 即终止——不执行 `Session.Exec`、不上
-WebShell、不植入持久化。完整的"不做漏洞利用"契约（明确禁止的能力清单）
-见 [`docs/SECURITY.md`](docs/SECURITY.zh-CN.md)。
+只做标准认证握手——命中即写凭据、立即终止。不执行 `Session.Exec`、不上
+WebShell、不植入持久化。完整契约见 [`docs/SECURITY.md`](docs/SECURITY.zh-CN.md)。
 
 ---
 
