@@ -1,11 +1,36 @@
-// rdp_test.go — integration tests for the RDP plugin's Identify
-// orchestrator. Spins up a fake RDP server that completes the
-// X.224 + MCS handshake with a controlled serverCore, then asserts
-// the plugin extracts hostname / build / NLA flag correctly.
+// rdp_test.go — fake-server tests for the rdp Identify plugin.
 //
-// rdp_test.go — RDP 插件 Identify 编排器的集成测试。启一个假 RDP 服务器
-// 完成 X.224 + MCS 握手并返可控的 serverCore，然后断言插件正确抽
-// hostname / build / NLA 标志。
+// Pattern: fakeserver.ListenLoop binds 127.0.0.1:0, the handler
+// drives the 4-step RDP handshake the plugin expects:
+//  1. read X.224 Connection Request (TPKT-framed)
+//  2. write X.224 Connection Confirm selecting `selectedProto`
+//  3. read MCS Connect-Initial (TPKT-framed)
+//  4. write MCS Connect-Response containing the serverCore
+//
+// The plugin's Identify walks the same state machine, parses
+// the serverCore, and returns a types.Result whose Extra holds
+// a *output.RDPFingerprint.
+//
+// / rdp_test.go — rdp Identify 插件的 fake-server 测试。模式：
+// fakeserver.ListenLoop 绑 127.0.0.1:0，handler 驱动插件期望的
+// 4 步 RDP 握手：1) 读 X.224 CR；2) 写 X.224 CC 选 selectedProto；
+// 3) 读 MCS Connect-Initial；4) 写 MCS Connect-Response 含
+// serverCore。plugin Identify 走同一状态机，解析 serverCore，
+// 返 Extra = *output.RDPFingerprint 的 types.Result。
+//
+// This is a STATEFUL TCP plugin (Tier 3 in the v0.6.0 fake-server
+// plan). The handler is a closure-free linear 4-step sequence —
+// each Step is a single read or write on the same conn — which
+// makes it a clean fit for the fakeserver.ListenLoop dispatch
+// model. Credential is a documented no-op stub (see rdp.go:62-65
+// and the TestRdp_CredentialHit skip below); the real RDP NLA
+// (CredSSP) credential flow is v0.3+.
+//
+// / 这是 v0.6.0 fake-server 计划的 Tier 3 有状态 TCP 插件。handler
+// 是无闭包的 4 步线性序列——每步在同一 conn 上的单次读/写——非常适
+// 合 fakeserver.ListenLoop 分发模型。Credential 是文档化的 no-op
+// stub（见 rdp.go:62-65 及下面的 TestRdp_CredentialHit skip）；
+// 真正的 RDP NLA（CredSSP）凭据流程是 v0.3+。
 package rdp_test
 
 import (
@@ -16,48 +41,36 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/remote/rdp"
 )
 
-// fakeRDPServer handles one RDP client connection: reads the X.224 CR,
-// replies with X.224 CC selecting `selectedProto`, reads the MCS
-// Connect-Initial, then writes a Connect-Response containing
-// serverCore = {name, build, version}.
+// fakeRDPServer handles one RDP client connection via
+// fakeserver.ListenLoop: reads the X.224 CR, replies with X.224
+// CC selecting `selectedProto`, reads the MCS Connect-Initial,
+// then writes a Connect-Response containing serverCore = {name,
+// build, version}. Returns the bound host:port so the test can
+// pass them to Identify.
 //
-// fakeRDPServer 处理一条 RDP 客户端连接：读 X.224 CR，返 X.224 CC 选
-// `selectedProto`，读 MCS Connect-Initial，然后写 Connect-Response 含
-// serverCore = {name, build, version}。
-func fakeRDPServer(t *testing.T, selectedProto uint32, name string, build uint32, version uint32) net.Listener {
+// / fakeRDPServer 通过 fakeserver.ListenLoop 处理一条 RDP 客户端
+// 连接：读 X.224 CR，回 X.224 CC 选 selectedProto，读 MCS
+// Connect-Initial，然后写 Connect-Response 含 serverCore。返回绑
+// 定的 host:port 以供测试传给 Identify。
+func fakeRDPServer(t *testing.T, selectedProto uint32, name string, build uint32, version uint32) (host string, port int) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer c.Close()
+	return fakeserver.ListenLoop(t, func(c net.Conn) {
 		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-		// Read the X.224 CR (TPKT-framed).
-		// / 读 X.224 CR（TPKT 包裹）。
+		// Step 1+2: X.224 CR → X.224 CC. / X.224 CR → X.224 CC。
 		_, _ = readTPKT(c)
-		// Reply with X.224 CC.
-		// / 返 X.224 CC。
 		cc := buildX224CC(selectedProto)
 		_, _ = c.Write(cc)
-		// Read MCS Connect-Initial.
-		// / 读 MCS Connect-Initial。
+		// Step 3+4: MCS Connect-Initial → Connect-Response. /
+		// MCS Connect-Initial → Connect-Response。
 		_, _ = readTPKT(c)
-		// Write a Connect-Response with embedded serverCore.
-		// / 写 Connect-Response，含 serverCore。
 		resp := buildMCSConnectResponse(name, build, version)
 		_, _ = c.Write(resp)
-	}()
-	t.Cleanup(func() { _ = ln.Close() })
-	return ln
+	})
 }
 
 // readTPKT is a tiny TPKT reader for the fake server.
@@ -167,9 +180,14 @@ func tpkFrame(body []byte) []byte {
 
 // ─── tests ──────────────────────────────────────────────────────────
 
-func TestRDPPlugin_HYBRID_FullFingerprint(t *testing.T) {
-	ln := fakeRDPServer(t, 0x02 /* PROTOCOL_HYBRID */, "WIN-SRV-01", 19041, 0x00080004)
-	host, port := splitHostPort(t, ln.Addr().String())
+// TestRdp_IdentifyHit_HYBRID covers the happy path with NLA:
+// server picks PROTOCOL_HYBRID, the plugin reports NLA supported
+// and extracts serverCore fields.
+//
+// / TestRdp_IdentifyHit_HYBRID 验证 NLA happy path：服务器选
+// PROTOCOL_HYBRID，插件报 NLA 支持并抽出 serverCore 字段。
+func TestRdp_IdentifyHit_HYBRID(t *testing.T) {
+	host, port := fakeRDPServer(t, rdp.ProtocolHYBRID, "WIN-SRV-01", 19041, 0x00080004)
 
 	p := rdp.New()
 	res := p.Identify(context.Background(), host, port)
@@ -196,14 +214,19 @@ func TestRDPPlugin_HYBRID_FullFingerprint(t *testing.T) {
 	}
 }
 
-func TestRDPPlugin_PlainRDP_NoNLA(t *testing.T) {
-	ln := fakeRDPServer(t, 0x00 /* PROTOCOL_RDP */, "PLAIN", 0, 0x00080004)
-	host, port := splitHostPort(t, ln.Addr().String())
+// TestRdp_IdentifyHit_Plain covers the happy path with classic
+// RDP security (no NLA). / TestRdp_IdentifyHit_Plain 验证经典
+// RDP 安全（无 NLA）的 happy path。
+func TestRdp_IdentifyHit_Plain(t *testing.T) {
+	host, port := fakeRDPServer(t, rdp.ProtocolRDP, "PLAIN", 0, 0x00080004)
 
 	p := rdp.New()
 	res := p.Identify(context.Background(), host, port)
 	if res == nil {
 		t.Fatalf("Identify returned nil")
+	}
+	if res.Service != "rdp" {
+		t.Errorf("Service = %q, want rdp", res.Service)
 	}
 	rdpFP := res.Extra.(*output.RDPFingerprint)
 	if rdpFP.NLASupported {
@@ -211,10 +234,19 @@ func TestRDPPlugin_PlainRDP_NoNLA(t *testing.T) {
 	}
 }
 
-func TestRDPPlugin_ConnRefused(t *testing.T) {
+// TestRdp_IdentifyMiss_ConnRefused covers the dialRDP failure
+// branch: no server is listening on the target port, so dialRDP
+// returns an error and Identify returns nil. / 验证 dialRDP 失
+// 败分支：目标端口无服务器，dialRDP 返错，Identify 返 nil。
+func TestRdp_IdentifyMiss_ConnRefused(t *testing.T) {
+	// Grab a free port, then immediately close the listener so
+	// nothing is listening — Identify will hit the dial error.
+	// / 拿一个空闲端口然后立刻关 listener，让 Identify 撞 dial
+	// 错误。
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
+
 	p := rdp.New()
 	res := p.Identify(context.Background(), "127.0.0.1", port)
 	if res != nil {
@@ -222,14 +254,15 @@ func TestRDPPlugin_ConnRefused(t *testing.T) {
 	}
 }
 
-// splitHostPort: helper for tests. / splitHostPort：测试辅助。
-func splitHostPort(t *testing.T, addr string) (string, int) {
-	t.Helper()
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		t.Fatalf("SplitHostPort: %v", err)
-	}
-	var port int
-	_, _ = fmt.Sscanf(portStr, "%d", &port)
-	return host, port
+// TestRdp_CredentialHit is skipped: rdp.Credential is a
+// documented no-op stub (see rdp.go:62-65 — "Credential is a
+// no-op stub"). RDP NLA (CredSSP) credential testing is
+// explicitly v0.3+ per the package doc; the plugin only
+// fingerprints and never runs Attach / Login / Session Setup.
+// / TestRdp_CredentialHit 跳过：rdp.Credential 是文档化的 no-op
+// stub（见 rdp.go:62-65 "Credential 空 stub"）。RDP NLA
+// （CredSSP）凭据测试按包文档明确为 v0.3+；本插件只做指纹，绝不
+// 跑 Attach / Login / Session Setup。
+func TestRdp_CredentialHit(t *testing.T) {
+	t.Skip("rdp.Credential is a no-op stub; see rdp.go Credential() — RDP NLA is v0.3+")
 }
