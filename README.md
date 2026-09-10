@@ -1,5 +1,8 @@
 # FG-QiMen
 
+> **More features ≠ better.** A pure scanner + credential tester. No exploit, no
+> persistence, no post-auth action — by design.
+
 > A pipeline scanner with project workspaces
 
 FG-QiMen is a pure CLI scanner that decouples the **port scanner (producer)** from

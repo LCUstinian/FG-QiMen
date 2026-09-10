@@ -2,6 +2,24 @@
 
 > [中文版本](../ARCHITECTURE.zh-CN.md)
 
+## Project scope
+
+**In scope:** pure scanner + credential tester. Authorized internal recon,
+asset discovery, weak-password detection, port inventory.
+
+**Out of scope by design** (the project will not ship these, full stop):
+
+- Vulnerability exploitation (CVE-based RCE, deserialization, auth bypass).
+- Persistence / backdooring / lateral movement.
+- Post-credential automation (running commands on a hit, dropping webshells,
+  writing SSH keys).
+- Exploit-framework features that duplicate other tools (Metasploit, Sliver,
+  Cobalt Strike — all do this better; FG-QiMen deliberately doesn't compete).
+
+The rationale lives in [`docs/SECURITY.md`](../SECURITY.md) (threat model +
+HARD rules). The README's tagline ("More features ≠ better") is the one-line
+version.
+
 ## Pipeline data flow
 
 ```

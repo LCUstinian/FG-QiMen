@@ -2,6 +2,22 @@
 
 > [English version](../ARCHITECTURE.md)
 
+## 项目范围
+
+**In scope：** 纯扫描器 + 凭证测试器。授权内网侦察、资产发现、弱口令检测、
+端口清点。
+
+**Out of scope（设计层面永远不做）：**
+
+- 漏洞利用（CVE RCE、反序列化、鉴权绕过）。
+- 持久化 / 后门 / 横向移动。
+- 命中凭证后的自动化操作（在目标上跑命令、丢 webshell、写 SSH key）。
+- 与其他工具重复的 exploit-framework 功能（Metasploit / Sliver / Cobalt
+  Strike 都做得更好；FG-QiMen 故意不跟他们竞争）。
+
+详细 rationale 在 [`docs/SECURITY.md`](../SECURITY.zh-CN.md)（threat model
++ HARD 规则）。README 的 tagline（"功能多 ≠ 好"）是一句话版本。
+
 ## 流水线数据流
 
 ```
