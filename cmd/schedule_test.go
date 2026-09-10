@@ -350,10 +350,15 @@ func TestApplySchedule_WaitCronNoDaemon(t *testing.T) {
 	defer restoreScheduleFlags(save)
 	clearScheduleFlags()
 
-	// "*/1 * * * * *" is 6-field with seconds (robfig/cron/v3
-	// supports it). "*/1 * * * *" is 5-field with minute = every
-	// minute. The 5-field form fires within 60s.
-	flagScheduleCron = "*/1 * * * *"
+	// Use a far-future cron expression so the cron tick is
+	// guaranteed to be outside the 1.2s ctx-timeout window.
+	// `0 0 1 1 *` fires once a year (midnight Jan 1); within any
+	// 1.2s window the cron tick will never win against ctx cancel.
+	// The previous `*/1 * * * *` (every minute) caused flakes on
+	// CI when the test happened to run near the minute boundary:
+	// the next tick could be as little as ~850ms away, returning
+	// before the 1.2s ctx timeout and tripping the lower bound.
+	flagScheduleCron = "0 0 1 1 *"
 
 	cmd, _ := newScheduleTestCmd(t)
 	// Pre-cancel after 1.2s; daemon path isn't hit (no --daemon),
