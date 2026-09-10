@@ -1,266 +1,160 @@
-// mqtt_test.go — unit tests for the MQTT Identify plugin.
+// mqtt_test.go — fake-server tests for the MQTT 3.1.1 Identify plugin.
 //
-// mqtt_test.go — MQTT 识别插件的单元测试。
+// mqtt_test.go — MQTT 3.1.1 识别插件的 fake-server 测试。
 //
-// Scope: minimal fake-server in process that responds with a
-// CONNACK. We use net.Pipe() for frame-level tests (no broker
-// required) and a tcp listener for the Smoke integration test
-// (the helper imports this file via plugintest.Smoke from any
-// other test that wants coverage). / 范围：进程内启一个假 server
-// 返 CONNACK。帧级测试用 net.Pipe()（不需要 broker），Smoke
-// 集成测试用 TCP listener。
+// Pattern: shared fakeserver.ListenLoop spins up a TCP listener
+// on 127.0.0.1:0 and dispatches each accepted connection to a
+// per-test handler that speaks the wire protocol expected by
+// identifyMQTT. / 模式：共享 fakeserver.ListenLoop 在 127.0.0.1:0
+// 起 TCP listener，把每个 accepted conn 分发给每个测试自己的
+// handler，后者按 identifyMQTT 期望的线协议回包。
+//
+// MQTT 3.1.1 (OASIS Standard) wire shape we exercise:
+//
+//	CONNECT (client → broker):
+//	  0x10 | remaining_len | "MQTT" | 0x04 | 0x02 | 0x00 0x3C
+//	  | 0x00 0x05 | "fg-qm"
+//
+//	CONNACK (broker → client, return code 0):
+//	  0x20 | 0x02 | 0x00 | 0x00
+//
+// The minimal CONNECT is 19 bytes (1 type + 1 remaining_len +
+// 10 var_header + 7 payload). The fake server reads exactly
+// that many bytes (with a read deadline as belt-and-braces)
+// before writing CONNACK — otherwise io.Copy would deadlock
+// because the plugin never closes the connection itself.
 package mqtt
 
 import (
-	"bufio"
 	"context"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
-func TestPluginInterface(t *testing.T) {
-	p := New()
-	if got := p.Name(); got != "mqtt" {
-		t.Errorf("Name() = %q, want %q", got, "mqtt")
-	}
-	if got := p.Ports(); len(got) != 2 || got[0] != 1883 || got[1] != 8883 {
-		t.Errorf("Ports() = %v, want [1883 8883]", got)
-	}
+// mqttConnectFrameLen is the byte length of the minimal
+// CONNECT the plugin always sends (see identifyMQTT in mqtt.go):
+// 1 type + 1 remaining_len(=17) + 10 var_header + 7 payload =
+// 19. / mqttConnectFrameLen 是插件最小 CONNECT（见 mqtt.go 中
+// identifyMQTT）的字节长度：1 type + 1 remaining_len(=17) + 10
+// var_header + 7 payload = 19。
+const mqttConnectFrameLen = 19
+
+// drainConnect reads exactly the plugin's CONNECT frame (with
+// a short read deadline so a buggy plugin can't deadlock the
+// test). Returns true if it saw the full CONNECT, false on
+// short read / timeout. / drainConnect 读恰好插件的 CONNECT 帧
+// （用短读 deadline 防 bug 插件死锁测试）。读到完整 CONNECT
+// 返 true，短读 / 超时返 false。
+func drainConnect(c net.Conn) bool {
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, mqttConnectFrameLen)
+	_, err := readFull(c, buf)
+	_ = c.SetReadDeadline(time.Time{})
+	return err == nil
 }
 
-// TestIdentify_RealMQTTBroker_ConnRefused documents the no-server
-// case (no broker on the port) — the plugin returns nil without
-// error. / TestIdentify_RealMQTTBroker_ConnRefused：无 broker 情况
-// 文档——插件返 nil，不报错。
-func TestIdentify_RealMQTTBroker_ConnRefused(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	p := New()
-	if got := p.Identify(context.Background(), "127.0.0.1", port); got != nil {
-		t.Errorf("Identify on closed port = %+v, want nil", got)
-	}
-}
-
-// TestIdentify_FakeServer_CONNACK_ACCEPTED spins up a TCP server
-// that reads the CONNECT and replies with a valid CONNACK
-// (return code 0 = ACCEPTED). The plugin should return a
-// non-nil Result with Service="mqtt". / 启 TCP server 读 CONNECT
-// 返有效 CONNACK（返回码 0 = ACCEPTED）。插件应返非 nil
-// Result，Service="mqtt"。
-func TestIdentify_FakeServer_CONNACK_ACCEPTED(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	var connAckCode atomic.Uint32
-	stop := make(chan struct{})
-	defer close(stop)
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go handleFakeMQTTConn(conn, &connAckCode)
-		}
-	}()
-
-	p := New()
-	result := p.Identify(context.Background(), "127.0.0.1", port)
-	if result == nil {
-		t.Fatal("Identify returned nil for valid CONNACK")
-	}
-	if result.Service != "mqtt" {
-		t.Errorf("Service = %q, want %q", result.Service, "mqtt")
-	}
-	// Wait for the server to record the code we sent. / 等 server
-	// 记录我们发的 code。
-	deadline := time.Now().Add(time.Second)
-	for connAckCode.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if code := connAckCode.Load(); code != 0 {
-		t.Errorf("server saw CONNACK code = %d, want 0 (ACCEPTED)", code)
-	}
-}
-
-// TestIdentify_FakeServer_NonMQTTReply documents the "port is
-// open but the service is not MQTT" case — the server replies
-// with garbage that doesn't look like a CONNACK. The plugin
-// should return nil. / 端口开但服务非 MQTT 的情况——server 返不像
-// CONNACK 的乱码。插件应返 nil。
-func TestIdentify_FakeServer_NonMQTTReply(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	go func() {
-		conn, err := ln.Accept()
+// readFull is a small helper: read exactly len(buf) bytes or
+// return the last error. / readFull 小 helper：读恰好 len(buf)
+// 字节，否则返最后的错误。
+func readFull(c net.Conn, buf []byte) (int, error) {
+	total := 0
+	for total < len(buf) {
+		n, err := c.Read(buf[total:])
+		total += n
 		if err != nil {
-			return
+			return total, err
 		}
-		defer func() { _ = conn.Close() }()
-		// Send a "hello" that doesn't match MQTT framing.
-		// / 发一条不匹配 MQTT framing 的"hello"。
-		_, _ = conn.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
-	}()
+	}
+	return total, nil
+}
 
+// TestMqtt_IdentifyHit: broker replies with CONNACK + return
+// code 0 (ACCEPTED). Plugin must identify it as MQTT. / broker
+// 返 CONNACK + 返回码 0（ACCEPTED）。插件必须识别为 MQTT。
+func TestMqtt_IdentifyHit(t *testing.T) {
+	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
+		// Drain the CONNECT frame the plugin sent so it doesn't
+		// block on the write back. / 把插件发的 CONNECT 读完，
+		// 避免插件回包时阻塞。
+		drainConnect(c)
+		// CONNACK fixed header (0x20 type, 0x02 remaining length)
+		// + variable header (0x00 session present, 0x00 return
+		// code ACCEPTED). / CONNACK fixed header（0x20 类型、
+		// 0x02 remaining length）+ variable header（0x00
+		// session present、0x00 返回码 ACCEPTED）。
+		_, _ = c.Write([]byte{0x20, 0x02, 0x00, 0x00})
+	})
 	p := New()
-	if got := p.Identify(context.Background(), "127.0.0.1", port); got != nil {
-		t.Errorf("Identify with non-MQTT reply = %+v, want nil", got)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	r := p.Identify(ctx, host, port)
+	if r == nil {
+		t.Fatal("expected hit (CONNACK code 0), got nil")
+	}
+	if r.Service != "mqtt" {
+		t.Errorf("Service = %q, want %q", r.Service, "mqtt")
+	}
+	if r.Banner == "" {
+		t.Errorf("Banner empty, want CONNACK summary")
 	}
 }
 
-// TestIdentify_FakeServer_ProtocolError covers the case where
-// the server replies with CONNACK but a reserved/invalid return
-// code (≥6 per spec §3.2.2.3). The plugin must return nil
-// (NOT report a non-MQTT broker as MQTT). / server 返 CONNACK 但
-// 是保留/非法返回码（按规范 §3.2.2.3 ≥6）。插件必须返 nil
-// （不能把非 MQTT broker 报成 MQTT）。
-func TestIdentify_FakeServer_ProtocolError(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		// Read whatever the client sent, then reply with
-		// CONNACK + return code 6 (protocol error / reserved).
-		// / 读客户端发的内容，然后回 CONNACK + 返回码 6（保留值
-		// / 协议错误）。
-		br := bufio.NewReader(conn)
-		_, _ = br.ReadByte() // skip CONNECT type byte
-		// Drain the CONNECT so the client doesn't hit a write
-		// error. / 把 CONNECT 读完，客户端才不会撞到写错误。
-		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-		buf := make([]byte, 4096)
-		_, _ = br.Read(buf)
-		// 0x20 0x02 = CONNACK, fixed header. 0x00 0x06 = session
-		// present=0, return code 6 (reserved). / 0x20 0x02 =
-		// CONNACK fixed header。0x00 0x06 = session present=0,
-		// 返回码 6（保留）。
-		_, _ = conn.Write([]byte{0x20, 0x02, 0x00, 0x06})
-	}()
-
+// TestMqtt_IdentifyMissBadConnAck: server replies with CONNACK
+// but return code 6 (reserved per spec §3.2.2.3). Plugin must
+// NOT report this as MQTT. / server 返 CONNACK 但返回码 6（按
+// 规范 §3.2.2.3 是保留值）。插件不能报为 MQTT。
+func TestMqtt_IdentifyMissBadConnAck(t *testing.T) {
+	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
+		drainConnect(c)
+		// 0x06 = reserved / protocol error per MQTT 3.1.1 §3.2.2.3.
+		_, _ = c.Write([]byte{0x20, 0x02, 0x00, 0x06})
+	})
 	p := New()
-	if got := p.Identify(context.Background(), "127.0.0.1", port); got != nil {
-		t.Errorf("Identify with reserved CONNACK code = %+v, want nil", got)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if r := p.Identify(ctx, host, port); r != nil {
+		t.Errorf("expected nil (reserved CONNACK code 6), got %+v", r)
 	}
 }
 
-// TestIdentify_ConnectFrameFormat inspects the bytes the
-// plugin writes to the broker. Locks the wire format against
-// silent regression. / 检视插件发给 broker 的字节。把线协议格式
-// 钉死，防止静默回归。
-func TestIdentify_ConnectFrameFormat(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	type frameResult struct{ frame []byte }
-	result := make(chan frameResult, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			result <- frameResult{}
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		// Read full CONNECT frame (max 127 bytes for our minimal
-		// CONNECT). / 读完整 CONNECT 帧（我们的最小 CONNECT 最大
-		// 127 字节）。
-		br := bufio.NewReader(conn)
-		frame := make([]byte, 128)
-		n, _ := br.Read(frame)
-		result <- frameResult{frame[:n]}
-	}()
-
+// TestMqtt_IdentifyMissNonMQTT: server replies with bytes that
+// don't have the CONNACK fixed-header type byte (0x20). Plugin
+// must NOT report this as MQTT. / server 返的不是 CONNACK 起始
+// 字节（0x20）的乱码。插件不能报为 MQTT。
+func TestMqtt_IdentifyMissNonMQTT(t *testing.T) {
+	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
+		drainConnect(c)
+		_, _ = c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+	})
 	p := New()
-	_ = p.Identify(context.Background(), "127.0.0.1", port)
-
-	var fr frameResult
-	select {
-	case fr = <-result:
-	case <-time.After(2 * time.Second):
-		t.Fatal("server didn't receive CONNECT within 2s")
-	}
-
-	// Layout: [0x10][remaining_len=17][var_header (10B)][payload (7B)]
-	// = 19 bytes total. The varHeader [10]byte array has the
-	// protocol name in [0:4], level in [4], flags in [5],
-	// keep-alive in [6:8], and the unused [8:10] are zero.
-	// The client ID "fg-qm" is 5 bytes (f, g, -, q, m); payload
-	// is 2-byte length + 5-byte ID = 7 bytes.
-	// / 布局: [0x10][remaining_len=17][var_header (10B)][payload
-	// (7B)] = 19 字节总。varHeader [10]byte 数组: 协议名
-	// [0:4]、level [4]、flags [5]、keep-alive [6:8]，
-	// 未用的 [8:10] 是 0。客户端 ID "fg-qm" 是 5 字节；payload
-	// 是 2 字节长度 + 5 字节 ID = 7 字节。
-	want := []byte{
-		0x10, 0x11, // CONNECT, remaining=17
-		'M', 'Q', 'T', 'T', // protocol name
-		0x04,       // protocol level 4 (MQTT 3.1.1)
-		0x02,       // connect flags (clean session)
-		0x00, 0x3C, // keep alive 60s
-		0x00, 0x00, // unused tail of [10]byte varHeader
-		0x00, 0x05, // payload length = 5
-		'f', 'g', '-', 'q', 'm', // client ID "fg-qm" (5B)
-	}
-	if len(fr.frame) != len(want) {
-		t.Fatalf("frame length = %d, want %d (frame=%x)", len(fr.frame), len(want), fr.frame)
-	}
-	for i := range want {
-		if fr.frame[i] != want[i] {
-			t.Errorf("byte %d: got 0x%02x, want 0x%02x (frame=%x)",
-				i, fr.frame[i], want[i], fr.frame)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if r := p.Identify(ctx, host, port); r != nil {
+		t.Errorf("expected nil (non-MQTT reply), got %+v", r)
 	}
 }
 
-// handleFakeMQTTConn is the per-connection handler for the
-// fake MQTT broker. Reads the CONNECT, replies with a CONNACK
-// carrying the given return code, then closes. / handleFakeMQTTConn
-// 是假 MQTT broker 的每连接 handler。读 CONNECT 返带指定返回码
-// 的 CONNACK，然后关。
-func handleFakeMQTTConn(conn net.Conn, connAckCode *atomic.Uint32) {
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	// Drain whatever the client sent (length-bounded). / 把客户
-	// 端发的东西读完（限定长度）。
-	br := bufio.NewReader(conn)
-	_, _ = br.ReadByte() // skip type byte
-	buf := make([]byte, 4096)
-	_, _ = br.Read(buf)
-	// Send CONNACK with the test-supplied return code. / 发
-	// CONNACK 带测试提供的返回码。
-	code := byte(connAckCode.Load())
-	connAckCode.Store(uint32(code))
-	connAck := []byte{0x20, 0x02, 0x00, code}
-	_, _ = conn.Write(connAck)
+// TestMqtt_CredentialNoOp: per mqtt.go's HARD rule we don't
+// credential-spray MQTT brokers (most use mTLS / device certs,
+// and we don't do post-auth actions either). Credential() is a
+// documented no-op stub returning nil — pin that contract so
+// any future change that turns it into a network call surfaces
+// here. / 按 mqtt.go 的硬性原则，我们不对 MQTT broker 做凭据喷
+// 洒（多数用 mTLS / 设备证书，也无后认证动作）。Credential()
+// 是文档化的 no-op stub 返 nil——把这条契约钉死，将来若有改
+// 动把它变成网络调用就会在这里浮出来。
+func TestMqtt_CredentialNoOp(t *testing.T) {
+	p := New()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	r := p.Credential(ctx, "127.0.0.1", 1883, []types.Cred{
+		{User: "admin", Pass: "admin"},
+	})
+	if r != nil {
+		t.Errorf("expected nil (Credential is no-op stub), got %+v", r)
+	}
 }
-
-// _ keeps the atomic import stable across test-only refactors.
-var _ atomic.Bool
