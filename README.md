@@ -10,17 +10,21 @@ vs persistent project workspace with bbolt state).
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
-┌─ FG-QIMEN v0.5 ──── project: corp-intranet ──── mode: linked ─┐
-│ ⟳ Scanning... elapsed 00:01:23  throughput 142 pps             │
-├──────────────────────┬──────────────────────────────────────────┤
-│ Targets              │ Live Events                              │
-│   alive       18     │   ◆ 192.168.1.1:22  [ssh]   OpenSSH 8.9 │
-│   ports      142     │   ◆ 192.168.1.1:80  [http]  title=...   │
-│   results     42     │   ⚠ 192.168.1.1:22  [ssh/cred] admin/...│
-│   creds        3     │   ✗ 192.168.1.5:3306 timeout            │
-│   errors       7     │                                          │
-├──────────────────────┴──────────────────────────────────────────┤
-│ [q] quit                                                       │
+┌─ FG-QIMEN 0.5.1-dev ── project: corp-intranet ── mode: linked ─┐
+│  [ ▶ IDENTIFY ]                  ETA ~12s                      │
+│  alive 18/24  ports 142/8000  rate 142 pps · 28 hits/s         │
+├─────────────────────────┬───────────────────────────────────────┤
+│ STAGE                   │ TOP PLUGINS                           │
+│   alive       18/24     │   [ssh   12] ███████████░░░░░░░       │
+│   ports     142/8000    │   [http   9] █████████░░░░░░░░░       │
+│   results       42      │   [rdp    4] ████░░░░░░░░░░░░░░       │
+│   creds          3      │   [mysql  2] ██░░░░░░░░░░░░░░░░       │
+│   errors         7      │   [ftp    1] █░░░░░░░░░░░░░░░░░       │
+│                         │   [smb    0] ░░░░░░░░░░░░░░░░░░       │
+├─────────────────────────┴───────────────────────────────────────┤
+│ ERRORS: timeout 42  refused 15  dns 7  reset 3                  │
+├────────────────────────────────────────────────────────────────┤
+│ [q] quit  [space] pause  [l] log                                 │
 └────────────────────────────────────────────────────────────────┘
 ```
 
