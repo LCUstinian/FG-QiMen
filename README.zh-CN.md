@@ -9,11 +9,11 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 [English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
-┌─ FG-QIMEN 0.5.1-dev ── 项目: corp-intranet ── 模式: linked ─────┐
-│  [ ▶ IDENTIFY ]                  预计剩余 ~12s                  │
-│  alive 18/24  ports 142/8000  速率 142 pps · 28 hits/s         │
+┌─ FG-QIMEN 0.5.1-dev ── project: corp-intranet ── mode: linked ─┐
+│  [ ▶ IDENTIFY ]                  ETA ~12s                      │
+│  alive 18/24  ports 142/8000  rate 142 pps · 28 hits/s         │
 ├─────────────────────────┬───────────────────────────────────────┤
-│ 阶段                    │ TOP PLUGINS                           │
+│ STAGE                   │ TOP PLUGINS                           │
 │   alive       18/24     │   [ssh   12] ███████████░░░░░░░       │
 │   ports     142/8000    │   [http   9] █████████░░░░░░░░░       │
 │   results       42      │   [rdp    4] ████░░░░░░░░░░░░░░       │
