@@ -76,7 +76,6 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
@@ -188,8 +187,20 @@ func buildPreloginResponse() []byte {
 	payload = append(payload, encryptNotSup)
 
 	// 8-byte packet header / 8 字节包头
+	//
+	// Note: the PRELOGIN RESPONSE uses packet type 0x04 (reply),
+	// not 0x12. go-mssqldb's parsePrelogin treats the server's
+	// PRELOGIN reply as a regular reply packet (status.type =
+	// packReplyTDS = 0x04); sending 0x12 here triggers
+	// "invalid respones, expected packet type 4, PRELOGIN
+	// RESPONSE" before any token parsing.
+	// / PRELOGIN RESPONSE 用包类型 0x04（reply）而不是 0x12。
+	// go-mssqldb 的 parsePrelogin 把服务器的 PRELOGIN 回复
+	// 当作普通 reply 包（status.type = packReplyTDS = 0x04）；
+	// 这里发 0x12 会触发 "invalid respones, expected packet
+	// type 4, PRELOGIN RESPONSE"，在 token 解析前就报错。
 	hdr := [8]byte{
-		packPreloginT,
+		packReplyTDS,
 		0x01,       // Status = final
 		0x00, 0x00, // Length (filled below)
 		0x00, 0x00, // SPID
@@ -257,6 +268,27 @@ func buildLoginErrorReply(msg string) []byte {
 	token = append(token, u16[:]...)
 	token = append(token, inner...)
 
+	// tokenDone: the driver REQUIRES this to terminate the LOGIN7
+	// reply. Without it, the parser hits EOF after the error token
+	// and surfaces "Invalid TDS stream: EOF" (which doesn't match
+	// "login" / "denied" / "SQL Server" / "mssql" at mssql.go:82, so
+	// the plugin returns nil). Format (MS-TDS §2.2.4):
+	//   - TokenType (1B) = 0xFD
+	//   - Status (2B LE) = 0 (final)
+	//   - CurCmd (2B LE) = 0x000 (login)
+	//   - RowCount (8B LE) = 0
+	// / tokenDone：驱动必须有这个 token 来收尾 LOGIN7 响应。少了
+	// 它，parser 在 error token 后撞 EOF，报 "Invalid TDS stream:
+	// EOF"（不含 "login"/"denied"/"SQL Server"/"mssql"，所以插件
+	// 返 nil）。
+	tokenDone := []byte{
+		tokenError + 0x53, // 0xFD (DONE token type)
+		0x00, 0x00, // status = final
+		0x00, 0x00, // curCmd = login
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // rowCount = 0
+	}
+	payload := append(token, tokenDone...)
+
 	// 8-byte packet header / 8 字节包头
 	hdr := [8]byte{
 		packReplyTDS,
@@ -266,11 +298,11 @@ func buildLoginErrorReply(msg string) []byte {
 		0x01,
 		0x00,
 	}
-	total := 8 + len(token)
+	total := 8 + len(payload)
 	binary.BigEndian.PutUint16(hdr[2:4], uint16(total))
 	out := make([]byte, 0, total)
 	out = append(out, hdr[:]...)
-	out = append(out, token...)
+	out = append(out, payload...)
 	return out
 }
 
@@ -360,42 +392,48 @@ func notMssqlHandler(c net.Conn) {
 // "login error: mssql: Login failed for user 'invalid'"，
 // 插件在 mssql.go:82 用 strings.Contains 匹配 "login"，返
 // 非 nil *types.Result，Service="mssql"，banner="MSSQL"。
-// SKIPPED: the production plugin's DSN at mssql.go:57 is
+// SKIPPED: previously the production plugin's DSN at mssql.go:57 was
 //
 //	server=127.0.0.1:<port>;<port>;<creds>
 //
 // which go-mssqldb's tcpParser.ParseServer (msdsn/conn_str.go:1094)
-// assigns verbatim to Config.Host — the colon-port suffix is NOT
-// stripped. The driver then calls net.ParseIP(p.Host) → nil →
+// assigned verbatim to Config.Host — the colon-port suffix was NOT
+// stripped. The driver then called net.ParseIP(p.Host) → nil →
 // net.LookupIP("127.0.0.1:<port>") → "no such host"
-// (protocol.go:83), so the connection never reaches the TDS
-// handshake our authErrorHandler drives. The LookupIP error does
-// not contain "login" / "denied" / "SQL Server" / "mssql", so
-// Identify returns nil (mssql.go:91) and this test would always
-// fail its non-nil assertion regardless of what bytes the fake
-// server sends.
+// (protocol.go:83), so the connection never reached the TDS handshake.
 //
-// Fix: change the DSN at mssql.go:57 to use just `server=%s` with
-// host only (no port). Per the task's "Do NOT modify any non-test
-// .go file" constraint this is deferred; once the DSN is fixed
-// the fake-server framework below (buildPreloginResponse /
-// buildLoginErrorReply / authErrorHandler) is ready to drive the
-// success path. / 跳过：生产插件 DSN 把端口塞进 server= 字段，
-// go-mssqldb 的 tcpParser.ParseServer 不会去掉端口后缀，
-// LookupIP 直接失败，TDS 握手根本走不到。此限制按任务约束延后
-// 修复；假 server 框架（buildPreloginResponse /
-// buildLoginErrorReply / authErrorHandler）已就位，DSN 修好
-// 后立即可用。
+// Fixed 2026-09-11: mssql.go:57 now passes `host` (not `addr`) to
+// the `server=%s` format verb, so the DSN is `server=127.0.0.1;port=N;…`.
+// The fake-server framework below drives a full PRELOGIN → LOGIN7
+// → tokenError("Login failed for user 'invalid'") round trip; the
+// driver's login loop surfaces
+// "login error: mssql: Login failed for user 'invalid'" which the
+// plugin's strings.Contains check at mssql.go:82 matches against
+// "login", returning a non-nil *types.Result with Service="mssql"
+// and banner="MSSQL". / 此前因 mssql.go:57 DSN 把端口塞进
+// server= 字段，go-mssqldb LookupIP 直接失败，TDS 握手走不到。
+// 2026-09-11 修复：mssql.go:57 改用 `host`（不是 `addr`）作为
+// server=%s 参数，DSN 变为 `server=127.0.0.1;port=N;…`。下面
+// 的假 server 框架驱动完整 PRELOGIN → LOGIN7 → tokenError
+// 握手；驱动登录循环会抛出
+// "login error: mssql: Login failed for user 'invalid'"，
+// 插件在 mssql.go:82 用 strings.Contains 匹配 "login"，
+// 返 Service="mssql"、banner="MSSQL"。
 func TestMssql_IdentifyHit(t *testing.T) {
-	t.Skip("mssql plugin DSN embeds host:port in server=; go-mssqldb LookupIP fails before TDS handshake (see mssql.go:57). Fake-server framework is in place; remove this skip after the DSN is fixed.")
-	// Suppress unused-import warnings for the fake-server helpers
-	// while IdentifyHit is skipped. Remove when un-skipping.
-	// / 在 IdentifyHit 被 skip 时压一下未用 import 警告，取消
-	// skip 时删除。
-	var _ = fakeserver.ListenLoop
-	var _ = authErrorHandler
-	var _ = buildPreloginResponse
-	var _ = buildLoginErrorReply
+	host, port := fakeserver.ListenLoop(t, authErrorHandler)
+	p := New()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	r := p.Identify(ctx, host, port)
+	if r == nil {
+		t.Fatal("Identify returned nil for valid PRELOGIN + Login-failed reply")
+	}
+	if r.Service != "mssql" {
+		t.Errorf("Service = %q, want %q", r.Service, "mssql")
+	}
+	if r.Banner != "MSSQL" {
+		t.Errorf("Banner = %q, want %q", r.Banner, "MSSQL")
+	}
 }
 
 // TestMssql_IdentifyMiss sends a packNormal byte where the driver
@@ -431,8 +469,3 @@ func TestMssql_IdentifyMiss(t *testing.T) {
 func TestMssql_CredentialHit(t *testing.T) {
 	t.Skip("mssql.Credential is a no-op stub; see mssql.go Credential()")
 }
-
-// guard against unused-import warnings on strings when all tests
-// in the file are skipped during exploratory runs. / 防止在探
-// 索性运行中所有测试都被 skip 时 strings 报 unused。
-var _ = strings.Contains

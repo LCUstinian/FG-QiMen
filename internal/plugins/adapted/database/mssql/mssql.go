@@ -12,7 +12,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -50,12 +49,23 @@ func (p *Plugin) Credential(ctx context.Context, host string, port int, creds []
 //
 // Identify 用无效凭据开 TDS 连接（驱动握手时会返回服务器版本）。不实际跑查询。
 func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Result {
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	// Disable encryption for the simple probe (login packet is
 	// encrypted with self-signed certs otherwise). / 关加密（否则登录
 	// 包会用自签证书加密，握手更复杂）。
+	//
+	// Note on DSN form: go-mssqldb's `server=` parser uses `,` (or `\`
+	// for instances) to separate host from port — it does NOT strip a
+	// trailing `:port`. Passing `server=host:port` (which
+	// `net.JoinHostPort` produces) causes `net.ParseIP("127.0.0.1:1234")`
+	// to return nil and the dial to fail with "no such host". The
+	// correct form is `server=host;port=N` as two separate DSN keys.
+	// / go-mssqldb 的 server= 解析器用 `,`（或 `\` for instances）分
+	// 隔 host 和 port，**不会**剥离末尾的 `:port`。传 `server=host:port`
+	// （`net.JoinHostPort` 的产物）会让 `net.ParseIP("127.0.0.1:1234")`
+	// 返回 nil，dial 失败报 "no such host"。正确形式是
+	// `server=host;port=N` 两个独立的 DSN key。
 	dsn := fmt.Sprintf("server=%s;port=%d;user id=invalid;password=invalid;encrypt=disable;timeout=%d",
-		addr, port, int(3*time.Second/time.Second))
+		host, port, int(3*time.Second/time.Second))
 	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
 		return nil
