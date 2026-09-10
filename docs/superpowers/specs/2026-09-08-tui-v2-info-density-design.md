@@ -2,9 +2,35 @@
 
 **Date:** 2026-09-08
 **Author:** Claude (brainstorming session with LCUstinian)
-**Target release:** v0.5.2
+**Target release:** v0.5.2 (deferred — see "Shipped" note below)
 **Branch:** `main`
 **Scope:** Add 5 information-density features to the TUI dashboard: stage indicator, real-time rate, ETA, top-plugins bar chart, error-category breakdown.
+
+---
+
+## Shipped status (2026-09-10)
+
+**All 5 spec features + 5 design optimisations are implemented and on
+`main`** (commits `9825a3e`, `c4f8651`, `bcc0abe`, `51e57e9`, `060e2fa`,
+`f096096`, `2a909c9`). The v0.5.2 tag is **deliberately not cut** —
+per user direction to iterate slowly on version numbers, the
+in-source `version.Value` default was bumped to `0.5.1-dev` instead,
+and the changelog entries live under `[Unreleased]`. The next release
+tag will roll these up.
+
+**5 spec features:** ✅ stage indicator, ✅ real-time rate (EWMA), ✅
+per-stage ETA, ✅ top-plugins bar chart, ✅ error-category breakdown.
+**5 design optimisations:** ✅ EWMA rate smoothing, ✅
+`errors.Is`/`errors.As`-first classifier with substring fallback,
+✅ empty-state placeholders, ✅ plugin-name normalisation at scanner
+write site, ✅ 256-entry memory cap on `PluginHits` / `ErrorCategories`.
+
+Drift from spec: none material. The `256-entry` cap is enforced via
+`sync.Map` write side; mid-run reordering of plugin names is done at
+the scanner dispatch layer (per spec) and not in the TUI render layer.
+The mid-alive-sweep counter stuck-at-zero bug (`060e2fa`) is fixed via
+`alive.Progress()` as the public API surface, matching the spec's
+"external callers use the public API" intent.
 
 ---
 

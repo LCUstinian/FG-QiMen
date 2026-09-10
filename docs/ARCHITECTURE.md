@@ -25,6 +25,47 @@ Channel buffer `DefaultChannelBuffer = 1024` — enough for 200-
 worker spikes, small enough that SIGINT drains within the
 shutdown-timeout window.
 
+## Stage lifecycle + view projection
+
+The scanner emits progress through a small state machine on
+`internal/types.State` so the UI never has to peek at scanner
+internals:
+
+- **`Stage` enum** (`internal/types/state.go`): an `int32`
+  with named constants `StageNone → StageAlive → StagePortScan
+  → StageIdentify → StageCred → StageDone`. The scanner
+  advances `State.Stage` as each phase starts/finishes. The TUI
+  header's `[ ▶ STAGE ]` badge renders directly off this field.
+- **`PluginHits` map** (`State.PluginHits[pluginID]int64`):
+  per-plugin hit counters populated by the plugin workers as
+  they fire. Used by the TUI's "top plugins" bar chart.
+- **`ErrorCategories` map** (`State.ErrorCategories[category]int64`):
+  per-category error counts (`timeout`, `refused`, `dns`, …)
+  populated by `core.ClassifyError`.
+- **`CountersView` projection** (`State.CountersView()`):
+  returns a read-only snapshot struct so the view layer
+  reads a stable contract instead of mutating shared maps.
+  The TUI always reads through this — it does not touch
+  `PluginHits` or `ErrorCategories` directly.
+- **`core.ClassifyError(err)`** (`internal/core/errors.go`):
+  classifies a scan error into a named bucket. The lookup
+  order is `errors.Is`/`errors.As` against the typed sentinel
+  set first, substring fallback last; the substring step is a
+  safety net for raw `*net.OpError`/`syscall.ECONNREFUSED`
+  strings that don't bubble up typed sentinels.
+- **`alive.Progress()`** (`internal/core/alive/cmd.go`):
+  public API for external callers to observe the
+  mid-alive-sweep probe count without coupling to the
+  scanner's channel layout. The TUI's "alive N/M" counter
+  ticks off this.
+
+Why this matters: the channel-decoupled pipeline above is
+great for throughput but terrible for "what is the scan
+doing right now?" visibility. The `Stage` enum +
+`CountersView` projection is the bridge — it lets the UI
+report concrete progress without re-deriving state from
+noisy per-worker channels.
+
 ## Package layering
 
 ```
@@ -37,13 +78,18 @@ cmd/                                Cobra commands
     │   ├── ui/                     UI interface + TextUI + NopUI
     │   └── tui/                    Bubbletea dashboard
     ├── core/                       pipeline orchestrator
-    │   ├── alive/                  host discovery
-    │   ├── scan/                   port scanner
+    │   ├── alive/                  host discovery (exposes
+    │   │                          Progress() for mid-sweep counters)
+    │   ├── scan/                   port scanner (drives Stage lifecycle,
+    │   │                          populates PluginHits/ErrorCategories)
     │   ├── credential/             spray scheduler
+    │   ├── errors/                 ClassifyError(err) -> category bucket
     │   ├── plugins/                Plugin interface + registry
     │   │   └── adapted/            30 built-in plugins
     │   ├── portscan/fingerprint/   Nmap PSL service fingerprint
     │   ├── discovery/              LAN-only ARP + NetBIOS
+    │   ├── fakeserver/             shared in-process test doubles for
+    │   │                          adapted-plugin tests
     │   └── workspace/              ephemeral / project state
     ├── scheduler/                  cross-timezone schedule (--at, --in,
     │                              --cron); cron parser via robfig/cron/v3

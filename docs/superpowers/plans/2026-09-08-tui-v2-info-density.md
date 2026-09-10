@@ -1,5 +1,7 @@
 # TUI v2 — Information Density (Spec A) Implementation Plan
 
+> **Status (2026-09-10):** All tasks shipped to `main`. See the "Shipped status" addendum at the bottom. v0.5.2 tag deliberately not cut (slow-iteration policy).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add 5 information-density features to the TUI dashboard (stage indicator, real-time rate via EWMA, per-stage ETA, top-plugins bar chart, error-category breakdown) plus 5 design optimisations (rate smoothing via EWMA, `errors.As`/`errors.Is` classifier, empty-state placeholders, plugin-name normalisation, 256-entry memory cap on PluginHits/ErrorCategories).
@@ -1278,3 +1280,36 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - Spec §7 risk "Plugin name normalisation" → Task 3 normalises at write site.
 
 Plan covers the spec end-to-end with 4 commits.
+
+---
+
+## Shipped status (2026-09-10)
+
+**All 4 plan commits are on `main`:**
+
+| Task | Commit | Description |
+|------|--------|-------------|
+| 1 (state-type extensions) | `51e57e9` | Stage constants + `PluginHits`/`ErrorCategories` maps on `internal/types.State` |
+| 2 (error classifier) | `bcc0abe` | `internal/core/errors.ClassifyError` with `errors.Is`/`errors.As`-first routing + substring fallback |
+| 3 (scanner.go wiring) | `c4f8651` | scanner drives `Stage` transitions, populates counters, normalises plugin names at write site |
+| 4 (TUI rendering) | `9825a3e` | header badge + ETA + EWMA rate, stats panel, top plugins bar chart, errors panel |
+| mid-alive counter fix (post-plan) | `f096096` + `060e2fa` | `alive.Progress()` public API; TUI counter ticks up as probes complete |
+| State → Model wiring (post-plan) | `2a909c9` | TUI reads production `*types.State` instead of fixture |
+
+**Acceptance check vs spec:**
+
+- ✅ 5 features in scope: stage indicator, real-time rate, ETA, top-plugins bar chart, error-category breakdown
+- ✅ 5 design optimisations: EWMA rate smoothing, errors.Is/As classifier, empty-state placeholders, plugin-name normalisation at scanner write site, 256-entry memory cap on `PluginHits`/`ErrorCategories`
+- ✅ Stage constant integer values match spec (`StageIdle=0`, `StageAlive=1`, `StagePortScan=2`, `StageIdentify=3`, `StageCred=4`, `StageDone=5`)
+- ✅ EWMA α=0.5
+- ✅ Categories: timeout, refused, reset, dns, perm, auth, tls, unreach, other
+- ✅ Per-stage ETA: alive uses `AliveProbed/TotalHosts`; port-scan + identify use `Ports/TotalPorts`; cred + done return `""`
+- ✅ Negative deltas clamped to 0 in EWMA
+- ✅ Plugin name normalisation at scanner write site (not TUI render)
+
+**No material drift from spec.**
+
+**Tag status:** v0.5.2 deliberately not cut. Per user direction to iterate
+slowly on version numbers, the in-source `version.Value` default was
+bumped to `0.5.1-dev` and changelog entries live under `[Unreleased]`.
+The next release tag will roll these up.
