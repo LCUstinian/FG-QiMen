@@ -50,6 +50,9 @@ alias 保留——硬切。实现备注：pflag v1.0.9 在注册时拒绝多字
 到 args 前改写为 `--output-txt` 等。flag-value 启发式（上
 一个 arg 是 flag 形态则跳过重写）确保字面密码如 `-p "-ot"`
 通过长形式能正确往返。
+- **CI 卫生**：.gitattributes 锁 `*.go text eol=lf`，Windows checkout（core.autocrlf=true）不会再把源文件翻 CRLF 触发 gofmt -l。顺手解掉 internal/tui/ 里 4 个已有 golangci-lint 阻塞（Stage 比较的 truncateCmp、top-N slice 的 prealloc、renderErrorCategoriesRow 里多余的 ineffectual width、ETA docstring 注释续行对齐）。TestApplySchedule_WaitCronNoDaemon 的 minute-boundary flake 也修了：测试 cron 从 `*/1 * * * *`（每分钟）换成 `0 0 1 1 *`（每年），保证 1.2s ctx 超时永远先赢。
+- **TUI 信息密度面板**（internal/tui/render.go、internal/tui/tui.go、internal/tui/styles.go、internal/types/state.go）。Header 行新增按阶段的 `[ ▶ STAGE ]` 徽章（ETA 右对齐）、扫描速率（hits/s 和 ports/s，EWMA 平滑）、每次渲染的预算。types.State 加 CountersView 投影，让视图层读稳定契约而不是改共享 map。ClassifyError（internal/core/errors.go）把扫描错误按 errors.Is/As 优先、子串 fallback 的方式路由到命名桶（timeout / refused / dns 等），TUI 底部以压缩汇总行展示 top categories。scanner 配套改造驱动新 Stage 枚举转移并填充 PluginHits / ErrorCategories。8 个单元测试 + 1 个契约测试钉住 rate EWMA、top-N 抽取、ETA 估算和 bar 尺寸。
+- **适配 plugin 测试用 in-process fake-server helpers**（internal/fakeserver/fakeserver.go、internal/fakeserver/*_test.go）。一个小型共享包，为各 plugin 家族（HTTP、TCP、UDP、custom）起一个 httptest 风格的 fake。这是 v0.6.0 80% 覆盖率目标的底座（当前 60% 地板被 30+ 0% 覆盖的 plugin 卡住）。
 - 全部结果文件加 `fgqm_` 前缀（cmd/scan.go、cmd/projects.go、
 cmd/flags.go、internal/output/*_test.go、README*、docs/ARCHITECTURE.md、
 docs/SECURITY.md）。七个默认结果文件名都带 `fgqm_` 前缀，混
@@ -73,6 +76,7 @@ HH-MM-SS 本地时间（连字符分隔，兼容 Windows 文件名，且
 接显式路径，跳过分桶（操作员传这些就是要精确路径）。桶名在
 scan 开始时一次性抓取，跨午夜扫描落到单一日桶，不会拆分结果。
 ### Fixed
+- **TUI mid-alive-sweep 计数实时更新**（internal/core/alive/cmd.go、internal/core/alive/probe.go、internal/tui/tui.go、internal/types/state.go）。原来 header 的 "alive N/M" 在 alive 阶段完成前一直停在 0/M；现在随 probe 完成即时增长。alive.Progress() 是供外部调用方观察中途探测数的公共 API。
 ## [0.5.0] - 2026-09-01
 ### Added
 ### Changed

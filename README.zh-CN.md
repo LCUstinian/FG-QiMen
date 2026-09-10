@@ -103,6 +103,15 @@ TUI 在 stdout 是 TTY 时**默认开启**。强制纯文本：
 fg-qimen -H 127.0.0.1 --no-tui
 ```
 
+仪表盘采用定宽两栏布局（适合 ≥100 列终端，窄终端自动堆叠为单列）：
+
+- **Header**：按阶段的 `[ ▶ STAGE ]` 徽章，ETA 右对齐（如 `[ ▶ ALIVE ]   ETA ~12s`）；扫描速率（hits/s、ports/s，EWMA 平滑）；mid-alive-sweep 的 "alive N/M" 计数随探测完成即时增长（不再卡在 0/M 直到 alive 阶段结束）。
+- **统计面板**（左）：按阶段计数——alive 已探、端口已扫、已识别、凭证尝试 / 命中。
+- **Top plugins 面板**（右）：本次 run 命中最多的 6 个 plugin，定宽条形图渲染，名字在左、`████░░` 占比条在右。
+- **Errors 面板**（底部）：压缩的 `ERRORS: timeout 42  refused 15  dns 7` 汇总行，类别来自 `core.ClassifyError`（errors.Is / errors.As 优先、子串 fallback）。第一次分类化失败落地前显示 `(no errors yet)`。
+
+所有这些都从 `internal/types.State` 的 `CountersView` 投影读，让视图层与 scanner 内部 channel 布局解耦。
+
 ### 字典文件
 
 ```text

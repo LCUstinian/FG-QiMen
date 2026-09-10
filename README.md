@@ -103,6 +103,29 @@ fg-qimen projects info corp-intranet
 The TUI is **on by default** when stdout is a TTY. Force plain text with
 `--no-tui`.
 
+The dashboard renders in a fixed-width two-column layout that fits in
+a 100-column terminal (gracefully stacks single-column on narrower
+terminals):
+
+- **Header**: per-stage `[ ▶ STAGE ]` badge with ETA on the right
+  (`[ ▶ ALIVE ]   ETA ~12s`); scan rate in hits/s and ports/s
+  (EWMA-smoothed); mid-alive-sweep "alive N/M" counter ticks up as
+  probes complete (no more stuck-at-zero until alive finishes).
+- **Stats panel** (left): per-stage counters — alive probed,
+  ports found, identified, credentials attempted / hit.
+- **Top plugins panel** (right): the 6 plugins with the most hits
+  this run, rendered as a fixed-width bar chart with the
+  `[plugin N]` name on the left and a `████░░` bar showing share.
+- **Errors panel** (bottom): a compact
+  `ERRORS: timeout 42  refused 15  dns 7` line, with categories
+  coming from `core.ClassifyError` (errors.Is / errors.As first,
+  substring fallback). The line is `(no errors yet)` until the
+  first categorized failure lands.
+
+All of this is read off a `CountersView` projection on
+`internal/types.State` so the view layer is decoupled from the
+scanner's internal channel layout.
+
 ### Dictionary files
 
 ```text

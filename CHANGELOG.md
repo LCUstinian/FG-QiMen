@@ -75,11 +75,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on to eliminate the "works on my machine, breaks in CI"
   surprise.
 
-- **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
-  `cmd/multishort_test.go`, `cmd/{root,resume,scan,schedules}.go`,
-  `internal/core/credential/pool.go`, `README*`). Single-letter
-  shorts are now all lowercase and mnemonic; 2-letter shorts
-
 ### Changed
 
 - **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
@@ -112,6 +107,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sees the args. A flag-value heuristic (skip rewrite when
   the previous arg is flag-shaped) ensures literal passwords
   like `-p "-ot"` round-trip correctly via the long form.
+
+- **CI hygiene**: `.gitattributes` pins `*.go text eol=lf` so
+  Windows checkouts (`core.autocrlf=true`) no longer flip
+  source files to CRLF and trip `gofmt -l`. Also resolved
+  4 pre-existing golangci-lint blockers in `internal/tui/`
+  (`truncateCmp` on the Stage comparison, `prealloc` on
+  the top-N slice, an `ineffectual width` in
+  `renderErrorCategoriesRow`, and the comment continuation
+  alignment on the ETA docstring). Fixed a minute-boundary
+  flake in `TestApplySchedule_WaitCronNoDaemon`
+  (`cmd/schedule_test.go`) by switching the test's cron
+  expression from `*/1 * * * *` (every minute) to
+  `0 0 1 1 *` (once per year) so the 1.2 s ctx-timeout
+  always wins.
+
+  CI 卫生：.gitattributes 锁 `*.go text eol=lf`，Windows
+  checkout（core.autocrlf=true）不会再把源文件翻 CRLF
+  触发 gofmt -l。顺手解掉 internal/tui/ 里 4 个已有
+  golangci-lint 阻塞（Stage 比较的 truncateCmp、top-N
+  slice 的 prealloc、renderErrorCategoriesRow 里多余的
+  ineffectual width、ETA docstring 注释续行的对齐）。
+  TestApplySchedule_WaitCronNoDaemon 的 minute-boundary
+  flake 也修了：测试 cron 从 `*/1 * * * *`（每分钟）
+  换成 `0 0 1 1 *`（每年），1.2s ctx 超时永远先赢。
+
+- **TUI info-density panels** (`internal/tui/render.go`,
+  `internal/tui/tui.go`,
+  `internal/tui/styles.go`,
+  `internal/types/state.go`). Header row now shows a
+  per-stage `[ ▶ STAGE ]` badge with right-aligned ETA,
+  scan rate (hits/s and ports/s, EWMA-smoothed), and the
+  per-render budget. Adds a dedicated
+  `CountersView` projection on `types.State` so the view
+  layer reads from a stable contract instead of mutating
+  shared maps. `ClassifyError` (
+  `internal/core/errors.go`) routes scan errors into named
+  buckets (`timeout`, `refused`, `dns`, etc.) via
+  `errors.Is`/`errors.As` first, substring fallback last;
+  the bottom of the TUI surfaces the top categories as a
+  compact summary line. Companion scanner change drives
+  the new `Stage` enum transitions and populates
+  `PluginHits` / `ErrorCategories` so the TUI reflects
+  truth, not speculation. 8 unit tests + 1 contract test
+  pin the rate EWMA, top-N extraction, ETA projection,
+  and bar sizing.
+
+  TUI 信息密度面板（internal/tui/render.go、
+  internal/tui/tui.go、internal/tui/styles.go、
+  internal/types/state.go）。Header 行新增按阶段的
+  `[ ▶ STAGE ]` 徽章（ETA 右对齐）、扫描速率（hits/s 和
+  ports/s，EWMA 平滑）、每次渲染的预算。types.State 加
+  CountersView 投影，让视图层读稳定契约而不是改共享
+  map。ClassifyError（internal/core/errors.go）把扫描
+  错误按 errors.Is/As 优先、子串 fallback 的方式路由到命
+  名桶（timeout / refused / dns 等），TUI 底部以压缩汇
+  总行展示 top categories。scanner 配套改造驱动新 Stage
+  枚举转移并填充 PluginHits / ErrorCategories，让 TUI 反
+  映真实状态。8 个单元测试 + 1 个契约测试钉住 rate EWMA、
+  top-N 抽取、ETA 估算和 bar 尺寸。
+
+- **In-process fake-server helpers for adapted-plugin
+  tests** (`internal/fakeserver/fakeserver.go`,
+  `internal/fakeserver/*_test.go`). A small shared
+  package that stands up a `httptest`-style fake for each
+  plugin family (HTTP, TCP, UDP, custom) so the adapted
+  plugins can drop their hardcoded test endpoints and be
+  exercised under deterministic, in-process I/O. This is
+  the foundation for the v0.6.0 80%-coverage goal (the
+  current 60% floor is capped by the 30+ plugins sitting at
+  0%).
+
+  适配 plugin 测试用 in-process fake-server helpers
+  （internal/fakeserver/fakeserver.go、
+  internal/fakeserver/*_test.go）。一个小型共享包，为各
+  plugin 家族（HTTP、TCP、UDP、custom）起一个 httptest 风
+  格的 fake，让适配 plugin 不用再依赖硬编码的测试端点，在
+  确定性的进程内 I/O 下被测试。这是 v0.6.0 80% 覆盖率目标
+  的底座（当前 60% 地板被 30+ 0% 覆盖的 plugin 卡住）。
 
 - **`fgqm_` prefix on all result files** (`cmd/scan.go`,
   `cmd/projects.go`, `cmd/flags.go`, `internal/output/*_test.go`,
@@ -164,6 +237,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lands in a single folder rather than splitting its results.
 
 ### Fixed
+
+- **TUI mid-alive-sweep counter shows real progress**
+  (`internal/core/alive/cmd.go`,
+  `internal/core/alive/probe.go`,
+  `internal/tui/tui.go`,
+  `internal/types/state.go`). The "alive N/M" line in the
+  header was stuck at 0/M until the alive stage fully
+  finished; it now ticks up as probes complete. `alive.Progress()`
+  is the public API surface external callers use to observe
+  mid-run probe counts without coupling to the scanner's
+  internal channel layout.
+
+  TUI mid-alive-sweep 计数实时更新
+  （internal/core/alive/cmd.go、
+  internal/core/alive/probe.go、internal/tui/tui.go、
+  internal/types/state.go）。原来 header 的 "alive N/M"
+  在 alive 阶段完成前一直停在 0/M；现在随 probe 完成即时
+  增长。alive.Progress() 是供外部调用方观察中途探测数的
+  公共 API，不用耦合到 scanner 的内部 channel 布局。
 
 - **Hard-exit data loss on result sinks** (`cmd/scan.go`,
   `cmd/cmd_test.go`). On the hard-exit path — second SIGINT

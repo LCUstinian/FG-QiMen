@@ -24,6 +24,12 @@ package version
 // step (which greps the version output for the tag name) is
 // what surfaced the silent failure.
 //
+// The in-source default is set to the most recent released
+// version with a `-dev` suffix, so `go run` from a fresh
+// checkout reports something honest (e.g. "0.5.1-dev") instead
+// of a stale v0.2.0 that no longer matches reality. The next
+// release bumps this.
+//
 // Value 是 FG-QiMen 的语义版本号，可通过 -ldflags 在构建时覆盖。
 // 注：必须用 `var`（不能用 `const`）才能让 -X linker 标志生效。
 // 常量在编译时被烤进调用者代码，link 时无法修补。原声明是
@@ -32,4 +38,8 @@ package version
 // 这个 bug 在 lint 阶段没被抓住——Go 的编译期内联掩盖了断
 // 开的接线。release.yml 的 smoke-test 步骤（用 tag 名 grep
 // version 输出）才暴露了这个静默失败。
-var Value = "0.2.0"
+//
+// 源代码内默认值用"最新已发布 + -dev"的形式，让 `go run` 从
+// 新 checkout 出来报诚实版本（"0.5.1-dev"），而不是与现实脱
+// 节的 v0.2.0。下次发版时再 bump。
+var Value = "0.5.1-dev"

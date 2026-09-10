@@ -31,15 +31,24 @@ func TestValueIsVar(t *testing.T) {
 	_ = Value
 }
 
-// TestValueDefault pins the in-source default to "0.2.0". A change
-// to the default would be a user-visible behavior change (every
-// `go run` from a fresh checkout would report a different
-// version) and should require an explicit update here.
-// / TestValueDefault 把源代码默认值钉在 "0.2.0"。改默认值是
-// 用户可见行为变化（每个 `go run` 都会报不同版本），需要显式更新
-// 此测试。
+// TestValueDefault pins the in-source default to the most-recent
+// released version with a "-dev" suffix. A change to the default
+// would be a user-visible behavior change (every `go run` from a
+// fresh checkout would report a different version) and should
+// require an explicit update here.
+//
+// Pattern is: "<last-released-tag>-dev". Bump this in lockstep
+// with the version.go default whenever a release is tagged.
+//
+// / TestValueDefault 把源代码默认值钉在"最新已发布 + -dev"。
+// 改默认值是用户可见行为变化（每个 `go run` 都会报不同版
+// 本），需要显式更新此测试。
+//
+// 模式："<上次发版 tag>-dev"。每次 release 打 tag 时与
+// version.go 默认值同步 bump。
 func TestValueDefault(t *testing.T) {
-	if Value != "0.2.0" {
-		t.Errorf("Value default changed: got %q, want %q (update this test if intentional)", Value, "0.2.0")
+	const want = "0.5.1-dev"
+	if Value != want {
+		t.Errorf("Value default changed: got %q, want %q (update this test if intentional)", Value, want)
 	}
 }
