@@ -30,10 +30,10 @@ vs persistent project workspace with bbolt state).
 
 ---
 
-## No exploit code
+## Pure scanner
 
-Standard auth handshakes only — on a hit, the credential is written and the run
-stops. No `Session.Exec`, no webshell, no persistence. Full no-exploit
+A scanner + credential tester — useful for authorized red-team recon. The
+project ships no exploitation, no post-auth action, no persistence. Full
 contract: [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ---
