@@ -56,6 +56,16 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	if host != imdsHost {
 		return nil
 	}
+	return probeAWS(ctx, host, port)
+}
+
+// probeAWS sends a GET to /latest/meta-data/ and looks for the
+// canonical "instance-id" line in the body. The minimum identifying
+// response is a 200 OK whose payload lists metadata paths that
+// include instance-id (IMDSv1 returns one path per line). /
+// probeAWS 发 GET 到 /latest/meta-data/ 并在 body 中找 "instance-id"
+// 行。最小命中响应是 200 OK + 含 instance-id 的 metadata 路径列表。
+func probeAWS(ctx context.Context, host string, port int) *types.Result {
 	addr := net.JoinHostPort(host, itoa(port))
 	url := fmt.Sprintf("http://%s/latest/meta-data/", addr)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
