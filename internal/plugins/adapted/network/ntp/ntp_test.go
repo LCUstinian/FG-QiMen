@@ -7,45 +7,23 @@ import (
 	"net"
 	"testing"
 	"time"
-)
 
-// startFakeNTP starts an in-process UDP NTP server. Returns the
-// host:port the client should connect to. / startFakeNTP 启动一个
-// 进程内的 UDP NTP 假服务，返回客户端应连接的 host:port。
-func startFakeNTP(t *testing.T, stratum byte) (string, int) {
-	t.Helper()
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-	go func() {
-		buf := make([]byte, 48)
-		for {
-			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-			_, raddr, err := conn.ReadFromUDP(buf)
-			if err != nil {
-				return
-			}
-			resp := make([]byte, 48)
-			// LI=0, VN=4, Mode=4 (server) = 0b00100100 = 0x24.
-			// / LI=0, VN=4, Mode=4 (server) = 0b00100100 = 0x24。
-			resp[0] = 0x24
-			resp[1] = stratum
-			_, _ = conn.WriteToUDP(resp, raddr)
-		}
-	}()
-	return "127.0.0.1", conn.LocalAddr().(*net.UDPAddr).Port
-}
+	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
+)
 
 // TestNTP_Hit verifies a stratum-2 server is identified. /
 // 验证 stratum-2 server 被识别。
 func TestNTP_Hit(t *testing.T) {
-	host, port := startFakeNTP(t, 2)
+	host, port := fakeserver.ListenUDPLoop(t, func(req []byte, src *net.UDPAddr) []byte {
+		resp := make([]byte, 48)
+		// LI=0, VN=4, Mode=4 (server) = 0b00100100 = 0x24.
+		// / LI=0, VN=4, Mode=4 (server) = 0b00100100 = 0x24。
+		resp[0] = 0x24
+		// Stratum 2 — primary reference server reachable from the
+		// client. / Stratum 2 — 客户端可达的二级参考源。
+		resp[1] = 2
+		return resp
+	})
 	auth := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -67,29 +45,18 @@ func TestNTP_NotNTP(t *testing.T) {
 	// Listen on a TCP port that does nothing. UDP dial succeeds
 	// but the response will not be NTP-shaped. / 监听一个无操
 	// 作的 TCP 端口。UDP 拨号成功但响应不是 NTP 格式。
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
+	_, port := fakeserver.ListenLoop(t, func(c net.Conn) {
 		// Reply with garbage. / 回垃圾数据。
 		_, _ = c.Write([]byte("not ntp"))
-		_ = c.Close()
-	}()
+	})
 	// NTP's UDP dial to a TCP-only port will fail. We expect nil
 	// (dial failure returns nil from RawUDPIdentify). / NTP 的
 	// UDP 拨号到仅 TCP 的端口会失败。我们期望 nil（拨号失败
 	// 让 RawUDPIdentify 返回 nil）。
-	tcpAddr := ln.Addr().(*net.TCPAddr)
 	auth := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	hit := auth.Identify(ctx, tcpAddr.IP.String(), tcpAddr.Port)
+	hit := auth.Identify(ctx, "127.0.0.1", port)
 	if hit != nil {
 		t.Errorf("expected nil for TCP-only port, got %+v", hit)
 	}
