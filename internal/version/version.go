@@ -24,17 +24,11 @@ package version
 // step (which greps the version output for the tag name) is
 // what surfaced the silent failure.
 //
-// The in-source default is set to the most recent released
-// version with a `-dev` suffix, so `go run` from a fresh
-// checkout reports something honest (e.g. "0.6.0-dev") instead
-// of a stale v0.2.0 that no longer matches reality. The next
-// release bumps this.
-//
-// v0.6.0-dev: fake-server coverage push landed (35 plugins
-// tested, 60.5% → 70.8%), mssql plugin DSN bug fixed, ci-
-// coverage-check.py raised global floor 60% → 70% with per-
-// plugin 60% walk. v0.6.0 tag pending — defer until coverage
-// stabilises at 80%+ or a forcing function appears.
+// The in-source default is the most recent released version. The
+// -ldflags -X override (see RELEASE.md) is the authoritative
+// source for release builds; the in-source default only matters
+// for `go run` from a fresh checkout, where it reports the latest
+// release honestly instead of a stale v0.2.0.
 //
 // Value 是 FG-QiMen 的语义版本号，可通过 -ldflags 在构建时覆盖。
 // 注：必须用 `var`（不能用 `const`）才能让 -X linker 标志生效。
@@ -44,8 +38,4 @@ package version
 // 这个 bug 在 lint 阶段没被抓住——Go 的编译期内联掩盖了断
 // 开的接线。release.yml 的 smoke-test 步骤（用 tag 名 grep
 // version 输出）才暴露了这个静默失败。
-//
-// 源代码内默认值用"最新已发布 + -dev"的形式，让 `go run` 从
-// 新 checkout 出来报诚实版本（"0.6.0-dev"），而不是与现实脱
-// 节的 v0.2.0。下次发版时再 bump。
-var Value = "0.6.0-dev"
+var Value = "0.6.0"

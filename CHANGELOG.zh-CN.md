@@ -3,7 +3,28 @@
 
 # Changelog
 ## [Unreleased]
+
+## [0.6.0] - 2026-09-10
+
+Fake-server 覆盖推进。35 个 adapted plugin 中的 35 个拿到了 in-process
+fake-server 测试（通过新 `internal/fakeserver/` 共享包）；两个 plugin
+（modbus、snmpv3）以较低 per-plugin 覆盖率 ship，文档化 v0.6.1 follow-up
+（按 plan §11.2 的"复杂协议"例外）。项目总覆盖率 60.5% → 70.8%（+10.3 pp）。
+Fake-server 开发过程中揭出 mssql plugin 真 bug（`server=<addr>;port=<port>`
+DSN 永远不能被 go-mssqldb 的 `tcpParser` 解析），commit `45a19b3` 已修。
+CI 门槛提升：全局覆盖率地板 60% → 70%，`scripts/ci-coverage-check.py`
+新增 per-plugin 60% walk。
+
 ### Added
+
+- **`internal/fakeserver/`**（`fakeserver.go`、`tcp.go`、`udp.go`、
+  `http.go`、`bin.go`、`doc.go`、`fakeserver_test.go`）。共享的进程内
+  fake-server helper：`ListenLoop`（TCP）、`ListenUDPLoop`（UDP）、
+  `StartHTTP`（HTTP via httptest）、`WriteMagic`（binary TLV builder）。
+  每个 helper 绑 `127.0.0.1:0`（OS 自动分空闲端口）所以并发测试永不冲
+  突；注册 `t.Cleanup` 关 listener 所以测试进程不泄漏。引入前每个 plugin
+  测试要内联 ~20 行相同的 listener plumbing；集中后每个 plugin 测试只需
+  "写协议 handler + 断言 Identify/Credential 返回"。
 - applySchedule 单元测试（cmd/schedule_test.go，含
 daemon-loops 12 个 case）。v0.5 时该函数 0% 覆盖，现
 **100%**。覆盖 ModeNone 早返、9 个 Resolve 错误路径（at
@@ -20,12 +41,16 @@ applyHTTPForm（空 + 填）、detectScheduleMode（4 种 mode +
 测试。cmd/ 单元可测代码 59.6% → 64.4%。总覆盖率仍 ~60.5%
 因 30+ adapted plugin 0% 覆盖——需要 fake-server 基础
 设施（v0.6 目标）。
+
 ### Changed
-- 覆盖率门槛维持 60%（scripts/ci-coverage-check.py）。
-A2 原目标 65%，但 30+ adapted plugin 0% 覆盖把总覆盖率拖
-到 60.5%——没 fake-server fixture（v0.6 工作）到不了 65%。
-门槛维持 60%，docstring 详细说明 65% 推迟原因。cmd/ 单
-元可测代码已达 64.4%。
+
+- 覆盖率门槛从 60% 抬到 70%（scripts/ci-coverage-check.py）。
+  v0.5.1 设的目标 80% 通过 fake-server 覆盖推进后达到
+  70.8%。80% 全局目标仍是 v0.6.x 的方向——per-plugin 70%
+  walk 同时引入，让 CI 能抓住任何单 plugin 包的回归（之前
+  30 个 plugin 全 0% 拖累 60% 全局地板，现在每个 plugin 都
+  要单独 ≥ 60%）。modbus（plugin 端 readFullMBP bug）放
+  FLOOR_EXEMPT，跟踪为 v0.6.1 follow-up。
 - 6 字段 cron 表达式（internal/scheduler/cron.go）。解析器
 从 cron.ParseStandard（5 字段）改为 cron.NewParser
 (SecondOptional | ...)，5 或 6 字段都支持。文档化的 5
@@ -37,7 +62,6 @@ A2 原目标 65%，但 30+ adapted plugin 0% 覆盖把总覆盖率拖
 time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时
 间静默错。v0.5.1 改为默认开启，消除"我机器行 CI 挂"
 的尴尬。
-### Changed
 - 短参全面重构（cmd/flags.go、cmd/multishort.go、cmd/multishort_test.go、
 cmd/{root,resume,scan,schedules}.go、internal/core/credential/pool.go、
 README*）。单字母短参全部小写 + mnemonic；2 字母短参用于命名空
@@ -52,7 +76,6 @@ alias 保留——硬切。实现备注：pflag v1.0.9 在注册时拒绝多字
 通过长形式能正确往返。
 - **CI 卫生**：.gitattributes 锁 `*.go text eol=lf`，Windows checkout（core.autocrlf=true）不会再把源文件翻 CRLF 触发 gofmt -l。顺手解掉 internal/tui/ 里 4 个已有 golangci-lint 阻塞（Stage 比较的 truncateCmp、top-N slice 的 prealloc、renderErrorCategoriesRow 里多余的 ineffectual width、ETA docstring 注释续行对齐）。TestApplySchedule_WaitCronNoDaemon 的 minute-boundary flake 也修了：测试 cron 从 `*/1 * * * *`（每分钟）换成 `0 0 1 1 *`（每年），保证 1.2s ctx 超时永远先赢。
 - **TUI 信息密度面板**（internal/tui/render.go、internal/tui/tui.go、internal/tui/styles.go、internal/types/state.go）。Header 行新增按阶段的 `[ ▶ STAGE ]` 徽章（ETA 右对齐）、扫描速率（hits/s 和 ports/s，EWMA 平滑）、每次渲染的预算。types.State 加 CountersView 投影，让视图层读稳定契约而不是改共享 map。ClassifyError（internal/core/errors.go）把扫描错误按 errors.Is/As 优先、子串 fallback 的方式路由到命名桶（timeout / refused / dns 等），TUI 底部以压缩汇总行展示 top categories。scanner 配套改造驱动新 Stage 枚举转移并填充 PluginHits / ErrorCategories。8 个单元测试 + 1 个契约测试钉住 rate EWMA、top-N 抽取、ETA 估算和 bar 尺寸。
-- **适配 plugin 测试用 in-process fake-server helpers**（internal/fakeserver/fakeserver.go、internal/fakeserver/*_test.go）。一个小型共享包，为各 plugin 家族（HTTP、TCP、UDP、custom）起一个 httptest 风格的 fake。这是 v0.6.0 80% 覆盖率目标的底座（当前 60% 地板被 30+ 0% 覆盖的 plugin 卡住）。
 - 全部结果文件加 `fgqm_` 前缀（cmd/scan.go、cmd/projects.go、
 cmd/flags.go、internal/output/*_test.go、README*、docs/ARCHITECTURE.md、
 docs/SECURITY.md）。七个默认结果文件名都带 `fgqm_` 前缀，混
@@ -75,8 +98,11 @@ HH-MM-SS 本地时间（连字符分隔，兼容 Windows 文件名，且
 只有结果产物分桶。-o / -j / --output-csv / --output-sarif 仍
 接显式路径，跳过分桶（操作员传这些就是要精确路径）。桶名在
 scan 开始时一次性抓取，跨午夜扫描落到单一日桶，不会拆分结果。
+
 ### Fixed
+
 - **TUI mid-alive-sweep 计数实时更新**（internal/core/alive/cmd.go、internal/core/alive/probe.go、internal/tui/tui.go、internal/types/state.go）。原来 header 的 "alive N/M" 在 alive 阶段完成前一直停在 0/M；现在随 probe 完成即时增长。alive.Progress() 是供外部调用方观察中途探测数的公共 API。
+- **mssql plugin 真正修了一个 bug**（internal/plugins/adapted/database/mssql/mssql.go）。原 DSN `server=127.0.0.1:12345;port=...` 把端口塞进 server= 字段，go-mssqldb 的 tcpParser 不会剥离端口后缀，ParseIP 返 nil，dial 永远失败。改成 `server=127.0.0.1;port=12345;...`（host 和 port 拆成两个独立 DSN key）后驱动正确解析。Fake-server 测试在修前发现这个 bug——它不需要连真 mssql server 就暴露了"plugin 写错了"这个事实。
 ## [0.5.0] - 2026-09-01
 ### Added
 ### Changed

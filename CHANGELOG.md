@@ -9,8 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-10
+
+Fake-server coverage push. 35 of 43 adapted plugins gained in-process
+fake-server tests via a new `internal/fakeserver/` helper package;
+two adapted plugins (modbus, snmpv3) ship at lower per-plugin
+coverage with a documented v0.6.1 follow-up (per plan §11.2
+"complex protocols" exception). Total project coverage went from
+60.5% to 70.8% (+10.3 pp). A real mssql plugin bug surfaced
+during fake-server development (the `server=<addr>;port=<port>`
+DSN never parsed by go-mssqldb's `tcpParser`); fixed in commit
+`45a19b3`. CI gate raised: global coverage floor 60% → 70%,
+new per-plugin 60% walk in `scripts/ci-coverage-check.py`.
+
 ### Added
 
+- **`internal/fakeserver/`** (`fakeserver.go`, `tcp.go`, `udp.go`,
+  `http.go`, `bin.go`, `doc.go`, `fakeserver_test.go`). Shared
+  in-process fake-server helpers: `ListenLoop` (TCP),
+  `ListenUDPLoop` (UDP), `StartHTTP` (HTTP via httptest),
+  `WriteMagic` (binary TLV builder). Each helper binds to
+  `127.0.0.1:0` so concurrent tests never collide and registers
+  a `t.Cleanup` so the test process never leaks the listener.
+  ~20 lines of identical listener plumbing per test file before
+  this; centralising it shrinks each per-plugin test to "write the
+  protocol handler + assert Identify/Credential returns".
 - **`applySchedule` unit tests** (`cmd/schedule_test.go`,
   12 cases including daemon-loops). The function was at 0%
   coverage in v0.5; now at **100%**. Covers ModeNone early-
