@@ -192,12 +192,12 @@ func buildPreloginResponse() []byte {
 	// not 0x12. go-mssqldb's parsePrelogin treats the server's
 	// PRELOGIN reply as a regular reply packet (status.type =
 	// packReplyTDS = 0x04); sending 0x12 here triggers
-	// "invalid respones, expected packet type 4, PRELOGIN
+	// "invalid responses, expected packet type 4, PRELOGIN
 	// RESPONSE" before any token parsing.
 	// / PRELOGIN RESPONSE 用包类型 0x04（reply）而不是 0x12。
 	// go-mssqldb 的 parsePrelogin 把服务器的 PRELOGIN 回复
 	// 当作普通 reply 包（status.type = packReplyTDS = 0x04）；
-	// 这里发 0x12 会触发 "invalid respones, expected packet
+	// 这里发 0x12 会触发 "invalid responses, expected packet
 	// type 4, PRELOGIN RESPONSE"，在 token 解析前就报错。
 	hdr := [8]byte{
 		packReplyTDS,
@@ -373,9 +373,9 @@ func authErrorHandler(c net.Conn) {
 func notMssqlHandler(c net.Conn) {
 	// Single TDS-ish packet with packNormal (0x0F) — driver will
 	// reject this in readPrelogin and panic with "invalid
-	// respones, expected packet type 4, PRELOGIN RESPONSE". / 单
+	// responses, expected packet type 4, PRELOGIN RESPONSE". / 单
 	// 个 TDS-ish 包用 packNormal (0x0F) — 驱动在 readPrelogin
-	// 中会拒绝并 panic "invalid respones, expected packet type
+	// 中会拒绝并 panic "invalid responses, expected packet type
 	// 4, PRELOGIN RESPONSE"。
 	hdr := [8]byte{0x0F, 0x01, 0x00, 0x08, 0x00, 0x00, 0x01, 0x00}
 	_, _ = c.Write(hdr[:])

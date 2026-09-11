@@ -48,23 +48,6 @@ func bsonKVInt32(key string, v int32) []byte {
 	return append(out, tmp...)
 }
 
-// bsonKVString emits a single BSON string element: type byte 0x02 +
-// NUL-terminated key + 4-byte LE length + raw UTF-8 bytes (no
-// trailing NUL — matches the corrected encoding in mongodb.go:128-131).
-// / bsonKVString 发出单个 BSON string 元素：类型字节 0x02 + NUL 终
-// 止的 key + 4 字节 LE 长度 + 原 UTF-8 字节（无尾部 NUL，匹配
-// mongodb.go:128-131 的修正编码）。
-func bsonKVString(key, v string) []byte {
-	out := []byte{0x02}
-	out = append(out, key...)
-	out = append(out, 0x00)
-	tmp := make([]byte, 4)
-	binary.LittleEndian.PutUint32(tmp, uint32(len(v)))
-	out = append(out, tmp...)
-	out = append(out, v...)
-	return out
-}
-
 // wrapBSON wraps elements in a length-prefixed BSON document (with
 // the required 0x00 terminator). Named wrapBSON to avoid colliding
 // with the production bsonDoc in mongodb.go (same package).
