@@ -61,14 +61,29 @@ func TestLdap_IdentifyHit(t *testing.T) {
 	const wantValue = "dc=example,dc=com"
 	got := make(chan []byte, 1)
 	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
-		// Drain the two writes (BindRequest + SearchRequest) — we
-		// don't inspect them, just confirm both arrived.
-		// / 读掉两次 write（BindRequest + SearchRequest）—— 不
-		// 解析，只确认都到了。
-		req := make([]byte, 1024)
-		n, _ := c.Read(req)
+		// Drain BOTH writes (BindRequest + SearchRequest) — we don't
+		// inspect them, just confirm both arrived in one buffer. A
+		// single Read may fragment under load, so loop until both
+		// application tags (0x60 BindRequest + 0x63 SearchRequest)
+		// appear or the deadline expires.
+		// / 读掉两次 write（BindRequest + SearchRequest）—— 不解析，
+		// 只确认都到了。一次 Read 可能因 kernel 缓冲而只读到一段，
+		// 所以循环到 0x60 + 0x63 都出现或 deadline 到。
+		_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		all := make([]byte, 0, 512)
+		buf := make([]byte, 1024)
+		for {
+			n, err := c.Read(buf)
+			all = append(all, buf[:n]...)
+			if bytes.IndexByte(all, 0x60) >= 0 && bytes.IndexByte(all, 0x63) >= 0 {
+				break
+			}
+			if err != nil {
+				break
+			}
+		}
 		select {
-		case got <- append([]byte(nil), req[:n]...):
+		case got <- all:
 		default:
 		}
 		_, _ = c.Write(fakeSearchResultEntry(wantValue))
