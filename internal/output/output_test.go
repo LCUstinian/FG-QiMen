@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -487,6 +488,14 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 // == "" 时（NilWhenDisabled 用例）调用方还能传 t.TempDir()，
 // 保持所有输出和 cwd 隔离。
 func aliveOutput(t *testing.T, dir, alivePath string) *Output {
+	return aliveOutputWith(t, dir, alivePath, "")
+}
+
+// aliveOutputWith mirrors aliveOutput but lets the caller set the
+// AliveFormat. Used by the format-specific tests below.
+// / aliveOutputWith 镜像 aliveOutput 但让调用方设 AliveFormat。
+// 下面 format-specific 测试用。
+func aliveOutputWith(t *testing.T, dir, alivePath, format string) *Output {
 	t.Helper()
 	base := func(name string) string { return filepath.Join(dir, name) }
 	out, err := OpenOutput(OutputConfig{
@@ -496,6 +505,7 @@ func aliveOutput(t *testing.T, dir, alivePath string) *Output {
 		RDPJSONPath:     base("rj.json"),
 		RDPTXTPath:      base("rt.txt"),
 		ResultAlivePath: alivePath,
+		AliveFormat:     format,
 	})
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)
@@ -608,5 +618,130 @@ func TestWriteResult_AliveSinkNilWhenDisabled(t *testing.T) {
 	}
 	if len(matches) != 0 {
 		t.Errorf("disabled alive sink created files: %v", matches)
+	}
+}
+
+// TestWriteResult_AliveSinkTXTFormat: AliveFormat="txt" (the default)
+// emits one host per line, dedup'd. Locks in the v0.5.1 behaviour
+// + ensures empty format string ("") defaults to "txt".
+// / AliveFormat="txt"（默认）每行一个 host，去重。锁定 v0.5.1 行
+// 为 + 验证空字符串 ("") 默认 "txt"。
+func TestWriteResult_AliveSinkTXTFormat(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.txt")
+	o := aliveOutput(t, dir, alivePath) // empty format → "txt" default
+	defer o.Close()
+
+	for _, host := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.1"} {
+		if err := o.WriteResult(&types.Result{Host: host, Port: 22, Service: "ssh"}); err != nil {
+			t.Fatalf("WriteResult(%s): %v", host, err)
+		}
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	lines := readLines(t, alivePath)
+	want := []string{"10.0.0.1", "10.0.0.2"}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("alive (txt) = %v, want %v", lines, want)
+	}
+}
+
+// TestWriteResult_AliveSinkJSONFormat: AliveFormat="json" emits
+// one NDJSON object per host: {"host":...,"port":N,"service":...,"time":...}
+// / AliveFormat="json" 每行一个 NDJSON 对象：
+// {"host":...,"port":N,"service":...,"time":...}。
+func TestWriteResult_AliveSinkJSONFormat(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.json")
+	o := aliveOutputWith(t, dir, alivePath, "json")
+	defer o.Close()
+
+	t0 := time.Date(2026, 9, 10, 14, 30, 22, 0, time.UTC)
+	for _, host := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.1"} {
+		if err := o.WriteResult(&types.Result{
+			Host: host, Port: 22, Service: "ssh", Time: t0,
+		}); err != nil {
+			t.Fatalf("WriteResult(%s): %v", host, err)
+		}
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	body, err := os.ReadFile(alivePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(body), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("alive (json) line count = %d, want 2 (dedup); body=%q", len(lines), body)
+	}
+	for i, line := range lines {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			t.Errorf("line %d is not valid JSON: %v (line=%q)", i, err, line)
+			continue
+		}
+		if obj["host"] != "10.0.0.1" && obj["host"] != "10.0.0.2" {
+			t.Errorf("line %d host = %v, want 10.0.0.1 or 10.0.0.2", i, obj["host"])
+		}
+		if obj["service"] != "ssh" {
+			t.Errorf("line %d service = %v, want ssh", i, obj["service"])
+		}
+	}
+}
+
+// TestWriteResult_AliveSinkCSVFormat: AliveFormat="csv" emits a
+// CSV header row + one data row per host: host,port,service,time.
+// / AliveFormat="csv" 写 CSV header + 每 host 一行：
+// host,port,service,time。
+func TestWriteResult_AliveSinkCSVFormat(t *testing.T) {
+	dir := t.TempDir()
+	alivePath := filepath.Join(dir, "alive.csv")
+	o := aliveOutputWith(t, dir, alivePath, "csv")
+	defer o.Close()
+
+	t0 := time.Date(2026, 9, 10, 14, 30, 22, 0, time.UTC)
+	for _, host := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.1"} {
+		if err := o.WriteResult(&types.Result{
+			Host: host, Port: 22, Service: "ssh", Time: t0,
+		}); err != nil {
+			t.Fatalf("WriteResult(%s): %v", host, err)
+		}
+	}
+	if err := o.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	body, err := os.ReadFile(alivePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(body), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("alive (csv) line count = %d, want 3 (header + 2 hosts)", len(lines))
+	}
+	wantHeader := "host,port,service,time"
+	if lines[0] != wantHeader {
+		t.Errorf("csv header = %q, want %q", lines[0], wantHeader)
+	}
+	// Each data row: "10.0.0.X,22,ssh,<time>"
+	for _, line := range lines[1:] {
+		parts := strings.SplitN(line, ",", 4)
+		if len(parts) != 4 {
+			t.Errorf("csv row %q has %d fields, want 4", line, len(parts))
+			continue
+		}
+		if parts[0] != "10.0.0.1" && parts[0] != "10.0.0.2" {
+			t.Errorf("csv row host = %q, want 10.0.0.1 or 10.0.0.2", parts[0])
+		}
+		if parts[1] != "22" {
+			t.Errorf("csv row port = %q, want 22", parts[1])
+		}
+		if parts[2] != "ssh" {
+			t.Errorf("csv row service = %q, want ssh", parts[2])
+		}
 	}
 }

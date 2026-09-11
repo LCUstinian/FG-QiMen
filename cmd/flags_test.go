@@ -68,6 +68,7 @@ var expectedFlagGroups = map[string]string{
 	"output-json":  "Output",
 	"output-csv":   "Output",
 	"output-sarif": "Output",
+	"alive-format":  "Output",
 	// v0.4: output rotation (renamed v0.4.1 from --output-rotate-*
 	// to --rotate-* — the `output-` prefix was redundant since
 	// `rotate` is unique to the output subsystem). / v0.4：输出

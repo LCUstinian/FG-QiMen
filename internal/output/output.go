@@ -75,6 +75,24 @@ type Output struct {
 	// result row — a measurable hot-path allocation at 200+ workers.
 	// / csvWriter 提升为字段，仅 OpenOutput 时分配一次。旧代码在
 	// 锁内 per-row 调 csv.NewWriter——200+ worker 下是热路径分配。
+
+	// AliveFormat wires the wire format of the alive-list file.
+	// "" or "txt" = one host per line (default, pipeline-
+	// friendly); "json" = NDJSON per line; "csv" = CSV header +
+	// one row per host. Set from OutputConfig.AliveFormat at
+	// OpenOutput time. / AliveFormat 控制 alive-list 文件线协议。
+	// "" 或 "txt" = 每行一个 host（默认，管道友好）；"json" =
+	// 每行 NDJSON；"csv" = CSV header + 每行一行 host。由
+	// OpenOutput 时从 OutputConfig.AliveFormat 复制。
+	AliveFormat string
+
+	// aliveCSVWriter is allocated only when AliveFormat=="csv"; it
+	// wraps the alive sink and owns the CSV header (written on
+	// first call). Lazily-allocated on first use, just like the
+	// per-sink dedup map. / aliveCSVWriter 仅在 AliveFormat=="csv"
+	// 时分配；包 alive sink 拥有 CSV header（首次调用时写）。懒
+	// 分配，跟 per-sink 去重 map 一样。
+	aliveCSVWriter *csv.Writer
 	csvWriter *csv.Writer
 
 	// csvHeaderWritten tracks whether the CSV header has been emitted
@@ -136,6 +154,15 @@ type OutputConfig struct {
 	// 管道友好——输出可直接用作 `nmap -iL` / `masscan --targets` /
 	// `curl` 循环输入。
 	ResultAlivePath string // empty = no alive-list output
+	// AliveFormat controls the wire format of the alive-list file.
+	// "" or "txt" = one host per line (default, pipeline-friendly).
+	// "json" = NDJSON, one {host, port, service, time} per line.
+	// "csv" = CSV header + one row per host.
+	// / AliveFormat 控制 alive-list 文件的线协议格式。"" 或
+	// "txt" = 每行一个 host（默认，管道友好）。"json" = NDJSON，
+	// 每行一个 {host, port, service, time}。"csv" = CSV header +
+	// 每行一个 host。
+	AliveFormat string // "txt" | "json" | "csv"; empty = "txt"
 
 	// v0.4: SARIF (Static Analysis Results Interchange Format) output.
 	// When set, the SARIF JSON document is assembled and written at
@@ -198,6 +225,16 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 		{cfg.ResultSARIFPath, 0o644, func(w *flushCloser) { o.sarif = w }},
 		{cfg.ResultAlivePath, 0o644, func(w *flushCloser) {
 			o.alive = w
+			// Wire alive list format from config (default = "txt"
+			// preserves v0.5.1 behaviour). Empty string from CLI
+			// is normalised here. / 从配置 wire alive-list 格式
+			// （默认 "txt" 保留 v0.5.1 行为）。CLI 来的空串
+			// 在此归一化。
+			if cfg.AliveFormat == "" {
+				o.AliveFormat = "txt"
+			} else {
+				o.AliveFormat = cfg.AliveFormat
+			}
 			// Lazy-allocate the dedup map now that we have an
 			// alive sink. nil-safe on the dead path (no alive
 			// configured). / 既然开了 alive sink，现在懒分配去重
@@ -393,14 +430,7 @@ func (o *Output) WriteResult(r *types.Result) error {
 	// 主机列表：若本次 run 首次见到 r.Host 则追加。aliveMu 守护
 	// 去重，并发 worker 不会双写。空 r.Host 是防御性 no-op（会
 	// 产生空行，破坏 `nmap -iL`）。
-	if o.alive != nil && r.Host != "" {
-		o.aliveMu.Lock()
-		if _, dup := o.aliveSeen[r.Host]; !dup {
-			o.aliveSeen[r.Host] = struct{}{}
-			fmt.Fprintln(o.alive, r.Host)
-		}
-		o.aliveMu.Unlock()
-	}
+	o.writeAlive(r)
 	return nil
 }
 
@@ -447,6 +477,59 @@ func (o *Output) WriteCred(r *types.Result) error {
 	fmt.Fprintf(o.creds, "%s:%d  %s  %s / %s  %s\n",
 		r.Host, r.Port, r.Service, r.Cred.User, r.Cred.Pass, ts)
 	return nil
+}
+
+// writeAlive appends r to the alive-host sink in the configured
+// wire format. No-op when no sink is configured or when r.Host is
+// empty (defensive — would otherwise produce a stray blank line
+// that breaks `nmap -iL`). The dedup happens here (under
+// aliveMu) so concurrent workers can't double-write the same
+// host. / writeAlive 按配置的线协议格式把 r 追加到 alive-host
+// sink。没配置 sink 或 r.Host 为空时是 no-op（防御性——否则会
+// 产生空行破坏 `nmap -iL`）。去重在此（由 aliveMu 守护），并发
+// worker 不会双写同一 host。
+//
+// Formats:
+//   - "txt" (default): `1.2.3.4\n` — one host per line.
+//   - "json": `{"host":"1.2.3.4","port":22,"service":"ssh","time":"..."}\n` per line.
+//   - "csv": `host,port,service,time\n1.2.3.4,22,ssh,...\n` — header
+//     written on first call via a dedicated csv.Writer (allocated
+//     lazily on first row).
+// / 格式：
+//   - "txt"（默认）：`1.2.3.4\n` —— 每行一个 host。
+//   - "json"：每行 `{"host":"...","port":22,"service":"ssh","time":"..."}\n`。
+//   - "csv"：`host,port,service,time\n1.2.3.4,22,ssh,...\n` —— header
+//     在首次调用时通过专用 csv.Writer（首次 row 懒分配）写入。
+func (o *Output) writeAlive(r *types.Result) {
+	if o.alive == nil || r.Host == "" {
+		return
+	}
+	o.aliveMu.Lock()
+	defer o.aliveMu.Unlock()
+	if _, dup := o.aliveSeen[r.Host]; dup {
+		return
+	}
+	o.aliveSeen[r.Host] = struct{}{}
+	switch o.AliveFormat {
+	case "json":
+		ts := r.Time.Format("2006-01-02T15:04:05Z07:00")
+		fmt.Fprintf(o.alive, `{"host":%q,"port":%d,"service":%q,"time":%q}`+"\n",
+			r.Host, r.Port, r.Service, ts)
+	case "csv":
+		// Lazily allocate the csv writer so we don't pay the
+		// allocation cost when the alive sink isn't configured
+		// or is in txt/json mode. / 懒分配 csv writer——alive sink
+		// 没配置或 txt/json 模式下不付出分配成本。
+		if o.aliveCSVWriter == nil {
+			o.aliveCSVWriter = csv.NewWriter(o.alive.bw())
+			_ = o.aliveCSVWriter.Write([]string{"host", "port", "service", "time"})
+		}
+		ts := r.Time.Format("2006-01-02T15:04:05Z07:00")
+		_ = o.aliveCSVWriter.Write([]string{r.Host, strconv.Itoa(r.Port), r.Service, ts})
+		o.aliveCSVWriter.Flush()
+	default: // "txt" or "" — backward-compatible default
+		fmt.Fprintln(o.alive, r.Host)
+	}
 }
 
 // RDPFingerprint is the extended RDP fingerprint structure that we persist

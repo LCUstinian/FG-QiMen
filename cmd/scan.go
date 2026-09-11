@@ -476,6 +476,21 @@ func loadResumeState(sess *session.Session, cfg *types.Config) error {
 // openOutputSinks 打开多格式结果汇并挂到 sess。默认在项目目录下
 // （项目模式）或当前目录（即扫即走）。
 func openOutputSinks(sess *session.Session, cfg *types.Config) error {
+	// v0.6.1: validate --alive-format. Empty / unknown values
+	// fall back to "txt" (the v0.5.1 default); the help string
+	// already lists the three valid choices. / v0.6.1：校验
+	// --alive-format。空 / 非法值回退到 "txt"（v0.5.1 的默认）；
+	// 帮助字符串已列出三种合法选项。
+	switch cfg.AliveFormat {
+	case "", "txt", "json", "csv":
+		// ok
+	default:
+		fmt.Fprintf(os.Stderr,
+			"warning: --alive-format=%q invalid (want txt|json|csv); falling back to txt\n",
+			cfg.AliveFormat)
+		cfg.AliveFormat = "txt"
+	}
+
 	// Capture the local-time once so all sinks for this run land
 	// in the same daily bucket (a scan that crosses midnight
 	// doesn't split its results across two folders). / 一次性
@@ -553,6 +568,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 		RDPJSONPath:     rdpJSON,
 		RDPTXTPath:      rdpTXT,
 		ResultAlivePath: alivePath,
+		AliveFormat:     flagAliveFormat,
 		// P0#2: result.txt gets the redaction gate; creds.txt is
 		// always cleartext (operator's working file).
 		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员

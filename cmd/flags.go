@@ -89,6 +89,7 @@ var (
 	flagOutputJSON  string
 	flagOutputCSV   string
 	flagOutputSARIF string // v0.4: SARIF for GitHub Code Scanning
+	flagAliveFormat string   // v0.6.1: "txt" | "json" | "csv"
 
 	// v0.4: output rotation. / v0.4：输出轮转。
 	flagOutputRotateBytes int64 // per-file size cap; 0 = no rotation
@@ -298,6 +299,19 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written. Falls under the same <YYYY-MM-DD>/ bucket as fgqm_result.txt/json unless explicitly overridden.")
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
 		"path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written.")
+	// v0.6.1: alive-list wire format. Default "txt" = one host per
+	// line (preserves v0.5.1 behaviour and the `nmap -iL` /
+	// `masscan --targets` pipeline-friendly default). "json" =
+	// NDJSON, one {host,port,service,time} per line. "csv" = CSV
+	// header + one row per host. Validated at scan-start; unknown
+	// values are rejected with a usage error. / v0.6.1：alive 列
+	// 表的线协议格式。默认 "txt" = 每行一个 host（保留 v0.5.1 行为
+	// 与 `nmap -iL` / `masscan --targets` 管道友好的默认）。
+	// "json" = 每行 NDJSON 一个 {host,port,service,time}。
+	// "csv" = CSV header + 每行一个 host。scan 启动时校验；非法
+	// 值会被 usage error 拒绝。
+	pf.StringVar(&flagAliveFormat, "alive-format", "txt",
+		"wire format of the alive-host list file. One of: txt (one host per line, default; pipeline-friendly for `nmap -iL`), json (NDJSON one object per line: {host,port,service,time}), csv (CSV header + one row per host: host,port,service,time).")
 	// v0.4: --output-rotate NMB,N rotates TXT/JSON/CSV/SARIF outputs
 	// when the active file crosses NMB megabytes, keeping N
 	// total files (active + .1 .2 ...). / v0.4：--output-rotate NMB,N
@@ -371,7 +385,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
-	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "rotate-bytes", "rotate-files"}, groupOutput)
+	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "alive-format", "rotate-bytes", "rotate-files"}, groupOutput)
 	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"at", "in", "cron", "tz", "daemon", "schedule-dry-run"}, groupSchedule)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)

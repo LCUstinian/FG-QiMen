@@ -120,6 +120,13 @@ type Config struct {
 	// 捕获的界面。
 	ShowCleartext bool
 
+	// AliveFormat controls the wire format of the alive-host list
+	// file (see cmd --alive-format). Empty / unknown values
+	// are normalised to "txt" at scan start. / AliveFormat 控
+	// 制存活主机列表文件的线协议格式（见 cmd --alive-format）。
+	// 空 / 非法值在 scan 开始时归一化为 "txt"。
+	AliveFormat string // "txt" | "json" | "csv"
+
 	// InsecureTLS disables TLS chain + hostname verification on HTTPS
 	// probes. Default is OFF (verify). Set true only for known-trusted
 	// self-signed test environments — on a hostile network an attacker
