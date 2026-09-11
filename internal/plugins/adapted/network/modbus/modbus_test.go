@@ -64,8 +64,21 @@ func TestModbus_IdentifyHit(t *testing.T) {
 		// 所以短响应 + 关连接（Modbus 服务器写完 9 字节 identification
 		// 后立即关的真实模式）也可以。我们写 10 字节让 MBAP length
 		// 字段诚实。
+		//
+		// Use chunked writes to exercise the TCP-segmentation race
+		// the io.ReadFull fix protects against. Without this, a
+		// Linux kernel that delivers the 10 bytes in one segment
+		// masks the very race we want to regression-test. / 用分
+		// 块写触发 TCP-segmentation 竞态，正是 io.ReadFull 修复
+		// 要保护的场景。否则 Linux kernel 一次性交付 10 字节会
+		// 掩盖我们想回归测试的竞态。
 		_ = c.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		_, _ = c.Write(replyMBAP())
+		resp := replyMBAP()
+		_, _ = c.Write(resp[0:4])  // MBAP header part 1
+		time.Sleep(5 * time.Millisecond)
+		_, _ = c.Write(resp[4:7])  // MBAP header part 2
+		time.Sleep(5 * time.Millisecond)
+		_, _ = c.Write(resp[7:])   // PDU
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -88,6 +101,25 @@ func TestModbus_IdentifyHit(t *testing.T) {
 		t.Error("Time is zero, want the identify timestamp")
 	}
 }
+
+// TestModbus_IdentifyHit_TCPFragmentation exercises the plugin
+// under realistic TCP segmentation: the fake server writes the
+// MBAP reply in three chunks spaced apart so the kernel splits
+// them into separate TCP segments. The plugin must still identify
+// the server (the io.ReadFull + 9-byte buffer fix from
+// modbus.go handles this). / TestModbus_IdentifyHit_TCPFragmentation
+// 在真实 TCP segmentation 下测插件：假 server 把 MBAP 响应分三段写，
+// 让 kernel 拆成独立的 TCP segment。插件仍必须识别 server
+//（modbus.go 的 io.ReadFull + 9-byte buffer 修复处理这种情况）。
+//
+// Note: this test is part of the same TestModbus_IdentifyHit
+// function above (run with -race -count=3 in CI). The chunked
+// write is what exercises the TCP-segmentation race; without it,
+// the kernel may deliver the full 10 bytes in one segment and
+// the plugin accepts trivially. / 注意：这是上面 TestModbus_IdentifyHit
+// 的一部分（CI 用 -race -count=3 跑）。分块写是测 TCP 段化竞
+// 态的关键；不写的话 kernel 可能一次性交付 10 字节，插件平凡接
+// 受。
 
 // TestModbus_CredentialHit documents that modbus.Credential is a
 // documented no-op stub returning nil (see modbus.go godoc:
