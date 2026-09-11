@@ -21,7 +21,7 @@ import "testing"
 // 会被 lint 或代码 review 抓住。
 func TestValueIsVar(t *testing.T) {
 	if Value == "" {
-		t.Fatal("Value is empty; the in-source default of \"0.2.0\" should always be present")
+		t.Fatal("Value is empty; the in-source default must always be a non-empty semver")
 	}
 	// Document that callers must read Value through a var (not
 	// const). Reading from a const would have baked the literal
@@ -47,7 +47,7 @@ func TestValueIsVar(t *testing.T) {
 // 模式："<上次发版 tag>-dev"。每次 release 打 tag 时与
 // version.go 默认值同步 bump。
 func TestValueDefault(t *testing.T) {
-	const want = "0.5.1-dev"
+	const want = "0.6.0-dev"
 	if Value != want {
 		t.Errorf("Value default changed: got %q, want %q (update this test if intentional)", Value, want)
 	}
