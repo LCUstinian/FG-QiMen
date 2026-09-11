@@ -12,12 +12,31 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
+
+// modbusRespBytes is the minimum number of bytes the plugin needs
+// from the server reply: 7-byte MBAP header + 1-byte function
+// code + 1-byte MEI type. We deliberately keep this small so a
+// real-world server that closes the connection right after writing
+// the function-code byte (or TCP fragmentation that delivers <256
+// bytes) is still identified correctly. The previous version
+// read 256 bytes via a custom readFullMBP loop; any short read
+// returned io.EOF, which made the plugin reject the hit even
+// when the actual Modbus response bytes were already in the
+// kernel buffer. / modbusRespBytes 是插件需要从服务器响应读
+// 到的最少字节数：7 字节 MBAP header + 1 字节 function code +
+// 1 字节 MEI 类型。故意保持小一点，让真实服务器在写完 function-
+// code 字节后立刻关连接（或 TCP 段化只交付 <256 字节）也能被
+// 正确识别。旧版本用自定义 readFullMBP 循环读 256 字节，任
+// 何短读都返 io.EOF，让插件拒绝命中，即使 Modbus 响应字节已
+// 经在内核 buffer 里。
+const modbusRespBytes = 9
 
 // Plugin identifies Modbus TCP devices. / Plugin 识别 Modbus TCP 设备。
 type Plugin struct{}
@@ -63,9 +82,21 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	if _, err := conn.Write(out); err != nil {
 		return nil
 	}
-	resp := make([]byte, 256)
-	n, err := readFullMBP(conn, resp)
-	if err != nil || n < 10 {
+	resp := make([]byte, modbusRespBytes)
+	// Use io.ReadFull (not a custom 256-byte loop) so a short read
+	// + EOF only fails the request when we genuinely didn't get
+	// enough bytes. A real Modbus server that writes the 9 bytes
+	// and immediately closes returns ErrUnexpectedEOF — that's fine,
+	// we still got the function code + MEI type. / 用 io.ReadFull
+	//（不是自定义 256 字节循环），这样短读 + EOF 只在真的没拿到
+	// 足够字节时才让请求失败。真实 Modbus 服务器写 9 字节后立刻
+	// 关会返 ErrUnexpectedEOF——没问题，我们已经拿到 function code
+	// + MEI 类型。
+	n, err := io.ReadFull(conn, resp)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return nil
+	}
+	if n < modbusRespBytes {
 		return nil
 	}
 	if resp[7] != 0x2b || resp[8] != 0x0e {
@@ -75,16 +106,4 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 		Host: host, Port: port, Service: "modbus",
 		Banner: "Modbus TCP", Time: time.Now(),
 	}
-}
-
-func readFullMBP(c net.Conn, buf []byte) (int, error) {
-	total := 0
-	for total < len(buf) {
-		n, err := c.Read(buf[total:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	return total, nil
 }

@@ -30,11 +30,12 @@ import (
 // no error. Bytes 7 and 8 carry the function code 0x2b and MEI type
 // 0x0e that the plugin inspects.
 //
-// replyMBAP 构造一个填充到 256 字节的 Modbus TCP MBAP 响应（与插件
-// 读缓冲同大），让 readFullMBP 不带 error 返回。第 7、8 字节带插件
-// 检的 function code 0x2b 和 MEI type 0x0e。
+// replyMBAP 构造最小合法 Modbus TCP MBAP 响应：7 字节 header + 2
+// 字节 PDU（function code + MEI type）。插件只需 9 字节判断
+// "这是 Modbus"——发多了反而在 TCP segmentation 下触发 io.EOF
+// 等问题。
 func replyMBAP() []byte {
-	resp := make([]byte, 256)
+	resp := make([]byte, 10)
 	binary.BigEndian.PutUint16(resp[0:2], 1) // transaction id
 	binary.BigEndian.PutUint16(resp[2:4], 0) // protocol id (Modbus)
 	binary.BigEndian.PutUint16(resp[4:6], 3) // length = unit_id + 2 PDU bytes
@@ -49,33 +50,20 @@ func replyMBAP() []byte {
 // server that replies to the plugin's Read Device Identification
 // request with the expected function + MEI bytes. The plugin must
 // return a non-nil *types.Result tagged with Service="modbus".
-//
-// SKIPPED: the plugin's readFullMBP loops until it fills its 256-byte
-// buffer or hits an error — any non-nil error returns nil from
-// Identify. The fake must therefore send EXACTLY 256 bytes (or close
-// the connection mid-write to avoid EOF after the partial read).
-// Practical observation: with the kernel splitting the 256-byte
-// payload across multiple TCP segments, readFullMBP lands a
-// "short read" + io.EOF on the last iteration and returns
-// (256, io.EOF) — which the plugin rejects.
-//
-// Per v0.6.0 fake-server plan §11.2 this is acceptable: Modbus TCP
-// framing is simple but the strict full-buffer read semantics make
-// it brittle under realistic TCP segmentation. The fix is either
-// (a) write > 256 bytes plus a stream-closer pattern, (b) switch
-// the plugin to `io.ReadFull` on a small fixed-size buffer that
-// reads only the bytes the protocol needs (function code + MEI
-// type, 9 bytes after a 7-byte MBAP header — total 16 bytes is
-// enough). Track as v0.6 follow-up.
-//
-// / 跳过：插件的 readFullMBP 循环填满 256 字节 buffer 或遇错返
-// 回；任何非 nil 错误让 Identify 返 nil。Fake 必须恰好发 256 字
-// 节（或中途关连接避免 EOF）。实际观察：kernel 把 256 字节拆
-// 成多个 TCP segment 后，readFullMBP 末次 read 拿到 "short read"
-// + io.EOF，返 (256, io.EOF) — 被插件拒绝。按 plan §11.2 接受。
+// / TestModbus_IdentifyHit 跑正常路径：假 Modbus TCP server 对插件
+// 的 Read Device Identification 请求回期望的 function + MEI 字节。
+// 插件必须返回带 Service="modbus" 的非 nil *types.Result。
 func TestModbus_IdentifyHit(t *testing.T) {
-	t.Skip("Modbus plugin's readFullMBP rejects io.EOF after partial read (plan §11.2). See modbus_test.go preamble for details.")
 	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
+		// The plugin now reads 9 bytes via io.ReadFull and accepts
+		// ErrUnexpectedEOF. So a short reply + close (which is the
+		// real-world pattern when a Modbus server writes the 9
+		// identification bytes and immediately closes) is fine. We
+		// still write 10 to keep the MBAP length field honest.
+		// / 插件现在用 io.ReadFull 读 9 字节并接受 ErrUnexpectedEOF。
+		// 所以短响应 + 关连接（Modbus 服务器写完 9 字节 identification
+		// 后立即关的真实模式）也可以。我们写 10 字节让 MBAP length
+		// 字段诚实。
 		_ = c.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_, _ = c.Write(replyMBAP())
 	})

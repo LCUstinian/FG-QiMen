@@ -64,17 +64,16 @@ PLUGIN_ROOT = "internal/plugins/adapted"
 # fake-server plan §11.2 they're shipped at their current
 # coverage level with a follow-up tracking the gap.
 # / 不受 per-plugin 门槛限制的 plugin 包。这些是复杂协议，happy-
-# path 覆盖要么需要真实参考实现，要么需要 plugin 端修复；按
+# path 覆盖要么需要真实参考实现，要么需要插件端修复；按
 # v0.6 fake-server 计划 §11.2 以当前覆盖率 ship，跟踪到 follow-up。
 # Add to this list ONLY when the corresponding follow-up issue
 # exists in the issue tracker.
-FLOOR_EXEMPT = frozenset([
-    # / modbus：插件的 readFullMBP 在 TCP 段边界处返 io.EOF，
-    # 让 Identify 返 nil。Fake server 需 >256 字节 + 流关闭
-    # pattern。修法：插件换成 io.ReadFull + 16 字节小 buffer
-    # （function code + MEI type）。v0.6 follow-up。
-    "internal/plugins/adapted/network/modbus",
-])
+#
+# v0.6.1 history:
+#   - modbus removed (plugin-side io.ReadFull + 9-byte buffer fix;
+#     coverage jumped from 29.7% to 87.5%; the §11.2 reason
+#     no longer applies).
+FLOOR_EXEMPT = frozenset()
 
 
 def global_coverage_pct() -> float:
