@@ -283,7 +283,7 @@ func buildLoginErrorReply(msg string) []byte {
 	// 返 nil）。
 	tokenDone := []byte{
 		tokenError + 0x53, // 0xFD (DONE token type)
-		0x00, 0x00, // status = final
+		0x00, 0x00,        // status = final
 		0x00, 0x00, // curCmd = login
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // rowCount = 0
 	}

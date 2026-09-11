@@ -129,12 +129,18 @@ func TestLdap_IdentifyMiss(t *testing.T) {
 	host, port := fakeserver.ListenLoop(t, func(c net.Conn) {
 		// Drain bind+search so the plugin's Write calls succeed,
 		// then reply with bytes that contain NONE of the accepted
-		// LDAP tags 0x61/0x64/0x65/0xa3. / 读掉 bind+search 让
-		// plugin 的 Write 成功，然后回不含任何 LDAP 标签
-		// 0x61/0x64/0x65/0xa3 的字节。
+		// LDAP tags 0x61/0x64/0x65/0xa3. NOTE: bytesHasAny checks
+		// individual bytes, so we must avoid lowercase 'a'(0x61),
+		// 'd'(0x64), 'e'(0x65) as well as 0xa3. We use uppercase
+		// letters + digits + spaces, all of which are outside the
+		// needle set. / 读掉 bind+search 让 plugin 的 Write 成功，
+		// 然后回不含任何 LDAP 标签 0x61/0x64/0x65/0xa3 的字节。
+		// 注意 bytesHasAny 按单字节校验，所以必须避免小写 'a'(0x61)、
+		// 'd'(0x64)、'e'(0x65) 以及 0xa3。用大写字母+数字+空格，
+		// 都避开 needle 集合。
 		req := make([]byte, 1024)
 		_, _ = c.Read(req)
-		_, _ = c.Write([]byte("hello i am not ldap"))
+		_, _ = c.Write([]byte("THIS IS NOT LDAP PROTO 12345"))
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
