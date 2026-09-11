@@ -9,6 +9,13 @@ fg-qimen.exe
 *.test
 coverage.txt
 *.cover
+coverage.out
+# Per-package coverprofiles from go test -coverprofile=PATH.
+# The default name (coverage.out) is what ci.yml uses; explicit
+# paths (e.g. /tmp/cov.out) don't need a rule.
+# / per-package coverprofile 从 go test -coverprofile=PATH。
+# 默认名（coverage.out）是 ci.yml 用的；显式路径
+# （如 /tmp/cov.out）不需要规则。
 
 # Scan-run outputs (gitignored) / 扫描运行产物（gitignored）
 runs/
