@@ -81,9 +81,9 @@ export CGO_ENABLED := "0"
 release_dir := "release"
 
 # Scan run outputs (gitignored) / 扫描运行产物（gitignored）
-#   - runs/default/         ephemeral mode default
-#   - runs/projects/<name>  project mode default
-runs_dir := "runs"
+#   - fgqm_workspace/default/         ephemeral mode default
+#   - fgqm_workspace/projects/<name>  project mode default
+runs_dir := "fgqm_workspace"
 
 # Test data directory / 测试数据目录
 test_dir := "test"

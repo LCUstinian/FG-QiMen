@@ -641,7 +641,7 @@
       "problemMatcher": [],
       "group": "build",
       "presentation": { "reveal": "silent", "panel": "shared" },
-      "detail": "仅清理 runs/default/（即扫即走产物）。Clean ephemeral-mode outputs only."
+      "detail": "仅清理 fgqm_workspace/default/（即扫即走产物）。Clean ephemeral-mode outputs only."
     },
 
     {
@@ -653,7 +653,7 @@
       "problemMatcher": [],
       "group": "build",
       "presentation": { "reveal": "silent", "panel": "shared" },
-      "detail": "清理指定项目产物（如 runs/projects/test）。Clean a specific project's outputs."
+      "detail": "清理指定项目产物（如 fgqm_workspace/projects/test）。Clean a specific project's outputs."
     },
 
     /* ═══════════════════════════════════════════════════════════
