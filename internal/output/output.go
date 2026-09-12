@@ -76,6 +76,16 @@ type Output struct {
 	// / csvWriter 提升为字段，仅 OpenOutput 时分配一次。旧代码在
 	// 锁内 per-row 调 csv.NewWriter——200+ worker 下是热路径分配。
 
+	// jsnEnc is hoisted for the same reason as csvWriter (audit L-1):
+	// json.NewEncoder per row was one avoidable allocation per result
+	// on the NDJSON hot path. Encoder reuse is safe here — every use
+	// is under jsnMu, and Encode emits one trailing newline per call,
+	// which is exactly the NDJSON framing. / jsnEnc 与 csvWriter 同理
+	// 提升（审计 L-1）：每行一个 json.NewEncoder 是 NDJSON 热路径上
+	// 可省的一次分配。复用安全——所有使用都在 jsnMu 内，且 Encode
+	// 每次调用输出一个换行，恰好就是 NDJSON 帧格式。
+	jsnEnc *json.Encoder
+
 	// AliveFormat wires the wire format of the alive-list file.
 	// "" or "txt" = one host per line (default, pipeline-
 	// friendly); "json" = NDJSON per line; "csv" = CSV header +
@@ -212,7 +222,12 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 	}
 	openers := []opener{
 		{cfg.ResultTXTPath, 0o644, func(w *flushCloser) { o.txt = w }},
-		{cfg.ResultJSONPath, 0o644, func(w *flushCloser) { o.jsn = w }},
+		{cfg.ResultJSONPath, 0o644, func(w *flushCloser) {
+			o.jsn = w
+			// Allocate json.Encoder once; reused per WriteResult (L-1).
+			// / 一次性分配 json.Encoder；WriteResult 复用（L-1）。
+			o.jsnEnc = json.NewEncoder(w.bw())
+		}},
 		{cfg.CredsPath, 0o600, func(w *flushCloser) { o.creds = w }},
 		{cfg.RDPJSONPath, 0o644, func(w *flushCloser) { o.rdpjson = w }},
 		{cfg.RDPTXTPath, 0o644, func(w *flushCloser) { o.rdptxt = w }},
@@ -406,8 +421,7 @@ func (o *Output) WriteResult(r *types.Result) error {
 			}
 			out = &cp
 		}
-		enc := json.NewEncoder(o.jsn)
-		_ = enc.Encode(out)
+		_ = o.jsnEnc.Encode(out)
 		o.jsnMu.Unlock()
 	}
 	// CSV — own mutex; csv.Writer hoisted to field, header written
