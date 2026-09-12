@@ -25,7 +25,7 @@ func DefaultKeymap() Keymap {
 			key.WithHelp("e", "errors panel")),
 		ClearErrors: key.NewBinding(
 			key.WithKeys("E"),
-			key.WithHelp("E", "clear errors")),
+			key.WithHelp("E", "collapse errors")),
 		LiveOverlay: key.NewBinding(
 			key.WithKeys("L"),
 			key.WithHelp("L", "live overlay")),

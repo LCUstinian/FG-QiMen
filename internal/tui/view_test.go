@@ -8,6 +8,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -492,6 +493,47 @@ func TestRenderTopPlugins_NoBlankLines(t *testing.T) {
 	}
 	if strings.HasSuffix(got, "\n") {
 		t.Errorf("top plugins part has trailing newline: %q", got)
+	}
+}
+
+// TestViewExpandedErrorsRenders pins the review fix: regions() always
+// budgets 1 row for errors, so before the fix the 'e' toggle flipped
+// errorsExpanded but View() kept rendering the collapsed summary
+// (viewErrors needs height>=4 to expand). With the fix the expanded
+// bar rows appear and the frame still fits the terminal.
+// / 钉住 review 修复：regions() 恒给 errors 1 行预算，修复前按 'e'
+// 只翻转 errorsExpanded，View() 仍画折叠汇总（viewErrors 需
+// height>=4 才展开）。修复后展开的 bar 行出现，且整帧仍不超终端。
+func TestViewExpandedErrorsRenders(t *testing.T) {
+	st := newTestState(t)
+	st.TotalHosts.Store(24)
+	st.TotalPorts.Store(8000)
+	// ErrorCategories is sync.Map[string]*atomic.Int64 — storing a
+	// bare int would be dropped by the *atomic.Int64 assertion in
+	// ErrorCategoriesView (silently rendering "(none)").
+	// / ErrorCategories 是 sync.Map[string]*atomic.Int64——直接存
+	// int 会被 ErrorCategoriesView 的 *atomic.Int64 断言丢掉（静默
+	// 渲染成 "(none)"）。
+	timeout := &atomic.Int64{}
+	timeout.Store(42)
+	st.ErrorCategories.Store("timeout", timeout)
+	m := newTestModelWithState(st)
+	m.width, m.height = 80, 24
+	m.runState = runScanning
+	m.errorsExpanded = true
+	m.counters = types.CountersView{
+		Stage: int64(types.StageIdentify), AliveProbed: 18, Ports: 142, Errors: 7,
+	}
+	view := m.View()
+	if strings.Contains(view, "ERRORS:") {
+		t.Errorf("expanded mode still shows collapsed summary: %q",
+			truncate(view, 200))
+	}
+	if !strings.Contains(view, "timeout") || !strings.Contains(view, "▓") {
+		t.Errorf("expanded mode missing category bar rows in View")
+	}
+	if lines := strings.Split(strings.TrimRight(view, "\n"), "\n"); len(lines) > 24 {
+		t.Errorf("expanded frame has %d lines > terminal 24", len(lines))
 	}
 }
 

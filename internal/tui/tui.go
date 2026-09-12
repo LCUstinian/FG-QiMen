@@ -388,6 +388,16 @@ func (m Model) View() string {
 	// v0.7.0 六区域主体（Spec B）
 	bp := pickBreakpoint(m.width)
 	h, ev, l, r, e, f := regions(bp, m.width, m.height)
+	// Expanded errors need 4 rows (1 header-equivalent + up to 4 bars);
+	// regions() doesn't know the toggle state, so widen the budget here.
+	// The measured fixed-accounting below picks up the real height and
+	// re-clamps events, so a 24-row terminal just shows fewer events.
+	// / 展开态 errors 需要 4 行；regions() 不知道开关状态，在这里
+	// 加宽预算。下面的实测 fixed 记账会取真实高度并重新钳 events，
+	// 24 行终端只是少显示几条事件。
+	if m.errorsExpanded {
+		e = 4
+	}
 
 	// Render the fixed regions first and MEASURE them, then clamp the
 	// events budget to whatever height is actually left. regions() is
