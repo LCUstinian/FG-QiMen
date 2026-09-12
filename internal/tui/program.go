@@ -74,17 +74,13 @@ type doneMsg struct {
 // ─────────────────────────────────────────────────────────────────────
 
 // dispatcher is the bubbletea model façade. The inner Model is
-// mutated through pointer-receiver methods (appendEvent) for
+// mutated through pointer-receiver methods (pushEvent) for
 // streaming events, and through value-returning Update for
-// bubbletea messages. We do NOT swap the inner model in place
-// (as we used to) — that pattern was redundant once the model
-// grew the pending→events drain in Update().
+// bubbletea messages.
 //
 // dispatcher 是 bubbletea model 的外观。内部 Model 通过指针接收者
-// 方法（appendEvent）变更以处理流式事件，通过值返回的 Update 处理
-// bubbletea 消息。我们不再像以前那样原地替换 inner model —— 一旦
-// model 在 Update() 里加上了 pending→events drain，那个模式就多
-// 余了。
+// 方法（pushEvent）变更以处理流式事件，通过值返回的 Update 处理
+// bubbletea 消息。
 type dispatcher struct {
 	inner *Model
 }
@@ -169,13 +165,13 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 	case eventMsg:
-		// Stream straight into the model's pending buffer. The
-		// model drains pending → events on the next Update tick
-		// (see Model.Update in tui.go), so a burst of 100 events
-		// results in a single re-render, not 100.
-		// 直接流入 model 的 pending 缓冲。model 在下一次 Update
-		// tick 把 pending → events（见 tui.go 的 Model.Update），
-		// 100 条事件爆发只触发 1 次重渲染，不是 100 次。
+		// Stream straight into the model's v0.7.0 event ring buffer
+		// (pushEvent). Kind mapping: "cred" tags are credential
+		// successes; everything else is an info hit. A 200ms flash
+		// is set by pushEvent for hit-family kinds.
+		// 直接流入 model 的 v0.7.0 事件 ring buffer（pushEvent）。
+		// Kind 映射："cred" 标签是凭据成功；其余是信息命中。
+		// hit 类 kind 的 200ms flash 由 pushEvent 设置。
 		// An event arriving before any statsMsg is also a sign of
 		// life (the first cred or open port often lands before
 		// the first 1Hz tick). Promote runState here too.
@@ -185,8 +181,31 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if d.inner.runState == runIdle {
 			d.inner.runState = runScanning
 		}
-		d.inner.appendEvent(liveEvent{
-			when: m.when, tag: m.tag, host: m.host, port: m.port, svc: m.svc, text: m.text,
+		if d.inner.uiMode == modePaused {
+			// Drop on the floor: paused mode freezes display. We
+			// don't buffer because the pipeline may produce a
+			// burst of events during a long pause; better to lose
+			// history than to OOM the dashboard. Same contract as
+			// the pre-v0.7.0 appendEvent path.
+			// 暂停态直接丢弃：暂停冻结显示。我们不缓冲，因为
+			// pipeline 在长暂停期间可能爆发事件；丢历史比 OOM 掉
+			// dashboard 好。与 v0.7.0 前 appendEvent 路径契约一致。
+			return d, nil
+		}
+		kind := "hit"
+		if m.tag == "cred" {
+			kind = "cred_success"
+		}
+		at, err := time.Parse("15:04:05", m.when)
+		if err != nil {
+			at = time.Now()
+		}
+		d.inner.pushEvent(eventEntry{
+			Host:    m.host,
+			Port:    m.port,
+			Service: m.svc,
+			Kind:    kind,
+			At:      at,
 		})
 		return d, nil
 	case doneMsg:

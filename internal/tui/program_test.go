@@ -9,6 +9,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,55 +43,49 @@ func TestDispatcherStatsMsg(t *testing.T) {
 	}
 }
 
-// TestDispatcherEventMsg — a single eventMsg appends one entry;
-// the ring buffer caps the slice at maxLiveEvents*2 (trimming
-// back to maxLiveEvents when it exceeds that). The contract is
-// "never grow past the trim threshold", so we send 5×maxLiveEvents
-// and assert the cap holds and the most-recent event is preserved.
+// TestDispatcherEventMsg — eventMsg flows into the v0.7.0 event
+// ring buffer. The contract is "never grow past eventCap": we send
+// 5×eventCap events and assert the ring holds exactly eventCap
+// entries with the newest sequence preserved (wrap keeps
+// chronological order, newest last).
 //
-// Note: dispatcher.Update is a value-receiver method; each call
-// returns a NEW dispatcher with the mutation applied. We must
-// thread the returned dispatcher through the loop, otherwise the
-// original d.inner.events is never updated.
+// Note: the dispatcher's eventMsg case mutates d.inner directly
+// through the shared *Model pointer, so the model can be inspected
+// after the loop without threading return values.
 //
-// TestDispatcherEventMsg — 单条 eventMsg 追加一条记录；环形缓冲上限
-// 为 maxLiveEvents*2（超过后修剪回 maxLiveEvents）。契约是"永远不超
-// 过修剪阈值"，所以发 5×maxLiveEvents 条并断言上限保持 + 最新事件
-// 被保留。
+// TestDispatcherEventMsg — eventMsg 流入 v0.7.0 事件 ring buffer。
+// 契约是"永远不超过 eventCap"：发 5×eventCap 条事件，断言 ring
+// 恰好容纳 eventCap 条，且最新序列保留（回绕保持时间顺序，最新
+// 在末尾）。
 //
-// 注意：dispatcher.Update 是值接收者；每次调用返回一个新的已应用
-// 更新的 dispatcher。循环中必须串联返回的 dispatcher，否则原始
-// d.inner.events 永远不会被更新。
+// 注意：dispatcher 的 eventMsg 分支通过共享的 *Model 指针直接改
+// d.inner，所以循环结束后可以直接检查 model，无需串联返回值。
 func TestDispatcherEventMsg(t *testing.T) {
 	mm := NewModel(nil)
 	m := tea.Model(dispatcher{inner: &mm})
-	ev := eventMsg{when: "12:00:00", tag: "scan", host: "1.1.1.1", port: 22, svc: "ssh", text: "OpenSSH 9.0"}
-	for i := 0; i < maxLiveEvents*5; i++ {
-		newM, _ := m.Update(ev)
-		m = newM
+	for i := 0; i < eventCap*5; i++ {
+		ev := eventMsg{
+			when: "12:00:00", tag: "scan",
+			host: fmt.Sprintf("10.0.0.%d", i), port: 22, svc: "ssh",
+			text: "OpenSSH 9.0",
+		}
+		m, _ = m.Update(ev)
 	}
-	// Drain pending → events by sending a benign WindowSizeMsg
-	// through the dispatcher's fallthrough path. Without this
-	// the model would just keep growing its pending buffer (the
-	// dispatcher appends to pending, but pending is only flushed
-	// on a non-eventMsg Update).
-	// 通过 dispatcher 的 fallthrough 路径发一条 WindowSizeMsg 把
-	// pending → events。否则 model 只会无限增长 pending 缓冲
-	// （dispatcher 往 pending 里加，但 pending 只在非 eventMsg 的
-	// Update 时刷入）。
-	wm := tea.Model(dispatcher{inner: &mm})
-	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	got := wm.(dispatcher).inner.events
-	if len(got) > maxLiveEvents*2 {
-		t.Errorf("events exceeded cap: len=%d, want <= %d", len(got), maxLiveEvents*2)
+	got := mm.eventsOrdered()
+	if len(got) != eventCap {
+		t.Fatalf("len(eventsOrdered) = %d, want %d (ring cap)", len(got), eventCap)
 	}
-	// After a trim cycle the most-recent event is still at the tail
-	// (the trim keeps the last maxLiveEvents entries).
-	if len(got) == 0 {
-		t.Fatal("events is empty after 5*maxLiveEvents appends")
+	// After 5×eventCap pushes the ring wrapped 4 times; the last
+	// entry must be the newest host (10.0.0.<eventCap*5-1>).
+	// 发 5×eventCap 条后 ring 回绕 4 次；最后一条必须是最新的
+	// host（10.0.0.<eventCap*5-1>）。
+	wantHost := fmt.Sprintf("10.0.0.%d", eventCap*5-1)
+	if last := got[len(got)-1]; last.Host != wantHost {
+		t.Errorf("last event host = %q, want %q", last.Host, wantHost)
 	}
-	if got[len(got)-1].host != "1.1.1.1" {
-		t.Errorf("last event host = %q, want 1.1.1.1", got[len(got)-1].host)
+	// scan tags map to the "hit" kind. / scan 标签映射为 "hit" kind。
+	if last := got[len(got)-1]; last.Kind != "hit" {
+		t.Errorf("last event kind = %q, want %q", last.Kind, "hit")
 	}
 }
 
@@ -500,13 +495,16 @@ func TestDispatcher_RateEmptyState(t *testing.T) {
 	if len(m.topErrors) != 0 {
 		t.Errorf("topErrors = %v, want empty", m.topErrors)
 	}
-	// View() string should contain the placeholders.
+	// View() string should contain the placeholders. v0.7.0: the
+	// errors row collapsed format is "ERRORS: (none)" (viewErrors).
+	// View() 字符串应包含占位符。v0.7.0：errors 行折叠格式为
+	// "ERRORS: (none)"（viewErrors）。
 	v := m.View()
 	if !strings.Contains(v, "(no hits yet)") {
 		t.Errorf("View missing '(no hits yet)' placeholder: %q", v)
 	}
-	if !strings.Contains(v, "(no errors yet)") {
-		t.Errorf("View missing '(no errors yet)' placeholder: %q", v)
+	if !strings.Contains(v, "ERRORS: (none)") {
+		t.Errorf("View missing 'ERRORS: (none)' placeholder: %q", v)
 	}
 }
 

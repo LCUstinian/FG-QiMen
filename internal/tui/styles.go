@@ -60,8 +60,6 @@ const (
 const (
 	minWidth      = 80
 	statsColWidth = 28
-	eventsColMin  = 48
-	chromeLines   = 6
 )
 
 // Styles
@@ -69,9 +67,7 @@ var (
 	stTitle       lipgloss.Style
 	stDim         lipgloss.Style
 	stMuted       lipgloss.Style
-	stSuccess     lipgloss.Style
 	stWarn        lipgloss.Style
-	stError       lipgloss.Style
 	stBox         lipgloss.Style
 	stPanelHeader lipgloss.Style
 	stKeyHint     lipgloss.Style
@@ -79,7 +75,6 @@ var (
 	stRunning     lipgloss.Style
 	stIdle        lipgloss.Style
 	stFinished    lipgloss.Style
-	stStatNum     lipgloss.Style
 )
 
 func init() {
@@ -103,15 +98,9 @@ func init() {
 	stMuted = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(mutedFg))
 
-	stSuccess = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(accent))
-
 	stWarn = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(colAmber)).
 		Bold(true)
-
-	stError = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colRed))
 
 	// Panel box: subtle dark border
 	stBox = lipgloss.NewStyle().
@@ -154,11 +143,6 @@ func init() {
 	stFinished = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(colBg)).
 		Background(lipgloss.Color(accent)).
-		Bold(true)
-
-	// Counter numbers: cyan
-	stStatNum = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colCyan)).
 		Bold(true)
 }
 

@@ -305,27 +305,35 @@ func (m Model) viewHeader(height int, bp Breakpoint) string {
 
 	var sb strings.Builder
 	sb.WriteString(truncate(line1.String(), width))
-	sb.WriteString("\n")
 
 	// Line 2: rate row (counters) — only when at least one rate is
 	// positive. Preserves the existing tui.go View() behavior.
 	// 第 2 行：rate 行（counters）——仅在至少一个速率 > 0 时渲染，
 	// 保持 tui.go View() 既有行为。
 	if counters := m.countersLine(); counters != "" {
-		sb.WriteString(truncate(counters, width))
 		sb.WriteString("\n")
+		sb.WriteString(truncate(counters, width))
 	}
 
+	// No trailing newline: region renderers compose via
+	// lipgloss.JoinVertical, which adds the separators itself.
+	// / 不带结尾换行：区域渲染器经 lipgloss.JoinVertical 组合，
+	// 换行由它自己加。
 	return sb.String()
 }
 
 // viewLiveEvents renders the last N events with severity colors and
-// status symbols. height=0 hides the panel (narrow mode).
+// status symbols. height=0 hides the panel (narrow mode) unless the
+// 'L' overlay is on, in which case the last 5 rows show anyway.
 // / viewLiveEvents 渲染最近 N 个事件，带 severity 颜色和状态符号。
-// height=0 隐藏面板（narrow 模式）。
+// height=0 隐藏面板（narrow 模式），除非 'L' overlay 开启——此时
+// 强制显示最近 5 条。
 func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
 	if height == 0 {
-		return ""
+		if !m.showLiveOverlay {
+			return ""
+		}
+		height = 5 // 'L' overlay: reveal last 5 / overlay：显示最近 5 条
 	}
 	events := m.eventsOrdered()
 	if len(events) == 0 {
@@ -387,7 +395,7 @@ func (m Model) viewErrorsExpanded(maxRows int) string {
 	if len(cats) == 0 {
 		return lipgloss.NewStyle().Foreground(colorFgDim).Render("  (no errors)")
 	}
-	var rows []string
+	rows := make([]string, 0, len(cats))
 	for _, c := range cats {
 		// Each row: "  timeout ▓▓▓▓▓▓▓▓▓░░ 42"
 		bar := renderBar(int(c.count), int(c.maxCount), 20)
@@ -415,7 +423,7 @@ func (m Model) topErrorCategories(n int) []errorCategory {
 		k string
 		v int64
 	}
-	var all []kv
+	all := make([]kv, 0, len(view))
 	for k, v := range view {
 		if v <= 0 {
 			continue

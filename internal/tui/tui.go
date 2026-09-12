@@ -42,27 +42,6 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/version"
 )
 
-// maxLiveEvents caps how many events the TUI remembers for display.
-// 200 keeps the ring buffer small enough that a slow consumer
-// can't grow it unbounded (10s of creds/sec × 200 = ~20s of
-// history; more than that is wasted on a 24-row terminal).
-//
-// maxLiveEvents 限制 TUI 保留的最近事件数。200 让环形缓冲足够小，
-// 慢消费者不会无限增长（10s 条凭据/秒 × 200 = 约 20s 历史；再久
-// 在 24 行的终端上也是浪费）。
-const maxLiveEvents = 200
-
-// liveEvent is a single result entry rendered in the right column.
-// liveEvent 是右栏显示的单条结果。
-type liveEvent struct {
-	when string
-	tag  string // "scan" / "cred" / "err"
-	host string
-	port int
-	svc  string
-	text string
-}
-
 // Mode is the dashboard's interactive state.
 // Mode 是 dashboard 的交互状态。
 type mode int
@@ -188,11 +167,11 @@ func NewModel(cfg *types.Config) Model {
 // by tests that need a State wired in. Returns a value (not a
 // pointer) for parity with the bubbletea Model contract; the
 // runtime mutates fields via pointer receivers in Update /
-// appendEvent.
+// pushEvent.
 //
 // newModelWithState 是 NewModel 和需要接入 State 的测试共用的完
 // 整构造函数。返回值（而非指针）以匹配 bubbletea Model 契约；
-// runtime 在 Update / appendEvent 中通过指针接收者变更字段。
+// runtime 在 Update / pushEvent 中通过指针接收者变更字段。
 func newModelWithState(cfg *types.Config, st *types.State) Model {
 	mode := "scan"
 	if cfg != nil {
@@ -209,15 +188,18 @@ func newModelWithState(cfg *types.Config, st *types.State) Model {
 	}
 }
 
-// Init kicks off the spinner tick. The tick self-perpetuates via
-// the returned tickCmd closure: each tickMsg schedules the next
-// one, so the spinner keeps rotating until the program quits.
-// bubbletea handles the timing — the model doesn't poll.
+// Init kicks off the spinner tick plus the v0.7.0 flash-decay and
+// rate-sample ticks, batched. Each tick self-perpetuates via the
+// cmd its Update case returns, so all three keep running until the
+// program quits. bubbletea handles the timing — the model doesn't
+// poll.
 //
-// Init 启动 spinner tick。tick 通过返回的 tickCmd 闭包自我延续：
-// 每条 tickMsg 排下一条，spinner 一路转下去直到 program 退出。
-// bubbletea 处理时序——model 不轮询。
-func (m Model) Init() tea.Cmd { return tickCmd() }
+// Init 启动 spinner tick 外加 v0.7.0 的 flash 衰减与速率采样
+// tick（批量）。每个 tick 由其 Update 分支返回的 cmd 自我延续，
+// 三者一直跑到 program 退出。bubbletea 处理时序——model 不轮询。
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(tickCmd(), flashTick(), rateTick())
+}
 
 // tickCmd returns a tea.Cmd that sends a tickMsg after one
 // spinnerTick interval. The closure captures nothing (the time
@@ -229,6 +211,33 @@ func (m Model) Init() tea.Cmd { return tickCmd() }
 func tickCmd() tea.Cmd {
 	return tea.Tick(spinnerTick, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+// flashTickMsg drives flash-expiry pruning every 100ms — the same
+// cadence as the spinner, so a 200ms flash paints red for exactly
+// two render frames. / flashTickMsg 每 100ms 驱动一次 flash 过期
+// 剪枝——与 spinner 同节拍，200ms 的 flash 恰好画红两帧。
+type flashTickMsg time.Time
+
+// rateTickMsg samples the hits/sec ring buffer every 1s, feeding
+// the header sparkline. / rateTickMsg 每 1s 采样一次 hits/sec ring
+// buffer，供 header sparkline 用。
+type rateTickMsg time.Time
+
+// flashTick re-arms the flash-decay tick. / flashTick 重新武装
+// flash 衰减 tick。
+func flashTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return flashTickMsg(t)
+	})
+}
+
+// rateTick re-arms the rate-sampling tick. / rateTick 重新武装
+// 速率采样 tick。
+func rateTick() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return rateTickMsg(t)
 	})
 }
 
@@ -281,6 +290,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case flashTickMsg:
+		// Prune expired flashes so the map doesn't grow unbounded
+		// on scans hitting many distinct hosts, then re-arm.
+		// 剪掉过期 flash，避免命中大量不同 host 的扫描让 map 无限
+		// 增长，然后重新武装。
+		m.pruneExpiredFlashes(time.Time(msg))
+		cmd = flashTick()
+	case rateTickMsg:
+		// Sample the current smoothed hits/sec into the sparkline
+		// ring, then re-arm. / 把当前平滑 hits/sec 采进 sparkline
+		// ring，然后重新武装。
+		m.recordRate(m.rateHits)
+		cmd = rateTick()
 	case tea.KeyMsg:
 		// Help overlay eats every key except '?' / 'q' / 'esc'.
 		// 帮助浮层只放过 '?' / 'q' / 'esc'。
@@ -307,86 +329,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "?":
 			m.uiMode = modeHelp
-		}
-	}
-	// Drain pending into events on every non-keyboard message too
-	// (statsMsg / eventMsg flow through the dispatcher, which calls
-	// Model.Update via the fallthrough path with the *dispatcher's*
-	// inner model already mutated). Doing the drain here keeps
-	// model.Update() self-contained: any caller that bypasses the
-	// dispatcher still flushes pending → events.
-	//
-	// 每次非键盘消息也把 pending 刷入 events（statsMsg / eventMsg 经
-	// dispatcher 流入，dispatcher 通过 fallthrough 调 Model.Update
-	// 时其 inner model 已经被改过）。在这里 drain 让 model.Update()
-	// 自我包含：任何绕过 dispatcher 的调用者也能把 pending → events。
-	if len(m.pending) > 0 {
-		m.events = append(m.events, m.pending...)
-		m.pending = m.pending[:0]
-		if len(m.events) > maxLiveEvents*2 {
-			m.events = m.events[len(m.events)-maxLiveEvents:]
+		case "e":
+			// Toggle the errors panel collapse/expand. / 切换错误
+			// 面板折叠/展开。
+			m.errorsExpanded = !m.errorsExpanded
+		case "E":
+			// Collapse the errors panel and keep it collapsed.
+			// / 折叠错误面板并保持折叠。
+			m.clearErrors()
+		case "L":
+			// Toggle the narrow-mode live-events overlay. / 切换
+			// narrow 模式的实时事件 overlay。
+			m.showLiveOverlay = !m.showLiveOverlay
 		}
 	}
 	return m, cmd
-}
-
-// appendEvent is the model-side hook used by the dispatcher to
-// push a new event. We keep it on the model (not just in the
-// dispatcher) so future renderers (tests, headless replay) can
-// drive the model without a bubbletea program.
-//
-// appendEvent 是 dispatcher 用来推送新事件的 model 侧钩子。把它放
-// 在 model 上（不只是 dispatcher），让未来的渲染器（测试、无头回
-// 放）能在没有 bubbletea program 的情况下驱动 model。
-//
-// v0.5.2: pointer receiver (was already a pointer; called out here
-// because Model.Update's pointer-receiver change makes the whole
-// model API consistent).
-//
-// v0.5.2：指针接收者（原本就是指针；这里点名因为 Model.Update 改
-// 指针接收者后整个 model API 保持一致）。
-func (m *Model) appendEvent(ev liveEvent) {
-	if m.uiMode == modePaused {
-		// Drop on the floor: paused mode freezes display. We
-		// don't buffer because the pipeline may produce >maxLiveEvents
-		// events during a long pause; better to lose history than
-		// to OOM the dashboard.
-		// 暂停态直接丢弃：暂停冻结显示。我们不缓冲，因为 pipeline
-		// 在长暂停期间可能产出 >maxLiveEvents 条事件；丢历史比
-		// OOM 掉 dashboard 好。
-		return
-	}
-	m.pending = append(m.pending, ev)
 }
 
 // View renders the dashboard. Returns a single string that lipgloss
 // will then lay out.
 // View 渲染 dashboard。返回 lipgloss 将布局的单个字符串。
 //
-// v0.5.2 (Task 4): replaces the old one-line stats bar with the
-// info-density layout — stage badge line + rate row + counters /
-// top-plugins panel + error-categories row — all rendered above
-// the existing events column. The events column is kept verbatim
-// (no spec change there); the rendered shape is:
+// v0.7.0 (Spec B): the body is a 6-region composition — header,
+// live events, stage, top plugins, errors, footer — placed by
+// regions() per breakpoint. Wide terminals put STAGE + TOP PLUGINS
+// side-by-side; medium/narrow stack them. The title bar, help
+// overlay, pause chip, quit/summary paths and the height fill are
+// chrome kept verbatim from v0.5.2.
 //
-//	v0.5.2（Task 4）：用信息密度布局替换旧的单行状态条——阶段徽
-//	章行 + 速率行 + 计数器/Top 插件面板 + 错误分类行——全部渲染
-//	在已有事件列之上。事件列原样保留（那里没有 spec 改动）；渲
-//	染形状：
-//
-//	  ┌──────────────────────────────────────────────┐
-//	  │ Title bar                                    │
-//	  ├──────────────────────────────────────────────┤
-//	  │ Stage badge         ETA / elapsed            │
-//	  │ rate: X hits/s      ports: Y/s               │
-//	  │ ────────────────────────────────────         │
-//	  │ Counters   │ Top Plugins                     │
-//	  │ ─────────── │ ─────────────                   │
-//	  │ Live Events                                  │
-//	  │ ──────────                                   │
-//	  │ Errors:                                       │
-//	  │ keymap                                        │
-//	  └──────────────────────────────────────────────┘
+// v0.7.0（Spec B）：主体是 6 区域组合——header、实时事件、stage、
+// top plugins、errors、footer——由 regions() 按断点放置。宽终端
+// STAGE + TOP PLUGINS 并排；medium/narrow 堆叠。标题栏、帮助浮层、
+// 暂停芯片、退出/摘要路径和高度填充是 v0.5.2 原样保留的 chrome。
 func (m Model) View() string {
 	if m.quitting {
 		return m.finalSummary + "\n"
@@ -396,20 +370,10 @@ func (m Model) View() string {
 	}
 	var sb strings.Builder
 
-	// Title bar / 标题栏
-	// The title is just a plain line of text — no surrounding
-	// box characters, no full-row background. A previous version
-	// had `┌─...─┐` brackets AND a Background that filled the
-	// whole row, which (combined with the stats bar below and
-	// the panel borders further below) stacked three boxes
-	// visually: the operator's eye read it as redundant chrome.
-	// Foreground-only title + a thin separator below gives the
-	// dashboard a clean three-layer stack: title / stats / panels.
-	// 标题就是一行文字——无外框字符、无整行背景。之前的版本带
-	// `┌─...─┐` 框 + 整行 Background，叠加下方状态条和更下方的
-	// 面板边框后视觉上叠了 3 层框：操作员读作冗余 chrome。纯前
-	// 景标题 + 下方细分割线让 dashboard 形成清晰的三层堆叠：
-	// 标题 / 状态 / 面板。
+	// Title bar — plain text + thin dim separator, kept verbatim
+	// from v0.5.2 (see the git history for the three-box rationale).
+	// 标题栏——纯文本 + 细 dim 分割线，v0.5.2 原样保留（三层框的
+	// 取舍见 git 历史）。
 	titleChip := m.runStateChip()
 	title := fmt.Sprintf(
 		" FG-QIMEN %s  project: %s   mode: %s   %s",
@@ -417,113 +381,44 @@ func (m Model) View() string {
 	)
 	sb.WriteString(stTitle.Render(title))
 	sb.WriteString("\n")
-
-	// Thin separator under the title: a dim row of horizontal
-	// line characters the width of the terminal (or 80 chars on
-	// a 0-width start-up). This is the *only* chrome line in the
-	// header — replacing what used to be a background-coloured
-	// title bar AND a stats-bar padding. The single dim line
-	// reads as "this is where the header ends".
-	// 标题下方的细分割线：dim 色横线一行，宽与终端同（启动 0 宽
-	// 时为 80 字符）。这是 header 区唯一的 chrome 行——替代了
-	// 之前用背景色标题栏 + 状态条 padding 凑出来的"两层"。单
-	// 一 dim 线读作"header 在此结束"。
 	sb.WriteString(stDim.Render(m.titleSeparator()))
 	sb.WriteString("\n")
 
-	// ── v0.5.2 info-density header (replaces old stats bar) ──
-	// v0.5.2 信息密度 header（替换旧状态条）
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
+	// ── v0.7.0 six-region body (Spec B) ──
+	// v0.7.0 六区域主体（Spec B）
+	bp := pickBreakpoint(m.width)
+	h, ev, l, r, e, f := regions(bp, m.width, m.height)
 
-	// Stage badge line — replaces the old "[spinner] alive=…" bar.
-	// ETA floats right when available, else we show elapsed so the
-	// operator always has a "since when" signal.
-	// 阶段徽章行——替换旧的"[spinner] alive=…"行。ETA 不可用时
-	// 右对齐显示 elapsed，操作员始终有"从何时起"的信号。
-	stage := types.StageName(int32(m.counters.Stage))
-	spinner := "▶"
-	if int64(m.counters.Stage) == int64(types.StageDone) {
-		spinner = "✓"
-	}
-	stageBadge := fmt.Sprintf("  [ %s %s ]", spinner, stage)
-	fmt.Fprintf(&sb, "%s", stageBadge)
-	if m.eta != "" {
-		fmt.Fprintf(&sb, "%*s", width-lipgloss.Width(stageBadge)-len(m.eta)-2, "")
-		fmt.Fprintf(&sb, "  %s\n", m.eta)
-	} else {
-		fmt.Fprintf(&sb, "%*s", width-lipgloss.Width(stageBadge)-len(m.elapsed)-2, "")
-		fmt.Fprintf(&sb, "  elapsed %s\n", m.elapsed)
-	}
+	header := m.viewHeader(h, bp)
+	events := m.viewLiveEvents(ev, bp)
+	stage := m.viewStage(l, bp)
+	topPlugins := m.viewTopPlugins(r, bp)
+	errorsPanel := m.viewErrors(e)
+	footer := m.viewFooter(f)
+
+	// Pause chip rides directly under the header so the operator
+	// can tell at a glance the dashboard is frozen (the pipeline
+	// keeps running). / 暂停芯片紧贴 header 下方，操作员一眼看出
+	// dashboard 已冻结（pipeline 仍在跑）。
+	parts := []string{header}
 	if m.uiMode == modePaused {
-		// Pause indicator — appended to the stage badge line so
-		// the operator can tell at a glance that the dashboard
-		// is frozen (the pipeline is still running).
-		// 暂停指示器加在阶段徽章行末尾，让操作员一眼看出
-		// dashboard 已冻结（pipeline 仍在跑）。
-		sb.WriteString("  ")
-		sb.WriteString(stWarn.Render("[PAUSED]"))
-		sb.WriteString("\n")
+		parts = append(parts, "  "+stWarn.Render("[PAUSED]"))
 	}
-
-	// Rate row — only when at least one rate is positive. Before
-	// any statsMsg the EWMA is 0/0; rendering "rate: 0.0" would
-	// read as "broken" rather than "warming up", so we suppress
-	// it. The placeholder text is implicit ("no rate row yet").
-	//
-	// 速率行——仅在至少一个速率 > 0 时显示。在任何 statsMsg 之
-	// 前 EWMA 为 0/0；渲染"rate: 0.0"会被读作"坏了"而非"热
-	// 身中"，所以抑制。占位隐式（"暂无速率行"）。
-	if m.rateHits > 0 || m.ratePorts > 0 {
-		fmt.Fprintf(&sb, "  rate: %.1f hits/s    ports: %.1f/s    probed %d / %d\n",
-			m.rateHits, m.ratePorts, m.counters.AliveProbed, m.totalHosts())
-	}
-
-	// ── Counters + Top Plugins panel ──
-	// 计数器 + Top 插件面板
-	// Width-adaptive: side-by-side on >=100 cols, stacked below.
-	// Both branches emit the same panels — the only difference is
-	// whether events column sits to the right or below.
-	// 宽自适应：>=100 列并排，之下堆叠。两个分支 emit 同样的面
-	// 板——唯一区别是事件列在右还是在下。
-	left := m.renderCountersPanel(width)
-	pluginsPanel := m.renderTopPluginsPanel(width)
-	var countersRow string
-	if width >= 100 {
-		// Side-by-side with the events column on the far right.
-		// Counters | TopPlugins | Events. We compose left+plugins
-		// first, then join with events on wide screens.
-		// 并排，事件列在最右。Counters | TopPlugins | Events。宽屏
-		// 上先合成 left+plugins，再与 events join。
-		countersRow = lipgloss.JoinHorizontal(lipgloss.Top, left, pluginsPanel)
+	if bp == BreakWide {
+		// Side-by-side: STAGE | TOP PLUGINS. / 并排：STAGE | TOP PLUGINS。
+		body := lipgloss.JoinHorizontal(lipgloss.Top, stage, topPlugins)
+		parts = append(parts, events, body, errorsPanel, footer)
 	} else {
-		// Stacked: counters above, plugins below.
-		// 堆叠：计数在上，插件在下。
-		countersRow = left + "\n" + pluginsPanel
+		// Stacked; empty regions (e.g. narrow hides events) are
+		// skipped so no stray blank lines appear. / 堆叠；空区域
+		// （如 narrow 隐藏 events）跳过，避免多余空行。
+		for _, region := range []string{events, stage, topPlugins, errorsPanel, footer} {
+			if region != "" {
+				parts = append(parts, region)
+			}
+		}
 	}
-	sb.WriteString(countersRow)
-
-	// Events column — kept verbatim from the v0.5.1 layout.
-	// 事件列——保持 v0.5.1 布局原样。
-	eventsCol := m.renderEventsCol()
-	if width >= 100 {
-		sb.WriteString("\n")
-		sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, countersRow, "  ", eventsCol))
-	} else {
-		sb.WriteString("\n\n")
-		sb.WriteString(eventsCol)
-	}
-	sb.WriteString("\n")
-
-	// Error categories row.
-	// 错误分类行。
-	sb.WriteString(m.renderErrorCategoriesRow())
-	sb.WriteString("\n")
-
-	// Keymap / 快捷键
-	sb.WriteString(m.renderKeymap())
+	sb.WriteString(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	sb.WriteString("\n")
 
 	// Fill remaining terminal height to prevent ghost content
@@ -612,35 +507,6 @@ func (m Model) renderHelp() string {
 	return body
 }
 
-// renderKeymap renders the bottom keymap as a row of pill-shaped
-// key chips + dim descriptors. The chips use the accent bg color
-// so the eye lands on the keys first, the action second.
-//
-// renderKeymap 把底部按键提示渲染成一行药丸形按键芯片 + dim 描述。
-// 芯片用 accent 背景色，视线先落按键再落动作。
-func (m Model) renderKeymap() string {
-	type chip struct{ key, desc string }
-	parts := []chip{
-		{"q", "quit"},
-		{"p", "pause"},
-		{"r", "resume"},
-		{"?", "help"},
-	}
-	if m.uiMode == modePaused {
-		parts[1] = chip{"p", "paused"}
-	}
-	var sb strings.Builder
-	for i, p := range parts {
-		if i > 0 {
-			sb.WriteString("  ")
-		}
-		sb.WriteString(stKeyHint.Render(" " + p.key + " "))
-		sb.WriteString(" ")
-		sb.WriteString(stDim.Render(p.desc))
-	}
-	return sb.String()
-}
-
 // twoColumn reports whether the current width supports the
 // two-column layout. minWidth is the floor; below it we stack
 // to avoid horizontal overflow on 80×24 terminals.
@@ -658,77 +524,6 @@ func (m Model) totalHosts() int64 {
 		return 0
 	}
 	return m.state.TotalHosts.Load()
-}
-
-// renderCountersPanel builds the left "TARGETS" panel — the 6-row
-// counter table (alive/probed/ports/results/creds/errors). On wide
-// terminals this is the left column of the counters+plugins row;
-// on narrow terminals it stacks above the plugins panel.
-//
-// renderCountersPanel 构建左侧 "TARGETS" 面板——6 行计数器表
-// （alive/probed/ports/results/creds/errors）。宽终端上是
-// counters+plugins 行的左列；窄终端上堆叠在 plugins 面板之上。
-func (m Model) renderCountersPanel(width int) string {
-	// Right-pad the labels to 12 chars so the counters line up
-	// even when one of them grows from 9 → 10 digits. We use
-	// a plain fmt.Sprintf (not lipgloss width) because the
-	// numbers are ASCII and we want exact column alignment.
-	// 标签右补到 12 字符，让计数器即使从 9 位变 10 位也对齐。用
-	// 普通 fmt.Sprintf（不是 lipgloss width）是因为数字是 ASCII
-	// 且我们要严格列对齐。
-	rows := [][2]string{
-		{"alive", fmt.Sprintf("%d", m.counters.Alive)},
-		{"probed", fmt.Sprintf("%d", m.counters.AliveProbed)},
-		{"ports", fmt.Sprintf("%d", m.counters.Ports)},
-		{"results", fmt.Sprintf("%d", m.counters.Results)},
-		{"creds", fmt.Sprintf("%d", m.counters.Creds)},
-		{"errors", fmt.Sprintf("%d", m.counters.Errors)},
-	}
-	// The header carries a progress hint (alive/total) on wide
-	// terminals and the trailing count badge; on narrow stacks
-	// we drop the hint to save the line.
-	// 标题带进度提示（alive/总数）和计数尾标；窄终端堆叠时省
-	// 掉提示以省行。
-	headerText := "TARGETS"
-	if width >= 100 {
-		// A small secondary counter that gives the panel more
-		// "instrument" feel without adding rows.
-		// 给面板加个二级计数，提升"仪表"感而不加行。
-		tail := stMuted.Render(fmt.Sprintf("· %d metrics", len(rows)))
-		headerText = headerText + "  " + tail
-	}
-	var body strings.Builder
-	body.WriteString(stPanelHeader.Render(headerText))
-	body.WriteString("\n")
-	for _, r := range rows {
-		// Layout: "  alive      · 2" — dot separator marks the
-		// label→number transition and ties rows together visually.
-		// 布局："  alive      · 2"——点号作为 label→number 的软分隔。
-		label := stDim.Render(fmt.Sprintf("  %-10s", r[0]))
-		body.WriteString(label)
-		body.WriteString(stMuted.Render(symDot + " "))
-		// Counter coloring: cyan by default (anchors the panel),
-		// amber for cred hits, red for non-zero errors.
-		// 计数器配色：默认 cyan（锚定面板），凭据命中琥珀，错
-		// 误非零时红色。
-		var numStyle lipgloss.Style = stStatNum
-		switch r[0] {
-		case "creds":
-			if m.counters.Creds > 0 {
-				numStyle = stWarn
-			}
-		case "errors":
-			if m.counters.Errors > 0 {
-				numStyle = stError
-			}
-		}
-		body.WriteString(numStyle.Render(r[1]))
-		body.WriteString("\n")
-	}
-	if width >= 100 {
-		return stBox.Width(statsColWidth).Render(body.String())
-	}
-	return body.String()
 }
 
 // renderTopPluginsPanel builds the right "TOP PLUGINS" panel —
@@ -763,186 +558,4 @@ func (m Model) renderTopPluginsPanel(width int) string {
 		return stBox.Width(statsColWidth).Render(body.String())
 	}
 	return body.String()
-}
-
-// renderErrorCategoriesRow renders the bottom error-categories
-// row. Format: "ERRORS: timeout 42  refused 15  dns 7" (or
-// "(no errors yet)" when m.topErrors is empty).
-//
-// renderErrorCategoriesRow 渲染底部错误分类行。格式："ERRORS:
-// timeout 42  refused 15  dns 7"（m.topErrors 为空时渲染
-// "(no errors yet)"）。
-func (m Model) renderErrorCategoriesRow() string {
-	var b strings.Builder
-	b.WriteString(stPanelHeader.Render("ERRORS"))
-	b.WriteString("  ")
-	if len(m.topErrors) == 0 {
-		b.WriteString(stMuted.Render("(no errors yet)"))
-	} else {
-		for i, e := range m.topErrors {
-			if i > 0 {
-				b.WriteString("   ")
-			}
-			fmt.Fprintf(&b, "%s %s", stMuted.Render(e[0]), stError.Render(e[1]))
-		}
-	}
-	return b.String()
-}
-
-// renderEventsCol builds the right "Live Events" column.
-// renderEventsCol 构建右侧 "Live Events" 列。
-func (m Model) renderEventsCol() string {
-	// eventsBudget is the number of event rows we can show
-	// without overflowing the terminal. chromeLines accounts for
-	// the title bar (1), stats bar (1), blank line (1), blank
-	// line after the row (1), and keymap (1). One more for the
-	// panel header.
-	//
-	// eventsBudget 是能显示且不溢出终端的事件行数。chromeLines
-	// 覆盖标题栏 (1)、状态条 (1)、空行 (1)、行后空行 (1)、按键
-	// 提示 (1)。再 +1 给面板标题。
-	eventsBudget := m.height - chromeLines
-	if eventsBudget < 1 {
-		eventsBudget = 1
-	}
-	if eventsBudget > maxLiveEvents {
-		eventsBudget = maxLiveEvents
-	}
-
-	// Build the (newest) tail of the events slice that fits the
-	// budget. We don't mutate the source slice — View() is a
-	// pure function of Model state.
-	// 构造 events 切片的（最新）尾部以适配预算。不修改源切片——
-	// View() 是 Model 状态的纯函数。
-	start := 0
-	if len(m.events) > eventsBudget {
-		start = len(m.events) - eventsBudget
-	}
-	visible := m.events[start:]
-
-	var body strings.Builder
-	header := fmt.Sprintf("LIVE EVENTS  %s", stMuted.Render(fmt.Sprintf("(%d)", len(m.events))))
-	body.WriteString(stPanelHeader.Render(header))
-	body.WriteString("\n")
-	for _, ev := range visible {
-		var sym string
-		var style lipgloss.Style
-		switch ev.tag {
-		case "cred":
-			sym, style = symCredHit, stWarn
-		case "err":
-			sym, style = symError, stError
-		default:
-			sym, style = symSuccess, stSuccess
-		}
-		// Trim long banners so a 4KB HTTP response doesn't smear
-		// across 20 lines on a 120-col terminal. The right column
-		// gets the remaining width after the fixed fields.
-		// 裁剪过长 banner，避免 4KB HTTP 响应在 120 列终端上铺
-		// 20 行。右列用固定字段之后的剩余宽度。
-		text := ev.text
-		maxText := m.eventTextWidth()
-		if maxText > 0 && lipgloss.Width(text) > maxText {
-			text = truncByWidth(text, maxText, "…")
-		}
-		// Layout: "  ▸ HH:MM:SS  host:port  [svc]  text" — host:port
-		// is concatenated inline (not fixed width) so the column
-		// doesn't grow tails of whitespace on short hostnames.
-		// Stamping the timestamp at the leading edge makes the
-		// events column read top-down without re-orienting.
-		// 布局："  ▸ HH:MM:SS  host:port  [svc]  text"——host:port
-		// 内联拼接（非固定宽），避免短 host 把列尾拉出空白。时间
-		// 戳在最前，从上往下读事件列时无需重新定位。
-		host := ev.host
-		if ev.port > 0 {
-			host = fmt.Sprintf("%s:%d", ev.host, ev.port)
-		}
-		svc := stMuted.Render(fmt.Sprintf("[%s]", ev.svc))
-		when := stMuted.Render(ev.when)
-		line := fmt.Sprintf("  %s %s  %s  %s  %s", style.Render(sym), when, host, svc, text)
-		body.WriteString(line)
-		body.WriteString("\n")
-	}
-
-	if m.twoColumn() {
-		// Compute the right column width from the terminal: total
-		// width minus the fixed left panel + a 2-space gap. Floor
-		// at eventsColMin so a narrow-but-above-minWidth terminal
-		// doesn't crush the right column into 2 chars.
-		// 计算右栏宽度：总宽 - 左固定面板 - 2 空格。保底 eventsColMin，
-		// 避免稍宽但仍窄的终端把右栏压成 2 字符。
-		rightW := m.width - statsColWidth - 2
-		if rightW < eventsColMin {
-			rightW = eventsColMin
-		}
-		return stBox.Width(rightW).Render(body.String())
-	}
-	return body.String()
-}
-
-// eventTextWidth returns the per-row budget for the event text
-// field, or 0 to disable truncation. The budget is computed from
-// the right-column width minus the fixed prefix (timestamp +
-// symbol + svc tag + padding). 0 means "no truncation" (e.g. on
-// a fresh model with unknown width).
-//
-// eventTextWidth 返回事件文本字段的每行预算，0 表示不裁剪。预算 =
-// 右栏宽度 - 固定前缀（时间戳 + 符号 + svc 标签 + padding）。0
-// 表示"不裁剪"（例如刚启动宽度未知的 model）。
-func (m Model) eventTextWidth() int {
-	if m.width == 0 {
-		return 0
-	}
-	rightW := m.width - statsColWidth - 4 // border + padding slack
-	if !m.twoColumn() {
-		rightW = m.width - 4
-	}
-	if rightW < eventsColMin {
-		rightW = m.width // best-effort on very narrow terminals
-	}
-	// Fixed fields: "  ▸ " (4) + "HH:MM:SS" (8) + "  " (2) + "[svc]" (~6) + "  " (2)
-	const fixed = 22
-	budget := rightW - fixed
-	if budget < 8 {
-		return 8
-	}
-	return budget
-}
-
-// truncate shortens s to maxW display columns, appending an
-// ellipsis if anything was dropped. maxW must be > 0.
-//
-// truncByWidth 把 s 截短到 maxW 个显示列，如果截掉了就加省略号。
-// maxW 必须 > 0。
-//
-// v0.7.0: renamed from `truncate` to make room for the rune-based
-// `truncate(s, n)` helper added in styles.go (Task 2 of the v0.7.0
-// TUI plan). The old 3-arg signature used display-width tracking so
-// CJK glyphs counted as 2 cols; the new rune-based helper is for
-// simple text where the 2-col vs 1-col distinction doesn't matter.
-func truncByWidth(s string, maxW int, ell string) string {
-	if maxW <= 0 {
-		return s
-	}
-	if lipgloss.Width(s) <= maxW {
-		return s
-	}
-	// Walk rune-by-rune tracking display width. lipgloss.Width is
-	// the canonical measurement; for a hot path (every event row
-	// on every render) we use a small inline loop instead of
-	// allocating a []rune.
-	// 按 rune 遍历并累计显示宽度。lipgloss.Width 是规范的度量方
-	// 法；在热路径（每次渲染每行事件）上我们用小内联循环，避免
-	// 分配 []rune。
-	cur := 0
-	cut := len(s)
-	for i, r := range s {
-		w := lipgloss.Width(string(r))
-		if cur+w+lipgloss.Width(ell) > maxW {
-			cut = i
-			break
-		}
-		cur += w
-	}
-	return s[:cut] + ell
 }

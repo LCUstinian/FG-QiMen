@@ -48,18 +48,6 @@ type Model struct {
 	mode     string
 	project  string
 
-	// pending events appended by the dispatcher; flushed into
-	// events on the next tick. Keeps the dispatcher contract
-	// (append-only) intact while letting the model amortise the
-	// cost of re-sorting/trimming to one operation per render.
-	// pending 事件由 dispatcher 追加；在下一次 tick 时刷入 events。
-	// 保留 dispatcher 的追加契约，同时让模型在每次渲染时把排序
-	// /修剪的开销摊销成一次。
-	pending []liveEvent
-
-	// Live events (newest last) / 实时事件（最新在末尾）
-	events []liveEvent
-
 	// uiMode is the dashboard interaction state. / uiMode 是
 	// dashboard 的交互状态。
 	uiMode mode
@@ -200,6 +188,13 @@ type Model struct {
 	// 完成）。默认 false（折叠）。
 	errorsExpanded bool
 
+	// showLiveOverlay is the narrow-mode 'L' toggle: when the
+	// events region is hidden (height=0), the overlay reveals the
+	// last 5 events anyway. / showLiveOverlay 是 narrow 模式的 'L'
+	// 开关：events 区域被隐藏（height=0）时，overlay 强制显示
+	// 最近 5 条。
+	showLiveOverlay bool
+
 	// NOTE: a Bubbletea spinner.Model field was planned for the
 	// stage badge glyph per the v0.7.0 brief, but bubbles/spinner
 	// is not currently a dependency ("no new dependencies" plan
@@ -213,6 +208,14 @@ type Model struct {
 	// spinner.Model`。
 }
 
+// eventCap is the fixed size of the event ring buffer. Cap 20 =
+// ~20s of history at 1Hz, which fits a typical 24-row terminal with
+// room to spare for older context. Package-level so tests can assert
+// the cap contract. / eventCap 是事件 ring buffer 的固定大小。
+// Cap 20 = 1Hz 下约 20s 历史，能塞进典型 24 行终端并留出给旧上下文
+// 的余地。放在包级让测试能断言 cap 契约。
+const eventCap = 20
+
 // ── v0.7.0 helpers ──
 
 // pushEvent appends to the event ring buffer. If Kind is a hit-family
@@ -224,12 +227,8 @@ type Model struct {
 // 管底层 severity。
 func (m *Model) pushEvent(e eventEntry) {
 	if m.eventsBuf == nil {
-		// First push: lazy-init the ring buffer. Cap 20 = ~20s of
-		// history at 1Hz, which fits a typical 24-row terminal with
-		// room to spare for older context. / 首次 push：懒初始化 ring
-		// buffer。Cap 20 = 1Hz 下约 20s 历史，能塞进典型 24 行终端并
-		// 留出给旧上下文的余地。
-		const eventCap = 20
+		// First push: lazy-init the ring buffer. / 首次 push：懒初始化
+		// ring buffer。
 		m.eventsBuf = make([]eventEntry, eventCap)
 		m.eventsCap = eventCap
 	}
