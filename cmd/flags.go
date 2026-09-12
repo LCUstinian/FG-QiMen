@@ -89,7 +89,7 @@ var (
 	flagOutputJSON  string
 	flagOutputCSV   string
 	flagOutputSARIF string // v0.4: SARIF for GitHub Code Scanning
-	flagAliveFormat string   // v0.6.1: "txt" | "json" | "csv"
+	flagAliveFormat string // v0.6.1: "txt" | "json" | "csv"
 
 	// v0.4: output rotation. / v0.4：输出轮转。
 	flagOutputRotateBytes int64 // per-file size cap; 0 = no rotation

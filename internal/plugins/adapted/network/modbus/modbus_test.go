@@ -74,11 +74,11 @@ func TestModbus_IdentifyHit(t *testing.T) {
 		// 掩盖我们想回归测试的竞态。
 		_ = c.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		resp := replyMBAP()
-		_, _ = c.Write(resp[0:4])  // MBAP header part 1
+		_, _ = c.Write(resp[0:4]) // MBAP header part 1
 		time.Sleep(5 * time.Millisecond)
-		_, _ = c.Write(resp[4:7])  // MBAP header part 2
+		_, _ = c.Write(resp[4:7]) // MBAP header part 2
 		time.Sleep(5 * time.Millisecond)
-		_, _ = c.Write(resp[7:])   // PDU
+		_, _ = c.Write(resp[7:]) // PDU
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

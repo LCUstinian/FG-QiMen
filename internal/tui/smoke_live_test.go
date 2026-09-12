@@ -99,8 +99,8 @@ var (
 	sgrRe      = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
-func keyPress(r rune) tea.Msg  { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
-func escKey() tea.Msg          { return tea.KeyMsg{Type: tea.KeyEscape} }
+func keyPress(r rune) tea.Msg    { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
+func escKey() tea.Msg            { return tea.KeyMsg{Type: tea.KeyEscape} }
 func resizeMsg(w, h int) tea.Msg { return tea.WindowSizeMsg{Width: w, Height: h} }
 
 func stripANSI(s string) string { return sgrRe.ReplaceAllString(s, "") }

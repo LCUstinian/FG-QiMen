@@ -11,6 +11,7 @@ package modbus
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -93,7 +94,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	// 关会返 ErrUnexpectedEOF——没问题，我们已经拿到 function code
 	// + MEI 类型。
 	n, err := io.ReadFull(conn, resp)
-	if err != nil && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil
 	}
 	if n < modbusRespBytes {

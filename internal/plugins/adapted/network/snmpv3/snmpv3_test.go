@@ -14,7 +14,7 @@
 // 重建。假 server 永远回一个 NoAuthNoPriv Report，单 varbind
 // 是标准 `usmStatsUnknownUserNames` OID（.1.3.6.1.6.3.15.1.1.3.0）。
 // gosnmp 对 discovery 探测或 auth 探测的响应都接受 Report
-//（testAuthentication 在 msgFlags == NoAuthNoPriv 时跳过 HMAC
+// （testAuthentication 在 msgFlags == NoAuthNoPriv 时跳过 HMAC
 // 检查），varbind OID 匹配时 surface `ErrUnknownUsername`。
 // plugin 的 containsAny 匹配 "unknownUserName" → 报命中。
 package snmpv3
@@ -62,8 +62,8 @@ func buildUnknownUserReport(engineID string) ([]byte, error) {
 		MsgID:   1,
 		Variables: []gosnmp.SnmpPDU{
 			{
-				Name:  usmStatsUnknownUserNames.Name,
-				Type:  gosnmp.Null, // null value; varbind is the OID itself
+				Name: usmStatsUnknownUserNames.Name,
+				Type: gosnmp.Null, // null value; varbind is the OID itself
 			},
 		},
 	}

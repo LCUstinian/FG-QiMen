@@ -110,13 +110,13 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 			// Both case variants: gosnmp's sentinel errors are lowercase
 			// (marshal.go:121-130); the raw error wrapping may surface
 			// the OID label with CamelCase. Match both.
-			"unknown username",  // gosnmp ErrUnknownUsername (sentinel)
-			"unknownUserName",   // OID label usmStatsUnknownUserNames
-			"wrong digest",      // gosnmp ErrWrongDigest (sentinel)
-			"wrongDigest",       // OID label usmStatsWrongDigests
-			"noSuchContext",   // unsupported security level = v3
-			"notInTimeWindow", // out-of-sync clock = v3
-			"usmStats",        // any USM error = v3
+			"unknown username", // gosnmp ErrUnknownUsername (sentinel)
+			"unknownUserName",  // OID label usmStatsUnknownUserNames
+			"wrong digest",     // gosnmp ErrWrongDigest (sentinel)
+			"wrongDigest",      // OID label usmStatsWrongDigests
+			"noSuchContext",    // unsupported security level = v3
+			"notInTimeWindow",  // out-of-sync clock = v3
+			"usmStats",         // any USM error = v3
 		})
 		if v3Enabled {
 			// Classify. / 分类。
