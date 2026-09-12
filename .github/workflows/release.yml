@@ -290,6 +290,15 @@ jobs:
         uses: anchore/sbom-action@v0
         with:
           syft-version: v1.51.0
+          # Per-binary SBOM is generated manually below and shipped
+          # inside the release-<target> artifact; disable the action's
+          # auto-upload, which otherwise spills one workspace-scanned
+          # spdx.json per matrix job (13 junk artifacts in dry-run).
+          # / 每二进制 SBOM 在下方手动生成并随 release-<target>
+          # artifact 发布；关闭 action 自动上传，否则每个矩阵 job
+          # 都会多传一份 workspace 扫描的 spdx.json（dry-run 出现
+          # 13 个垃圾 artifact）。
+          upload-artifact: false
 
       - name: generate SBOM
         # Force bash on Windows (multi-line `\` continuation).
@@ -303,13 +312,28 @@ jobs:
       - name: install upx (hardened)
         if: ${{ matrix.hardened == true }}
         shell: bash
+        # Pin UPX 5.2.0 — the same version the local harden scripts and
+        # strip_upx.py are validated against. Distro packages (apt's
+        # upx-ucl 4.x, choco's rolling upx) emit different packheader
+        # layouts; with 4.2.2 the strip step logged "No UPX signatures
+        # found" and shipped a fully signatured binary in the first
+        # dry-run (run 34686243498).
+        # / 固定 UPX 5.2.0——与本地加固脚本和 strip_upx.py 验证过的版
+        # 本一致。发行版包（apt upx-ucl 4.x、choco 滚动版）packheader
+        # 布局不同：4.2.2 下 strip 步骤打日志 "No UPX signatures
+        # found"，首个 dry-run 发布了带完整特征的二进制。
         run: |
+          set -euo pipefail
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            choco install upx -y --no-progress
+            curl -fsSL -o upx.zip "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-win64.zip"
+            unzip -q upx.zip -d upx-dist
+            echo "$(pwd)/upx-dist/upx-5.2.0-win64" >> "$GITHUB_PATH"
           else
-            sudo apt-get update -q
-            sudo apt-get install -y -q upx-ucl
+            curl -fsSL -o upx.tar.xz "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz"
+            tar -xJf upx.tar.xz
+            echo "$(pwd)/upx-5.2.0-amd64_linux" >> "$GITHUB_PATH"
           fi
+          upx --version | head -n1
 
       - name: upx compress (hardened)
         if: ${{ matrix.hardened == true }}
@@ -462,6 +486,12 @@ jobs:
         uses: anchore/sbom-action@v0
         with:
           syft-version: v1.51.0
+          # The full SPDX SBOM is generated manually below and shipped
+          # as a release asset (dist/*); disable the action's
+          # auto-upload duplicate.
+          # / 全量 SPDX SBOM 在下方手动生成并作为 Release asset
+          # （dist/*）发布；关闭 action 的自动上传重复副本。
+          upload-artifact: false
 
       - name: generate full SPDX SBOM
         working-directory: dist

@@ -108,14 +108,11 @@ def strip_pe(data: bytearray, dry_run: bool = False) -> int:
             print(f"  [PE] Section {i}: '{sec_name_stripped.decode('ascii', errors='replace')}' -> '____'")
 
     # ── Strip UPX! stamp ───────────────────────────────────────────────
-    # The UPX! stamp is a 4-byte marker placed by UPX in the binary.
-    # It's typically located near the end of the headers or in the
-    # overlay. We do a simple byte-scan for it.
-    #
-    # Strategy: scan the first 64KB of the file (headers + early sections)
-    # for the "UPX!" pattern. This covers the common locations without
-    # scanning the entire file.
-    scan_limit = min(len(data), 65536)
+    # The UPX! stamp is a 4-byte marker placed by UPX in the binary:
+    # near the end of the headers AND in the trailing packheader
+    # (packheader always sits in the last KB of the file). Scan the
+    # WHOLE file — a find() over a ~16 MB packed binary is memchr-fast.
+    scan_limit = len(data)
     offset = 0
     while True:
         idx = data.find(UPX_STAMP, offset, scan_limit)
@@ -240,6 +237,32 @@ def strip_elf(data: bytearray, dry_run: bool = False) -> int:
 
 # ── Main ───────────────────────────────────────────────────────────────
 
+def strip_upx_stamp(data: bytearray, dry_run: bool = False,
+                    label: str = "ELF") -> int:
+    """
+    Whole-file byte scan for the 4-byte "UPX!" magic and replace it
+    with nulls.
+
+    UPX embeds this magic in the loader's l_info structure and in the
+    trailing packheader. For packed ELFs the section table is usually
+    empty (e_shnum == 0), so section-name stripping finds nothing and
+    this scan is the ONLY effective marker. find() over a ~16 MB
+    buffer is memchr-fast.
+    """
+    replacements = 0
+    offset = 0
+    while True:
+        idx = data.find(UPX_STAMP, offset)
+        if idx == -1:
+            break
+        if not dry_run:
+            data[idx:idx + 4] = REPL_4B_STAMP
+        replacements += 1
+        print(f"  [{label}] UPX! magic at offset 0x{idx:08X} -> null")
+        offset = idx + 4
+    return replacements
+
+
 def detect_format(data: bytes) -> str:
     """Detect binary format from magic bytes."""
     if data[:2] == PE_MAGIC:
@@ -275,6 +298,10 @@ def main():
         replacements = strip_pe(data, args.dry_run)
     elif fmt == "ELF":
         replacements = strip_elf(data, args.dry_run)
+        # UPX-packed ELFs usually have an empty section table
+        # (e_shnum == 0), so section-based stripping finds nothing;
+        # the "UPX!" magic scan is the reliable fallback.
+        replacements += strip_upx_stamp(data, args.dry_run, "ELF")
     else:
         print("[*] Unsupported format (not PE or ELF) — skipping")
         sys.exit(0)
