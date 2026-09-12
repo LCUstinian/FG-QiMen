@@ -328,6 +328,7 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 |     | `--no-state` | `false` | Workspace | 禁用 bbolt，纯内存；项目退出时清空 |
 |     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | 逗号分隔端口列表 |
 |     | `--exclude-ports` | （空） | Ports | 从解析后的端口列表中排除 |
+|     | `--udp` | `false` | Ports | 在 TCP 扫描之后追加探测常见 UDP 服务（DNS、NetBIOS、SNMP、NTP……），发送 nmap 风格服务 payload 并对响应做指纹识别。显式给了 `--ports` 时取"用户端口 ∩ probe 提示端口"；否则用全部提示端口（约 70 个）。每个静默端口要等满约 2s 读超时；UDP 端口仍会被常规 TCP connect 扫一遍。crack 模式无效。 |
 |     | `--no-icmp` | `false` | Ports | 跳过 ICMP alive 探活（敌对网络下的纯 TCP 模式） |
 |     | `--proxy` | （空） | Network | HTTP/HTTPS 代理 URL（如 `http://127.0.0.1:8080`）。通过 `credential.DialTCP` / `DialTCPAddr` 在所有 TCP 拨号站点生效（Phase 2.2）。无短参。 |
 |     | `--socks5` | （空） | Network | SOCKS5 代理 URL（如 `socks5://user:pass@127.0.0.1:1080`） |

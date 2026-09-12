@@ -26,6 +26,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
+	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -322,6 +323,56 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve ports: %w", err)
 	}
+
+	// UDP service-probe phase (--udp). The port set is independent of
+	// the TCP scan: with an explicit --ports, UDP probes the
+	// INTERSECTION of the user's ports with the nmap-service-probes
+	// UDP port hints (DNS 53, NBT 137, SNMP 161, …); without one, the
+	// full hint set (~70 ports). --exclude-ports applies to both. The
+	// TCP scan still touches UDP ports via TCP connect — acceptable:
+	// a closed UDP port is invisible to TCP anyway, and open ones get
+	// an extra (harmless) refusal.
+	// / UDP 服务探测阶段（--udp）。端口集合独立于 TCP 扫描：显式给
+	// 了 --ports 时，UDP 探测"用户端口 ∩ nmap-service-probes UDP 端
+	// 口提示"（DNS 53、NBT 137、SNMP 161……）；未给则用全部提示端口
+	//（约 70 个）。--exclude-ports 对两者都生效。TCP 阶段仍会对 UDP
+	// 端口做 TCP connect——可接受：closed 的 UDP 端口对 TCP 本就不可
+	// 见，open 的只是多一次无害拒绝。
+	var udpPorts []int
+	var udpPayloads map[int][][]byte
+	if cfg.UDP {
+		vscan := fingerprint.NewVScan()
+		udpPayloads = vscan.UDPPayloadMap()
+		hints := vscan.UDPHintPorts()
+		candidates := hints
+		if cfg.Ports != "" {
+			// Intersect the explicit user port list with the hint set.
+			// / 用户显式端口列表与提示集求交。
+			userPorts, perr := cfg.ParsePorts()
+			if perr != nil {
+				return 0, fmt.Errorf("resolve udp ports: %w", perr)
+			}
+			candidates = make(map[int]struct{}, len(userPorts))
+			for _, p := range userPorts {
+				if _, ok := hints[p]; ok {
+					candidates[p] = struct{}{}
+				}
+			}
+		}
+		if excl, xerr := cfg.ParseExcludePorts(); xerr == nil && len(excl) > 0 {
+			for _, p := range excl {
+				delete(candidates, p)
+			}
+		}
+		udpPorts = make([]int, 0, len(candidates))
+		for p := range candidates {
+			udpPorts = append(udpPorts, p)
+		}
+		sort.Ints(udpPorts)
+		if len(udpPorts) == 0 {
+			sess.Log.Info("[*] udp: no probe-hinted port in the requested port set; udp phase skipped")
+		}
+	}
 	// TUI Spec A (Task 3): record the maximum number of port-scan
 	// probes that will be attempted (len(targets) * len(ports)).
 	// The channel-based producer/consumer doesn't have a static
@@ -331,10 +382,52 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// 通道的 producer/consumer 没有静态 portScanItems slice，所以
 	// 取上界——TUI 用来显示 "ports X/Y" 进度。
 	sess.State.TotalPorts.Store(int64(len(targets)) * int64(len(ports)))
+	if len(udpPorts) > 0 {
+		sess.State.TotalPorts.Add(int64(len(targets)) * int64(len(udpPorts)))
+	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// consume forwards one scan.Result stream onto the shared
+		// plugin items channel, tagging each item with its transport
+		// ("tcp"/"udp") so Stage-0 fingerprinting can pick the right
+		// rule set. Returns true when the phase finished (done fired
+		// or stream closed) and the next phase may run; false on ctx
+		// cancellation — the caller must stop producing.
+		// / consume 把一路 scan.Result 流转发到共享的 plugin items
+		// 通道，并给每个 item 打上传输层标记（"tcp"/"udp"），让
+		// Stage-0 指纹识别选对规则集。阶段完成（done 触发或流关闭）
+		// 时返 true，下一阶段可以继续；ctx 取消时返 false——调用方
+		// 必须停止产出。
+		consume := func(scanRes <-chan scan.Result, protocol string, done <-chan struct{}) bool {
+			for {
+				select {
+				case <-ctx.Done():
+					return false
+				case <-done:
+					return true
+				case r, ok := <-scanRes:
+					if !ok {
+						return true
+					}
+					if r.State != scan.StateOpen {
+						continue
+					}
+					sess.State.Counters.Ports.Add(1)
+					select {
+					case items <- types.ScanItem{
+						Host:     r.Host,
+						Port:     r.Port,
+						Banner:   r.Banner,
+						Protocol: protocol,
+					}:
+					case <-ctx.Done():
+						return false
+					}
+				}
+			}
+		}
 		// P1#1 + C1 audit fix: single defer close(items) at the
 		// bottom (line ~128) covers all return paths. The earlier
 		// duplicate defer close(items) here would double-close and
@@ -437,30 +530,52 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			}
 			close(scanDone)
 		}()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-scanDone:
-				return
-			case r, ok := <-scanRes:
-				if !ok {
-					return
-				}
-				if r.State != scan.StateOpen {
-					continue
-				}
-				sess.State.Counters.Ports.Add(1)
-				select {
-				case items <- types.ScanItem{
-					Host:   r.Host,
-					Port:   r.Port,
-					Banner: r.Banner,
-				}:
-				case <-ctx.Done():
-					return
-				}
-			}
+		// TCP consume: forwards open ports until the scan completes.
+		// / TCP 消费：转发开放端口直到扫描完成。
+		if !consume(scanRes, "tcp", scanDone) {
+			return
+		}
+
+		// UDP service-probe phase (--udp): appended SERIALLY after the
+		// TCP scan inside this same goroutine. A separate Scanner with
+		// a hard thread cap keeps UDP's "silence → open" results from
+		// pushing the adaptive pool upward while every probe waits out
+		// its full read deadline (the TCP pool-avalanche lesson); a
+		// separate scanRes channel keeps the streams untangled. No
+		// RetryableProbe — UDP probe failures return Results, not
+		// errors, so there is nothing to retry.
+		// / UDP 服务探测阶段（--udp）：在本 goroutine 内、TCP 扫描之
+		// 后串行追加。独立 Scanner 加硬线程上限，防止 UDP"静默 → open"
+		// 的结果在每个 probe 等满读超时期间把自适应池越推越高（TCP 池
+		// 雪崩的教训）；独立 scanRes 通道让两路流互不纠缠。不包
+		// RetryableProbe——UDP probe 失败返回的是 Result 不是 error，
+		// 没有可重试的东西。
+		if len(udpPorts) > 0 && ctx.Err() == nil {
+			sess.Log.Info("[*] udp: probing %d port(s) on %d host(s) (timeout %s)",
+				len(udpPorts), len(targets), min(cfg.Timeout, DefaultUDPProbeTimeout))
+			udpRes := make(chan scan.Result, DefaultChannelBuffer)
+			udpDone := make(chan struct{})
+			udpProbe := scan.NewUDPServiceProbe(func(port int) [][]byte {
+				return udpPayloads[port]
+			})
+			us := scan.NewScanner(scan.ScanOptions{
+				Probe:      udpProbe,
+				Timeout:    min(cfg.Timeout, DefaultUDPProbeTimeout),
+				Threads:    DefaultUDPThreads,
+				MaxThreads: DefaultUDPMaxThreads,
+				OnProbeError: func(_ scan.Item, err error) {
+					sess.Log.Warn("udp probe error: %v", err)
+				},
+			})
+			go func() {
+				_ = us.Run(ctx, scan.NewCrossIterator(targetAddrs(targets), udpPorts), udpRes)
+				close(udpDone)
+			}()
+			// Return value ignored: this is the last phase — after it,
+			// the deferred close(items) releases the plugin workers
+			// either way. / 返回值忽略：这是最后一个阶段——无论哪种
+			// 结束方式，随后的 defer close(items) 都会释放 plugin worker。
+			consume(udpRes, "udp", udpDone)
 		}
 	}()
 

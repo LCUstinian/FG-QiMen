@@ -7,6 +7,7 @@ package fingerprint
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,11 @@ import (
 //     ANY banner ≥132 bytes whose 129th byte falls in 0x52..0x7F
 //     matches. Upstream nmap only ever runs it against NSCA probe
 //     responses (port 5667).
+//   - pc-duo / pc-duo-gw: `m|^.........(.*)\0|s` — ANY banner ≥10
+//     bytes with a 0x00 at index ≥9 matches (`(.*)` is empty-able).
+//     Reproduced deterministically: LCG noise banner #7 (seed
+//     0x5EED1234) hard-matched pc-duo through TestVScan_MatchUDPBanner_Noise.
+//     Upstream nmap only runs them against pc-duo probe responses.
 //
 // To extend: reproduce with a noise experiment first; never blacklist
 // on a single field report alone.
@@ -39,10 +45,17 @@ import (
 //   - nagios-nsca：`m|^.{128}[\x52-\x7F]...$|s`——锚定但空洞：任何
 //     ≥132 字节且第 129 字节落在 0x52..0x7F 的 banner 都命中。上游
 //     nmap 只对 NSCA 探针响应（端口 5667）使用它。
+//   - pc-duo / pc-duo-gw：`m|^.........(.*)\0|s`——任何 ≥10 字节且
+//     索引 ≥9 处有 0x00 的 banner 都命中（`(.*)` 可为空）。确定性复
+//     现：LCG 噪声 banner #7（seed 0x5EED1234）经
+//     TestVScan_MatchUDPBanner_Noise 硬命中 pc-duo。上游 nmap 只对
+//     pc-duo 探针响应使用它们。
 //
 // 扩展方式：先用噪声实验复现，再拉黑；不要仅凭单次现场报告。
 var looseRuleBlacklist = map[string]bool{
 	"nagios-nsca": true,
+	"pc-duo":      true,
+	"pc-duo-gw":   true,
 }
 
 // getDirectiveSyntax parses `name flag delimiter rest` (e.g. `q|` or
@@ -131,6 +144,50 @@ func (p *Probe) fromString(data string) error {
 
 func (p *Probe) parsePorts(line string)    { p.Ports = line[len("ports")+1:] }
 func (p *Probe) parseSSLPorts(line string) { p.SSLPorts = line[len("sslports")+1:] }
+
+// ParsePortHint parses a probes-file port hint ("53,1967,26000-26004")
+// into a sorted, deduplicated port list. Malformed segments (empty,
+// non-numeric, reversed ranges) are skipped rather than failing the
+// whole hint — a hint is an optimization hint, not a contract.
+// / ParsePortHint 解析 probes 文件的端口提示串（"53,1967,26000-26004"）
+// 为去重升序端口列表。坏段（空、非数字、倒序范围）跳过而不是让整个
+// 提示失败——提示是优化线索，不是契约。
+func ParsePortHint(s string) []int {
+	seen := make(map[int]struct{})
+	var out []int
+	add := func(port int) {
+		if port < 1 || port > 65535 {
+			return
+		}
+		if _, ok := seen[port]; ok {
+			return
+		}
+		seen[port] = struct{}{}
+		out = append(out, port)
+	}
+	for _, seg := range strings.Split(s, ",") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		if lo, hi, ok := strings.Cut(seg, "-"); ok {
+			l, err1 := strconv.Atoi(strings.TrimSpace(lo))
+			h, err2 := strconv.Atoi(strings.TrimSpace(hi))
+			if err1 != nil || err2 != nil || l > h {
+				continue
+			}
+			for port := l; port <= h; port++ {
+				add(port)
+			}
+			continue
+		}
+		if port, err := strconv.Atoi(seg); err == nil {
+			add(port)
+		}
+	}
+	sort.Ints(out)
+	return out
+}
 func (p *Probe) parseTotalWaitMS(line string) {
 	v, err := strconv.Atoi(strings.TrimSpace(line[len("totalwaitms")+1:]))
 	if err == nil {

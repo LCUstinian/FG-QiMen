@@ -25,6 +25,29 @@ const (
 	// 插件 worker 默认上限。
 	DefaultPluginWorkers = 16
 
+	// DefaultUDPThreads / DefaultUDPMaxThreads bound the UDP
+	// service-probe phase's adaptive pool. UDP "silence → open"
+	// results would push a freely-growing pool upward while every
+	// probe still waits out its full read deadline, so the pool is
+	// capped lower than the TCP pool (500). The UDP phase runs AFTER
+	// the TCP scan inside the same Stage-1 goroutine, so this also
+	// bounds its wall-clock interference.
+	// / DefaultUDPThreads / DefaultUDPMaxThreads 限制 UDP 服务探测阶
+	// 段的自适应池。UDP"静默 → open"的结果会让自由增长的池在每个
+	// probe 还在等满读超时时继续上推，因此上限比 TCP 池（500）低。
+	// UDP 阶段在 Stage-1 goroutine 内、TCP 扫描之后串行跑，这也限
+	// 制了它对总时长的干扰。
+	DefaultUDPThreads    = 128
+	DefaultUDPMaxThreads = 200
+
+	// DefaultUDPProbeTimeout caps the UDP phase's per-probe timeout
+	// regardless of --timeout: a slow-WAN-tuned 5s TCP timeout would
+	// double every silent UDP port's cost.
+	// / DefaultUDPProbeTimeout 限制 UDP 阶段的单 probe 超时，不受
+	// --timeout 影响：慢 WAN 调优出的 5s TCP 超时会让每个静默 UDP
+	// 端口的成本翻倍。
+	DefaultUDPProbeTimeout = 2 * time.Second
+
 	// DefaultStatsInterval is the interval for periodic stats push.
 	// 周期性 stats 推送间隔。
 	DefaultStatsInterval = 1 * time.Second

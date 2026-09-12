@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
@@ -193,12 +194,24 @@ func formatPortfinger(svc, product, ver, banner string) string {
 	}
 	// The captured banner keeps its real CR/LF for end-anchored
 	// fingerprint rules; result.txt / CSV / NDJSON rows are single-line,
-	// so collapse interior newlines here. / 抓取的 banner 为尾部锚定的
-	// 指纹规则保留真实 CR/LF；result.txt / CSV / NDJSON 行是单行的，
-	// 在这里折叠内部换行。
+	// so collapse interior newlines here. Binary bytes (raw UDP
+	// responses — DNS/SNMP/NBTStat carry binary payloads) collapse to
+	// '.', matching nmap's display convention, so control bytes never
+	// leak into a single-line sink. / 抓取的 banner 为尾部锚定的指纹
+	// 规则保留真实 CR/LF；result.txt / CSV / NDJSON 行是单行的，在这
+	// 里折叠内部换行。二进制字节（原始 UDP 响应——DNS/SNMP/NBTStat 带
+	// 二进制 payload）收敛为 '.'（同 nmap 的显示惯例），控制字节不会
+	// 泄漏进单行 sink。
 	banner = strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' || r == '\t' {
+		switch {
+		case r == '\r' || r == '\n' || r == '\t':
 			return ' '
+		case r < 0x20 || r == 0x7f || r == utf8.RuneError:
+			// RuneError also covers every invalid UTF-8 byte, i.e.
+			// all high/binary bytes of a raw UDP response.
+			// / RuneError 同时覆盖所有非法 UTF-8 字节，即原始 UDP 响
+			// 应的全部高位/二进制字节。
+			return '.'
 		}
 		return r
 	}, banner)

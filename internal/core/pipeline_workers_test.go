@@ -10,6 +10,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -207,6 +208,62 @@ func TestPipelineWorkers_PortLevelResultForEveryOpenPort(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPipelineWorkers_UDPDemoDispatch pins the Protocol dispatch
+// contract: a UDP item must be fingerprinted against the UDP rule set
+// (MatchUDPBanner), and the memcached-UDP response shape must produce
+// the structured identity — the TCP rule set would NOT match this
+// banner (its memcached rule anchors on bare `^STAT pid`, without the
+// binary header), so a hit here proves the UDP rules were consulted.
+// Exactly one result is produced: UDP items skip the plugin loop.
+// / TestPipelineWorkers_UDPDemoDispatch 钉死 Protocol 分派契约：UDP
+// item 必须用 UDP 规则集（MatchUDPBanner）识别，memcached-UDP 响应
+// 形态必须产出结构化身份——TCP 规则集不会命中该 banner（其 memcached
+// 规则锚定裸 `^STAT pid`，无二进制头），因此命中即证明走的是 UDP 规
+// 则。恰好产出一条结果：UDP item 跳过插件循环。
+func TestPipelineWorkers_UDPDemoDispatch(t *testing.T) {
+	sess, _, _, _ := newWorkerFixture(t)
+	port := 7676 // deliberately unregistered; pure Stage-0 behaviour
+	items := make(chan types.ScanItem, 1)
+	results := make(chan *types.Result, 8)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runPluginWorker(context.Background(), sess, nil, items, results)
+	}()
+
+	banner := string([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}) +
+		"STAT pid 1\r\nSTAT uptime 2\r\nSTAT time 3\r\nSTAT version 1.6.9\r\n"
+	items <- types.ScanItem{Host: "127.0.0.1", Port: port, Protocol: "udp", Banner: banner}
+	close(items)
+	<-done
+	close(results)
+
+	got := make([]*types.Result, 0, 8)
+	for r := range results {
+		got = append(got, r)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want exactly 1 port-level result (no plugin dispatch for UDP)", len(got))
+	}
+	r := got[0]
+	if r.Service != "memcached" {
+		t.Errorf("Service = %q, want %q (UDP rule dispatch)", r.Service, "memcached")
+	}
+	if r.Product != "Memcached" {
+		t.Errorf("Product = %q, want %q", r.Product, "Memcached")
+	}
+	if r.Version != "1.6.9" {
+		t.Errorf("Version = %q, want %q ($N expansion)", r.Version, "1.6.9")
+	}
+	if r.Confidence != types.ConfHigh {
+		t.Errorf("Confidence = %q, want %q (hard match)", r.Confidence, types.ConfHigh)
+	}
+	if strings.Contains(r.Banner, "\x00") {
+		t.Errorf("Banner display = %q; binary bytes must be sanitized to '.'", r.Banner)
 	}
 }
 

@@ -365,6 +365,7 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 |     | `--no-state` | `false` | Workspace | disable bbolt, in-memory only; the project is wiped on exit |
 |     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | comma-separated port list |
 |     | `--exclude-ports` | — | Ports | ports to remove from the resolved list |
+|     | `--udp` | `false` | Ports | also probe well-known UDP services (DNS, NetBIOS, SNMP, NTP, ...) with nmap-style service payloads after the TCP scan. Explicit `--ports` ∩ probe-hinted ports; otherwise the full hint set (~70 ports). Each silent port costs its ~2s read timeout; UDP ports are still TCP-connect-probed by the regular scan. Ineffective in crack mode. |
 |     | `--no-icmp` | `false` | Ports | skip ICMP alive probe (TCP-only mode for hostile networks) |
 |     | `--proxy` | — | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). No short flag (use long form). |
 |     | `--socks5` | — | Network | SOCKS5 proxy URL (e.g. `socks5://user:pass@127.0.0.1:1080`) |

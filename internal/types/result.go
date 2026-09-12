@@ -21,6 +21,14 @@ type Cred struct {
 type ScanItem struct {
 	Host string
 	Port int
+	// Protocol selects the transport for this item: "" or "tcp" (the
+	// historic default) or "udp". UDP items are produced by the UDP
+	// scan phase and must be routed to UDP-aware fingerprinting
+	// (VScan.MatchUDPBanner) and UDP-only plugins.
+	// / Protocol 选择该项的传输层："" 或 "tcp"（历史默认），或 "udp"。
+	// UDP 项由 UDP 扫描阶段产出，必须路由到 UDP 感知的指纹识别
+	//（VScan.MatchUDPBanner）与 UDP-only 插件。
+	Protocol string
 	// Banner is the raw bytes (as a string) received right after the
 	// port open (up to 256 bytes). Empty if the probe did not
 	// capture one. Plugins can use this for service fingerprinting

@@ -150,7 +150,7 @@ const usageTemplate = `Usage:
 Flag groups (alphabetical list below) / 分组参考（下方有字母序列表）:
   Target       -H, -f / --host, --hosts-file
   Workspace    --project, --project-key, --mode, -r / --resume, --no-state
-  Ports        --ports, --exclude-ports, -a / --alive-only
+  Ports        --ports, --exclude-ports, --udp, -a / --alive-only
   Network      --proxy, --socks5, --iface, --port-timeout, --web-timeout
   Concurrency  -t / --threads, --timeout, --shutdown-timeout, --max-workers
   Credentials  -u / --user, -p / --pass, -uf / --user-file, -pf / --pass-file

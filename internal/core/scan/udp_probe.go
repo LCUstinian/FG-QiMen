@@ -59,8 +59,58 @@ func (p *UDPProbe) Available() error { return nil }
 
 // Probe implements Probe. / Probe 实现 Probe。
 func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout time.Duration) (Result, error) {
+	payload := p.ReadPayload
+	if payload == nil {
+		payload = []byte{0x00} // 1-byte probe, indistinguishable from random noise
+	}
+	btimeout := p.BannerTimeout
+	if btimeout <= 0 {
+		btimeout = 2 * time.Second
+	}
+	banner, state, rtt := probeOnce(ctx, host, port, payload, timeout, btimeout)
+	return Result{
+		Host: host, Port: port, State: state,
+		Method: MethodUDP, Banner: string(banner),
+		RTT: rtt, Time: time.Now(),
+	}, nil
+}
+
+// probeOnce is the single-payload UDP state machine shared by
+// UDPProbe and UDPServiceProbe: dial a connected UDP socket, send one
+// payload, wait up to readTimeout for a response.
+//
+//   - response → (banner, StateOpen)
+//   - ICMP "port unreachable" surfacing as ECONNREFUSED → (nil, StateClosed)
+//   - dial refused / unreachable / timeout with silence → (nil, StateFiltered)
+//     or (nil, StateOpen) — UDP silence could mean "open but idle" or
+//     "filtered by firewall"; we mark Open so the plugin pipeline still
+//     gets a chance to identify the service if the user supplied a
+//     port list.
+//
+// The banner is returned AS RECEIVED (raw bytes, no trimASCII): UDP
+// responses are binary (DNS/SNMP/NBTStat), and trimASCII's
+// space-substitution destroyed every byte outside printable ASCII —
+// end-anchored and binary-anchored fingerprint rules could never
+// match. Display paths re-sanitize.
+//
+// / probeOnce 是 UDPProbe 与 UDPServiceProbe 共用的单 payload UDP 状态
+// 机：拨一条 connected UDP socket，发一个 payload，等 readTimeout 内
+// 的响应。
+//
+//   - 有响应 → (banner, StateOpen)
+//   - ICMP "port unreachable" 以 ECONNREFUSED 浮出 → (nil, StateClosed)
+//   - dial refused / 网络不可达 / 静默超时 → (nil, StateFiltered) 或
+//     (nil, StateOpen)——UDP 沉默可能是"open 但静默"或"filtered"；
+//     我们标 Open 让插件流水线仍有机会识别服务（如果用户给了端口列
+//     表）。
+//
+// banner 按收到的原样返回（原始字节，不做 trimASCII）：UDP 响应是二
+// 进制（DNS/SNMP/NBTStat），trimASCII 的空格替换会毁掉可打印 ASCII
+// 之外的所有字节——行尾/二进制锚定的指纹规则永远无法匹配。显示路径
+// 会自行收敛。
+func probeOnce(ctx context.Context, host string, port int, payload []byte, dialTimeout, readTimeout time.Duration) (banner []byte, state State, rtt time.Duration) {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	d := net.Dialer{Timeout: timeout}
+	d := net.Dialer{Timeout: dialTimeout}
 	start := time.Now()
 	conn, err := d.DialContext(ctx, "udp", addr)
 	if err != nil {
@@ -71,53 +121,34 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 		// UDP 上"refused"很少（无 listener 拒）；如果发生，视为
 		// closed。
 		if isConnRefused(err) {
-			return Result{
-				Host: host, Port: port, State: StateClosed,
-				Method: MethodUDP, RTT: time.Since(start),
-				Time: time.Now(),
-			}, nil
+			return nil, StateClosed, time.Since(start)
 		}
-		return Result{
-			Host: host, Port: port, State: StateFiltered,
-			Method: MethodUDP, RTT: time.Since(start),
-			Time: time.Now(),
-		}, nil
+		return nil, StateFiltered, time.Since(start)
 	}
 	defer conn.Close()
 
-	// Send the payload (or empty). / 发 payload（或空）。
-	payload := p.ReadPayload
-	if payload == nil {
-		payload = []byte{0x00} // 1-byte probe, indistinguishable from random noise
-	}
-	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+	// Send the payload. / 发 payload。
+	_ = conn.SetWriteDeadline(time.Now().Add(dialTimeout))
 	if _, err := conn.Write(payload); err != nil {
 		// "network is unreachable" or similar → filtered. / 网络不可
 		// 达或类似 → filtered。
 		if isNetworkUnreachable(err) {
-			return Result{
-				Host: host, Port: port, State: StateFiltered,
-				Method: MethodUDP, RTT: time.Since(start),
-				Time: time.Now(),
-			}, nil
+			return nil, StateFiltered, time.Since(start)
 		}
 	}
 
 	// Wait for response. / 等响应。
-	btimeout := p.BannerTimeout
-	if btimeout <= 0 {
-		btimeout = 2 * time.Second
+	if readTimeout <= 0 {
+		readTimeout = 2 * time.Second
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(btimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 	buf := make([]byte, 512)
 	n, readErr := conn.Read(buf)
 	if n > 0 {
 		// Service responded! Open. / 服务响应了！Open。
-		return Result{
-			Host: host, Port: port, State: StateOpen,
-			Method: MethodUDP, Banner: trimASCII(buf[:n]),
-			RTT: time.Since(start), Time: time.Now(),
-		}, nil
+		b := make([]byte, n)
+		copy(b, buf[:n])
+		return b, StateOpen, time.Since(start)
 	}
 	if readErr != nil {
 		// "connection refused" on UDP usually means we got an ICMP
@@ -125,33 +156,16 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 		// "connection refused" 通常意味着我们收到了 ICMP "port
 		// unreachable"——端口是 closed。
 		if isConnRefused(readErr) {
-			return Result{
-				Host: host, Port: port, State: StateClosed,
-				Method: MethodUDP, RTT: time.Since(start),
-				Time: time.Now(),
-			}, nil
+			return nil, StateClosed, time.Since(start)
 		}
-		// Timeout / i/o timeout → open|filtered. UDP silence could
-		// mean "open but quiet" or "filtered". We mark as Open so the
-		// plugin pipeline still gets a chance to identify the service
-		// if the user supplied a port list; the banner will be empty.
-		// / 超时 → open|filtered。UDP 沉默可能是"open 但静默"或
-		// "filtered"。我们标 Open 让 plugin 流水线仍有机会识别服
-		// 务（如果用户给了端口列表）；banner 为空。
+		// Timeout / i/o timeout → open|filtered (marked Open, see
+		// above). / 超时 → open|filtered（标 Open，见上）。
 		if isTimeout(readErr) {
-			return Result{
-				Host: host, Port: port, State: StateOpen,
-				Method: MethodUDP, Banner: "",
-				RTT: time.Since(start), Time: time.Now(),
-			}, nil
+			return nil, StateOpen, time.Since(start)
 		}
 	}
 	// Fallthrough: ambiguous. / 兜底：模糊。
-	return Result{
-		Host: host, Port: port, State: StateOpen,
-		Method: MethodUDP, Banner: "",
-		RTT: time.Since(start), Time: time.Now(),
-	}, nil
+	return nil, StateOpen, time.Since(start)
 }
 
 // isNetworkUnreachable returns true if err indicates the network or

@@ -65,6 +65,17 @@ type Config struct {
 	Ports        string
 	ExcludePorts string
 
+	// UDP enables the UDP service-probe phase that runs after the TCP
+	// scan: well-known UDP ports get service-specific payloads (from
+	// the nmap-service-probes UDP rules) and any response bytes are
+	// fingerprinted. Off by default — UDP probing is slow (open ports
+	// must wait out the read deadline) and most engagements don't need
+	// it. / UDP 启用 TCP 扫描之后的 UDP 服务探测阶段：常见 UDP 端口
+	// 发送服务专属 payload（来自 nmap-service-probes 的 UDP 规则），
+	// 对任何响应字节做指纹识别。默认关闭——UDP 探测慢（开放端口要
+	// 等满读超时）且多数场景用不到。
+	UDP bool
+
 	// Network / 网络
 	Proxy       string        // HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)
 	Socks5      string        // SOCKS5 proxy address (e.g. 127.0.0.1:1080)

@@ -106,8 +106,17 @@ func runPluginWorker(
 			if item.Banner != "" {
 				vscanOnce.Do(func() { vscan = fingerprint.NewVScan() })
 				if vscan != nil {
-					if m, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
-						bm = m
+					// Protocol dispatch: UDP items must be matched
+					// against the UDP probe rules — the TCP rule set
+					// has no idea what a DNS/SNMP/NBTStat response
+					// looks like, and vice versa.
+					// / 按协议分派：UDP item 必须对 UDP probe 规则匹配
+					// ——TCP 规则集不认识 DNS/SNMP/NBTStat 响应，反之
+					// 亦然。
+					if item.Protocol == "udp" {
+						bm, _ = vscan.MatchUDPBanner([]byte(item.Banner))
+					} else {
+						bm, _ = vscan.MatchBanner([]byte(item.Banner))
 					}
 				}
 			}
@@ -147,6 +156,16 @@ func runPluginWorker(
 			}
 			// Use port index for O(1) lookup instead of iterating all plugins
 			// 使用端口索引实现 O(1) 查找，而非遍历所有插件
+			//
+			// UDP items skip plugins entirely: every plugin Identify is
+			// a TCP protocol handshake, which cannot speak to a UDP-only
+			// service (any TCP listener on the same port was already
+			// covered by the TCP scan). / UDP item 完全跳过插件：每个
+			// 插件 Identify 都是 TCP 协议握手，无法与 UDP-only 服务对话
+			//（同端口的 TCP listener 已被 TCP 阶段覆盖）。
+			if item.Protocol == "udp" {
+				continue
+			}
 			for _, p := range portIndex[item.Port] {
 				// Identify / 识别
 				if wantIdentify(sess.Config.Mode) {

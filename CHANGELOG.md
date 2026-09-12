@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **UDP service probe (`--udp`)** — opt-in UDP phase after the TCP scan:
+  well-known UDP ports (DNS, NetBIOS, SNMP, NTP, memcached, ...) are
+  probed with the nmap-service-probes UDP payloads (escape-decoded,
+  all payloads for a port written on one connected socket before a
+  single read) and any response bytes are fingerprinted against the
+  UDP rule set, emitting the same structured
+  `product`/`version`/`confidence` identity as TCP. Port set: explicit
+  `--ports` ∩ probe-hinted ports, otherwise the full hint set (~70
+  ports); `--exclude-ports` applies. The UDP pool is capped
+  (128/200 threads, 2s probe timeout) and runs serially after the TCP
+  scan so it cannot perturb the TCP adaptive pool. UDP items skip the
+  TCP-handshake plugin loop; banner display sanitizes binary bytes to
+  `.` (nmap convention).
+
 - **fscan-inspired scan intelligence** — host exclusion (`--exclude-hosts`
   / `--exclude-hosts-file`: exact IP, CIDR, range, hostname, or the
   RFC1918 shortcuts `192`/`172`/`10`, applied before any probe traffic),
@@ -76,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **scan: UDP responses are no longer run through `trimASCII`** —
+  DNS/SNMP/NBTStat responses are binary, and the space-substitution
+  destroyed every non-printable byte, making binary-anchored UDP
+  fingerprint rules unmatchable. Raw bytes are kept for matching;
+  display paths sanitize (control/high bytes collapse to `.`).
 - **scan: banner grabbing was never wired into production scans** —
   `core.NewScanner` built a `TCPConnectProbe` without a `BannerReader`,
   so every open port yielded an empty banner and the Stage-0

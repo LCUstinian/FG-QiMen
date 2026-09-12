@@ -76,13 +76,13 @@ func TestUDPProbe_OpenWithResponse(t *testing.T) {
 	if res.State != StateOpen {
 		t.Errorf("expected StateOpen, got %v (RTT %v)", res.State, res.RTT)
 	}
-	// Banner is the echoed probe byte (0x00) — trimmed by trimASCII
-	// because \x00 is non-printable. So we expect an empty banner,
-	// not an error. / Banner 是回显的探针字节（0x00）——trimASCII
-	// 因为 \x00 不可打印而剥掉。所以我们期望空 banner，不报错。
-	// This is intentional: the probe byte is generic noise; we
-	// don't try to make sense of it. / 这是故意的：探针字节是通用
-	// 噪声；不尝试解析它。
+	// Banner is the echoed probe byte (0x00) returned RAW: since the
+	// trimASCII removal, UDP banners keep their original bytes so
+	// binary-anchored fingerprint rules can match. The generic 0x00
+	// probe byte is intentional noise; we don't try to make sense of
+	// it. / Banner 是回显的探针字节（0x00）按原样返回：trimASCII 移除
+	// 后，UDP banner 保留原始字节，二进制锚定的指纹规则才能匹配。通
+	// 用 0x00 探针字节是故意噪声；不尝试解析它。
 	_ = res.Banner
 	_ = strings.Contains
 }

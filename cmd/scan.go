@@ -333,6 +333,7 @@ func buildConfig(pf *pflag.FlagSet) (*types.Config, error) {
 		NoState:          flagNoState,
 		Ports:            flagPorts,
 		ExcludePorts:     flagExcludePorts,
+		UDP:              flagUDP,
 		Proxy:            flagProxy,
 		Socks5:           flagSocks5,
 		Iface:            flagIface,

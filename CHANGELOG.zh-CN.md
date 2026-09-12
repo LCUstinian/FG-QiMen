@@ -6,6 +6,18 @@
 
 ### Added
 
+- **UDP 服务探针（`--udp`）** —— TCP 扫描之后的可选 UDP 阶段：常见
+  UDP 端口（DNS、NetBIOS、SNMP、NTP、memcached……）用
+  nmap-service-probes 的 UDP payload 探测（转义解码；同一端口的全部
+  payload 在一条 connected socket 上写完再单次读），任何响应字节走
+  UDP 规则集指纹识别，产出与 TCP 一致的
+  `product`/`version`/`confidence` 结构化身份。端口集合：显式
+  `--ports` ∩ probe 提示端口，否则用全部提示端口（约 70 个）；
+  `--exclude-ports` 照常生效。UDP 池硬上限（128/200 线程、2s 探测
+  超时），且在 TCP 扫描之后串行跑，不会扰动 TCP 自适应池。UDP item
+  跳过 TCP 握手类插件循环；banner 显示把二进制字节收敛为 `.`（nmap
+  惯例）。
+
 - **借鉴 fscan 的扫描智能化** —— 主机排除（`--exclude-hosts` /
   `--exclude-hosts-file`：精确 IP、CIDR、范围、主机名、RFC1918 快捷
   `192`/`172`/`10`，在任何探测流量之前生效）、网络环境画像（扫描前
@@ -58,6 +70,10 @@
 
 ### Fixed
 
+- **scan：UDP 响应不再过 `trimASCII`** —— DNS/SNMP/NBTStat 响应是
+  二进制的，空格替换会毁掉全部不可打印字节，二进制锚定的 UDP 指纹
+  规则永远无法匹配。匹配保留原始字节；显示路径自行收敛（控制/高位
+  字节折叠为 `.`）。
 - **scan：banner 抓取从未接入生产扫描** —— `core.NewScanner` 构造
   `TCPConnectProbe` 时没挂 `BannerReader`，每个开放端口的 banner 恒
   为空，Stage-0 的 nmap 风格指纹层在真实扫描中是死代码（只在单元

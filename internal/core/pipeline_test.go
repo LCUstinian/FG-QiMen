@@ -329,6 +329,18 @@ func TestFormatPortfinger(t *testing.T) {
 			ban:            "OpenSSH",
 			mustNotContain: []string{"..."},
 		},
+		{
+			name: "binary udp banner sanitized",
+			// Raw DNS/SNMP-style bytes must not leak into the
+			// single-line sink: control/high bytes collapse to '.'
+			// (nmap display convention). / 原始 DNS/SNMP 风格字节不得
+			// 泄漏进单行 sink：控制/高位字节收敛为 '.'（nmap 显示惯
+			// 例）。
+			svc: "domain", product: "", ver: "",
+			ban:            "\x00\x01\xfe\xffDNS-ish\x07",
+			mustContain:    []string{"....", "DNS-ish"},
+			mustNotContain: []string{"\x00", "\x01", "\xfe", "\xff", "\x07"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

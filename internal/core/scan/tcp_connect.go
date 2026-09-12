@@ -192,26 +192,3 @@ func readBanner(conn net.Conn, timeout time.Duration) string {
 	}
 	return string(out)
 }
-
-// trimASCII strips non-printable bytes and trims whitespace. Banner
-// data can include CR/LF we want to drop. / trimASCII 去除非可打印
-// 字节和首尾空白。banner 数据可能含 CR/LF 应去除。
-func trimASCII(b []byte) string {
-	out := make([]byte, 0, len(b))
-	for _, c := range b {
-		switch {
-		case c == '\r' || c == '\n' || c == '\t':
-			out = append(out, ' ')
-		case c >= 32 && c < 127:
-			out = append(out, c)
-		}
-	}
-	// trim leading/trailing spaces / 去除首尾空格
-	for len(out) > 0 && out[0] == ' ' {
-		out = out[1:]
-	}
-	for len(out) > 0 && out[len(out)-1] == ' ' {
-		out = out[:len(out)-1]
-	}
-	return string(out)
-}
