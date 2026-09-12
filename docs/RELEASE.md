@@ -246,7 +246,7 @@ docker pull ghcr.io/<owner>/fg-qimen:vX.Y.Z
 ## Cross-references
 
 - Workflows: `.github/workflows/release.yml`, `container.yml`,
-  `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`, `scoop-bucket.yml`
+  `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`
 - Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
   `docs/verification/v0.3/second-batch-verification.md`,
   `docs/verification/v0.4/verification.md`,
