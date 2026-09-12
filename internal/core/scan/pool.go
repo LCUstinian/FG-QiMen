@@ -7,14 +7,17 @@
 // Pool 从 Iterator 拉 Item，分发给 N 个 worker（每个调 Probe），
 // 把 Result 发到 out channel。
 //
-// Adaptive sizing: when the recent error rate is high (e.g. many
-// filtered results due to timeouts), the pool shrinks concurrency to
-// reduce pressure; when error rate is low, it grows back. This is a
-// simple sliding-window heuristic, not full AIMD.
+// Adaptive sizing grows the pool when probes are succeeding (open
+// ratio high) and never shrinks below MinThreads. The original
+// filtered-shrink heuristic was removed: a high filtered ratio is a
+// property of the target network (firewalls silently dropping SYN),
+// not of scanner overload — shrinking on it collapsed concurrency to
+// 1 on hardened networks and stretched a /24 port sweep into hours.
 //
-// 自适应调并发：当近期错误率高时（很多 filtered 结果，多为超时），
-// 降低并发以减压；错误率低时再加回来。这是简单的滑动窗口启发式，
-// 不是完整 AIMD。
+// 自适应调并发：探针成功率高（open 比例高）时扩容，永不低于
+// MinThreads。原 filtered 缩容启发式已移除：filtered 比例高是目标
+// 网络的特性（防火墙静默丢 SYN），不是扫描器过载——在加固网络上
+// 以此缩容会把并发塌缩到 1，把一个 /24 端口扫描拖成数小时。
 package scan
 
 import (
@@ -62,12 +65,6 @@ type PoolOptions struct {
 	// 不把 Pool 和 Log 接口耦合的前提下恢复可见性。
 	OnProbeError func(item Item, err error)
 
-	// FilteredShrinkRatio: if more than this fraction of recent
-	// probes return filtered, shrink concurrency by 25%.
-	// FilteredShrinkRatio：若超过这个比例的近期 probe 返回 filtered，
-	// 并发降 25%。
-	FilteredShrinkRatio float64
-
 	// OpenGrowRatio: if more than this fraction of recent probes
 	// are open, grow concurrency by 25% (until MaxThreads).
 	// OpenGrowRatio：若超过这个比例的近期 probe 是 open，
@@ -79,14 +76,13 @@ type PoolOptions struct {
 // DefaultPoolOptions 返回带合理默认的 PoolOptions。
 func DefaultPoolOptions(probe Probe) PoolOptions {
 	return PoolOptions{
-		Probe:               probe,
-		Timeout:             3 * time.Second,
-		MinThreads:          10,
-		MaxThreads:          500,
-		InitialThreads:      200,
-		AdjustInterval:      500 * time.Millisecond,
-		FilteredShrinkRatio: 0.5,
-		OpenGrowRatio:       0.1,
+		Probe:          probe,
+		Timeout:        3 * time.Second,
+		MinThreads:     10,
+		MaxThreads:     500,
+		InitialThreads: 200,
+		AdjustInterval: 500 * time.Millisecond,
+		OpenGrowRatio:  0.1,
 	}
 }
 
@@ -102,18 +98,13 @@ type Pool struct {
 
 	// sliding-window counters
 	windowMu  sync.Mutex
-	window    []windowSample
+	window    []bool // open samples / open 样本
 	windowMax int
 
 	// busyTimer is reused across busy-wait iterations to avoid
 	// allocating a fresh Timer on every time.After call. / busyTimer
 	// 跨 busy-wait 迭代复用，避免每次 time.After 分配 Timer。
 	busyTimer *time.Timer
-}
-
-type windowSample struct {
-	open     bool
-	filtered bool
 }
 
 // NewPool constructs a Pool. / NewPool 构造一个 Pool。
@@ -135,9 +126,6 @@ func NewPool(opts PoolOptions) *Pool {
 	}
 	if opts.AdjustInterval <= 0 {
 		opts.AdjustInterval = 500 * time.Millisecond
-	}
-	if opts.FilteredShrinkRatio <= 0 {
-		opts.FilteredShrinkRatio = 0.5
 	}
 	if opts.OpenGrowRatio <= 0 {
 		opts.OpenGrowRatio = 0.1
@@ -350,8 +338,11 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 	return nil
 }
 
-// record adds a result to the sliding window.
-// record 把一个结果加入滑动窗口。
+// record adds a result to the sliding window. Only open results are
+// interesting to the (grow-only) adaptive controller; filtered/closed
+// samples are recorded as false.
+// record 把一个结果加入滑动窗口。对（只增的）自适应控制器而言只有
+// open 结果有意义；filtered/closed 样本记为 false。
 func (p *Pool) record(r Result) {
 	p.windowMu.Lock()
 	defer p.windowMu.Unlock()
@@ -359,10 +350,7 @@ func (p *Pool) record(r Result) {
 		// Drop the oldest sample. / 丢弃最早的样本。
 		p.window = p.window[1:]
 	}
-	p.window = append(p.window, windowSample{
-		open:     r.State == StateOpen,
-		filtered: r.State == StateFiltered,
-	})
+	p.window = append(p.window, r.State == StateOpen)
 }
 
 // adaptiveLoop periodically inspects the sliding window and adjusts
@@ -402,9 +390,14 @@ func (p *Pool) adaptiveLoop(ctx context.Context, stop chan struct{}) {
 	}
 }
 
-// adjust inspects the current window and grows/shrinks the pool
-// according to the ratios in opts. / adjust 检查当前窗口，按 opts 中的
-// 比例扩缩并发。
+// adjust inspects the current window and grows the pool when the
+// open ratio exceeds opts.OpenGrowRatio. The pool never shrinks: a
+// high filtered/closed ratio reflects the target network's posture
+// (firewalls dropping SYN), not scanner overload, and shrinking on
+// it collapses throughput (see package comment).
+// adjust 检查当前窗口，open 比例超过 opts.OpenGrowRatio 时扩容。
+// 池永不缩容：filtered/closed 比例高反映的是目标网络的姿态（防火墙
+// 丢 SYN），不是扫描器过载，据此缩容会塌缩吞吐（见包注释）。
 func (p *Pool) adjust() {
 	p.windowMu.Lock()
 	w := p.window
@@ -412,26 +405,16 @@ func (p *Pool) adjust() {
 	if len(w) < 16 {
 		return // not enough samples yet
 	}
-	var openN, filtN int
-	for _, s := range w {
-		if s.open {
+	var openN int
+	for _, isOpen := range w {
+		if isOpen {
 			openN++
-		} else if s.filtered {
-			filtN++
 		}
 	}
-	total := len(w)
-	filtRatio := float64(filtN) / float64(total)
-	openRatio := float64(openN) / float64(total)
+	openRatio := float64(openN) / float64(len(w))
 
 	cur := p.currentThreads.Load()
-	if filtRatio > p.opts.FilteredShrinkRatio {
-		// Shrink by 25%. / 降 25%。
-		newThreads := int32(max(float64(int32(p.opts.MinThreads)), float64(cur)*0.75))
-		if newThreads != cur {
-			p.currentThreads.Store(newThreads)
-		}
-	} else if openRatio > p.opts.OpenGrowRatio {
+	if openRatio > p.opts.OpenGrowRatio {
 		// Grow by 25%. / 升 25%。
 		newThreads := int32(min(float64(int32(p.opts.MaxThreads)), float64(cur)*1.25))
 		if newThreads != cur {

@@ -10,9 +10,12 @@ const (
 	// 管线 channel 的默认容量。
 	DefaultChannelBuffer = 1024
 
-	// DefaultMinThreads is the minimum number of scan threads.
-	// 扫描线程最小值。
-	DefaultMinThreads = 1
+	// DefaultMinThreads is the minimum number of scan threads. Kept
+	// at 50 (not 1): even with the shrink heuristic removed, a floor
+	// of 1 would let a mis-tuned caller turn a /24 sweep serial.
+	// 扫描线程最小值。保持 50（不是 1）：即使缩容启发式已移除，
+	// 下限为 1 仍可能让配置不当的调用方把 /24 扫描变成串行。
+	DefaultMinThreads = 50
 
 	// DefaultMaxThreads is the maximum number of scan threads.
 	// 扫描线程最大值。
