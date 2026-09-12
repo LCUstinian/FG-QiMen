@@ -22,13 +22,13 @@ func DefaultKeymap() Keymap {
 	return Keymap{
 		ToggleErrors: key.NewBinding(
 			key.WithKeys("e"),
-			key.WithHelp("e", "toggle errors panel")),
+			key.WithHelp("e", "errors panel")),
 		ClearErrors: key.NewBinding(
 			key.WithKeys("E"),
 			key.WithHelp("E", "clear errors")),
 		LiveOverlay: key.NewBinding(
 			key.WithKeys("L"),
-			key.WithHelp("L", "live events overlay (narrow)")),
+			key.WithHelp("L", "live overlay")),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "toggle help")),

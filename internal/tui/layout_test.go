@@ -139,12 +139,10 @@ func TestRegions_AllBreakpoints(t *testing.T) {
 			t.Errorf("regions(%v, %d, %d): negative height h=%d ev=%d l=%d r=%d e=%d f=%d",
 				c.bp, c.width, c.height, h, ev, l, r, e, f)
 		}
-		total := h + ev + l + r + e + f
-		// total may exceed c.height when body clamp kicks in (very small
-		// terminals): that's intentional, the rest of the renderer
-		// handles overflow. We just assert no negatives.
-		if h != 1 {
-			t.Errorf("regions(%v): header = %d, want 1", c.bp, h)
+		// Chrome: title 2 + header 2 + errors 1 + footer 1.
+		// / chrome：标题栏 2 + header 2 + errors 1 + footer 1。
+		if h != 2 {
+			t.Errorf("regions(%v): header = %d, want 2", c.bp, h)
 		}
 		if f != 1 {
 			t.Errorf("regions(%v): footer = %d, want 1", c.bp, f)
@@ -152,17 +150,25 @@ func TestRegions_AllBreakpoints(t *testing.T) {
 		if e != 1 {
 			t.Errorf("regions(%v): errors = %d, want 1 (collapsed)", c.bp, e)
 		}
-		// events: 0 for Narrow, 8 for Medium, 12 for Wide.
-		wantEvents := 0
-		if c.bp == BreakMedium {
-			wantEvents = 8
+		// events: 0 for Narrow; Medium 8 / Wide 12 capped to the body
+		// budget (max(4, height-6)) on tiny terminals.
+		// / events：Narrow 0；Medium 8 / Wide 12 在极小终端被钳到
+		// body 预算（max(4, height-6)）。
+		body := c.height - 6
+		if body < 4 {
+			body = 4
 		}
-		if c.bp == BreakWide {
-			wantEvents = 12
+		var wantEvents int
+		switch c.bp {
+		case BreakNarrow:
+			wantEvents = 0
+		case BreakMedium:
+			wantEvents = min(8, body)
+		case BreakWide:
+			wantEvents = min(12, body)
 		}
 		if ev != wantEvents {
 			t.Errorf("regions(%v): events = %d, want %d", c.bp, ev, wantEvents)
 		}
-		_ = total
 	}
 }

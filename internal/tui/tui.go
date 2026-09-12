@@ -389,12 +389,45 @@ func (m Model) View() string {
 	bp := pickBreakpoint(m.width)
 	h, ev, l, r, e, f := regions(bp, m.width, m.height)
 
+	// Render the fixed regions first and MEASURE them, then clamp the
+	// events budget to whatever height is actually left. regions() is
+	// a static guess; this is the ground truth, so the composed frame
+	// never exceeds the terminal (the probe showed the old order
+	// overflowing 80×24 by 3 rows once events filled).
+	// 先渲染固定区域并"实测"高度，再把 events 预算钳到实际剩余。
+	// regions() 是静态预估；这里才是真实值，保证整帧不超终端
+	// （探针显示旧顺序在 events 填满时 80×24 会溢出 3 行）。
 	header := m.viewHeader(h, bp)
-	events := m.viewLiveEvents(ev, bp)
 	stage := m.viewStage(l, bp)
 	topPlugins := m.viewTopPlugins(r, bp)
 	errorsPanel := m.viewErrors(e)
 	footer := m.viewFooter(f)
+
+	fixed := 2 + lipgloss.Height(header) + lipgloss.Height(errorsPanel) +
+		lipgloss.Height(footer)
+	if m.uiMode == modePaused {
+		fixed++ // [PAUSED] chip / 暂停芯片
+	}
+	if bp == BreakWide {
+		fixed += max(lipgloss.Height(stage), lipgloss.Height(topPlugins))
+	} else {
+		fixed += lipgloss.Height(stage) + lipgloss.Height(topPlugins)
+	}
+	// Narrow 'L' overlay default (5 rows) is applied inside
+	// viewLiveEvents when ev==0; pre-request it here so the clamp
+	// below can shave it. / narrow 的 'L' overlay 默认 5 行由
+	// viewLiveEvents 在 ev==0 时套用；这里先预申请，让下面的钳制
+	// 能削它。
+	if bp == BreakNarrow && m.showLiveOverlay {
+		ev = 5
+	}
+	if rem := m.height - fixed; rem < ev {
+		ev = rem
+	}
+	if ev < 0 {
+		ev = 0
+	}
+	events := m.viewLiveEvents(ev, bp)
 
 	// Pause chip rides directly under the header so the operator
 	// can tell at a glance the dashboard is frozen (the pipeline
@@ -421,15 +454,26 @@ func (m Model) View() string {
 	sb.WriteString(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	sb.WriteString("\n")
 
-	// Fill remaining terminal height to prevent ghost content
-	// 填充剩余终端高度，防止上一帧内容残留
+	// Height reconciliation: pad short frames (ghost-content guard)
+	// and hard-truncate overframes. The measured events clamp keeps
+	// overframes impossible above ~16 rows; the truncate is the
+	// last-resort for absurdly small terminals (where losing the
+	// footer beats scrolling the frame).
+	// 高度对账：短帧补行（防残影），超帧硬裁。实测 events 钳制使
+	// ~16 行以上的终端不可能超帧；裁剪是极小终端的兜底（那种情况
+	// 下丢 footer 好过整帧滚动）。
 	if m.height > 0 {
-		currentHeight := strings.Count(sb.String(), "\n") + 1
-		remaining := m.height - currentHeight
-		if remaining > 0 {
-			for i := 0; i < remaining; i++ {
+		frame := strings.TrimRight(sb.String(), "\n")
+		lines := strings.Split(frame, "\n")
+		switch {
+		case len(lines) < m.height:
+			for i := len(lines); i < m.height; i++ {
 				sb.WriteString("\n")
 			}
+		case len(lines) > m.height:
+			sb.Reset()
+			sb.WriteString(strings.Join(lines[:m.height], "\n"))
+			sb.WriteString("\n")
 		}
 	}
 
@@ -485,6 +529,9 @@ func (m Model) renderHelp() string {
 		{"q / Ctrl-C", "quit the scan"},
 		{"p", "pause the dashboard display (pipeline keeps running)"},
 		{"r", "resume the dashboard display"},
+		{"e", "toggle the errors panel (collapsed summary / expanded bars)"},
+		{"E", "collapse the errors panel"},
+		{"L", "toggle the live-events overlay (narrow mode)"},
 		{"?", "toggle this help overlay"},
 	}
 	// Stable order so the overlay reads the same across renders.
@@ -528,16 +575,21 @@ func (m Model) totalHosts() int64 {
 
 // renderTopPluginsPanel builds the right "TOP PLUGINS" panel —
 // the top-5 hit-count bars. Renders "(no hits yet)" placeholder
-// when m.topPlugins is empty.
+// when m.topPlugins is empty. Rows are joined without trailing
+// newlines and the header uses the flush style: a margin or a
+// trailing "\n" would inject stray blank lines into the
+// JoinVertical composition (visible as ragged gaps in the probe).
 //
 // renderTopPluginsPanel 构建右侧 "TOP PLUGINS" 面板——top-5
 // 命中柱状图。m.topPlugins 为空时渲染 "(no hits yet)" 占位符。
+// 行拼接不带结尾换行、标题用 flush 样式：边距或结尾 "\n" 会往
+// JoinVertical 组合里注入多余空行（探针里表现为参差空隙）。
 func (m Model) renderTopPluginsPanel(width int) string {
 	var body strings.Builder
-	body.WriteString(stPanelHeader.Render("TOP PLUGINS"))
-	body.WriteString("\n")
+	body.WriteString("  ")
+	body.WriteString(stPanelHeaderFlush.Render("TOP PLUGINS"))
 	if len(m.topPlugins) == 0 {
-		body.WriteString("  (no hits yet)\n")
+		body.WriteString("\n  (no hits yet)")
 	} else {
 		for _, p := range m.topPlugins {
 			// Count → 12-char bar → name. The bar length is fixed
@@ -550,7 +602,7 @@ func (m Model) renderTopPluginsPanel(width int) string {
 			// 让面板读作一列，即使计数跨 1 → 9999。用静态 bar
 			// （0.5 填充）而非按计数比例，因为按比例的话 1 命中
 			// 看起来跟"故障"没区别。
-			fmt.Fprintf(&body, "  %-10s %s  %s\n",
+			fmt.Fprintf(&body, "\n  %-10s %s  %s",
 				p[1], bar(0.5, 12), p[0])
 		}
 	}

@@ -31,23 +31,31 @@ func pickBreakpoint(width int) Breakpoint {
 // regions returns the height in lines for each of 6 regions given
 // breakpoint and terminal dimensions. Pure function.
 //
-// Header = 1, errors = 1 (collapsed), footer = 1 always. Body
-// (leftCol + rightCol) gets whatever's left, with a minimum of 4
-// to keep STAGE + TOP PLUGINS usable.
+// Chrome rows reserved up-front: title bar 2 (title + separator),
+// header 2 (stage badge line + rate line; the rate line may be
+// empty in warm-up but reserving it keeps the accounting stable),
+// errors 1 (collapsed), footer 1. Body (events + leftCol + rightCol)
+// gets whatever's left, with a minimum of 4 to keep STAGE + TOP
+// PLUGINS usable. The events budget is capped to the body so tiny
+// terminals never allocate an events panel that can't fit.
 //
 // / regions 给定 breakpoint 和终端尺寸，返回 6 个区域的行高。纯
-// 函数。header=1, errors=1 (折叠), footer=1 恒定。body 拿剩下的，
-// 保底 4 行让 STAGE + TOP PLUGINS 可用。
+// 函数。chrome 行预先保留：标题栏 2（title + 分隔线）、header 2
+// （stage badge 行 + rate 行；rate 行热身时可能为空，但保留它让
+// 记账稳定）、errors 1（折叠）、footer 1。body（events + 左列 +
+// 右列）拿剩下的，保底 4 行让 STAGE + TOP PLUGINS 可用。events
+// 预算被钳到 body 内，极小终端不会分出装不下的 events 面板。
 //
 // Returned order: header, events, leftCol, rightCol, errors, footer.
 //
 //nolint:gocritic // 6-tuple is part of the public contract (Spec B Task 1)
 func regions(bp Breakpoint, width, totalHeight int) (int, int, int, int, int, int) {
-	header := 1
+	const chrome = 6 // title 2 + header 2 + errors 1 + footer 1
+	header := 2
 	errors := 1
 	footer := 1
 
-	body := totalHeight - header - errors - footer
+	body := totalHeight - chrome
 	if body < 4 {
 		body = 4 // minimum body for stage + top-plugins
 	}
@@ -66,6 +74,9 @@ func regions(bp Breakpoint, width, totalHeight int) (int, int, int, int, int, in
 		events = 12
 		leftCol = body
 		rightCol = body
+	}
+	if events > body {
+		events = body
 	}
 	return header, events, leftCol, rightCol, errors, footer
 }

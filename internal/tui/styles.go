@@ -70,11 +70,17 @@ var (
 	stWarn        lipgloss.Style
 	stBox         lipgloss.Style
 	stPanelHeader lipgloss.Style
-	stKeyHint     lipgloss.Style
-	stHelp        lipgloss.Style
-	stRunning     lipgloss.Style
-	stIdle        lipgloss.Style
-	stFinished    lipgloss.Style
+	// stPanelHeaderFlush is stPanelHeader without the bottom margin —
+	// for in-flow panels (TOP PLUGINS) where a margin would inject a
+	// stray blank line into the JoinVertical composition.
+	// / stPanelHeaderFlush 是无下边距的 stPanelHeader——用于流内面板
+	// （TOP PLUGINS），带边距会往 JoinVertical 组合里注入多余空行。
+	stPanelHeaderFlush lipgloss.Style
+	stKeyHint          lipgloss.Style
+	stHelp             lipgloss.Style
+	stRunning          lipgloss.Style
+	stIdle             lipgloss.Style
+	stFinished         lipgloss.Style
 )
 
 func init() {
@@ -113,6 +119,12 @@ func init() {
 		Foreground(lipgloss.Color(accent)).
 		Bold(true).
 		MarginBottom(1)
+
+	// Flush variant: no margin (see var-block comment).
+	// / 无边距变体（见 var 块注释）。
+	stPanelHeaderFlush = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(accent)).
+		Bold(true)
 
 	// Key hint: cyan bg, dark text
 	stKeyHint = lipgloss.NewStyle().

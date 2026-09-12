@@ -442,3 +442,120 @@ func TestViewStage_ProgressBars(t *testing.T) {
 		t.Errorf("viewStage missing empty bar: %q", got)
 	}
 }
+
+// TestViewFooter_TruncatedToWidth pins the P1 fix: the footer hint
+// line is cut to the terminal width. Without the cut, JoinVertical
+// pads every other region to the footer's 89-col width and the whole
+// dashboard wraps on ≤89-col terminals (found by the 80×24 probe).
+// / 钉住 P1 修复：footer 提示行裁剪到终端宽度。不裁的话
+// JoinVertical 会把其他区域 pad 到 footer 的 89 列宽，≤89 列终端
+// 整个 dashboard 折行（80×24 探针发现）。
+func TestViewFooter_TruncatedToWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 60
+	if got := lipgloss.Width(m.viewFooter(1)); got > 60 {
+		t.Errorf("footer width = %d at m.width=60, want <= 60", got)
+	}
+	// 0-width start-up race → 80-col fallback applies.
+	// / 0 宽启动竞态 → 应用 80 列回退。
+	m2 := newTestModel()
+	if got := lipgloss.Width(m2.viewFooter(1)); got > 80 {
+		t.Errorf("footer width = %d at m.width=0, want <= 80 (fallback)", got)
+	}
+}
+
+// TestViewErrors_Collapsed_IndentedDim pins the P4 fix: the collapsed
+// errors line is indented 2 spaces like every other region (and still
+// exactly 1 line). / 钉住 P4 修复：折叠 errors 行与其他区域一致缩进
+// 2 空格（且仍恰好 1 行）。
+func TestViewErrors_Collapsed_IndentedDim(t *testing.T) {
+	m := newTestModel()
+	got := m.viewErrorsCollapsed()
+	if !strings.HasPrefix(got, "  ERRORS:") {
+		t.Errorf("collapsed errors line not indented: %q", got)
+	}
+	if strings.Count(got, "\n") > 0 {
+		t.Errorf("collapsed errors line has multiple lines: %q", got)
+	}
+}
+
+// TestRenderTopPlugins_NoBlankLines pins the P4 fix: the unboxed
+// TOP PLUGINS part carries no blank lines — a margin or trailing
+// newline injects ragged gaps into the JoinVertical composition.
+// / 钉住 P4 修复：无框 TOP PLUGINS 部件不含空行——边距或结尾换行
+// 会往 JoinVertical 组合里注入参差空隙。
+func TestRenderTopPlugins_NoBlankLines(t *testing.T) {
+	m := newTestModel()
+	got := m.renderTopPluginsPanel(0) // unboxed path / 无框路径
+	if strings.Contains(got, "\n\n") {
+		t.Errorf("top plugins part has blank lines: %q", got)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Errorf("top plugins part has trailing newline: %q", got)
+	}
+}
+
+// TestViewFrameFitsTerminal is the P2 contract: the composed frame
+// NEVER exceeds the terminal — no line wider than m.width (JoinVertical
+// pads to the widest line, so one wide line wraps everything) and no
+// more content lines than m.height (measured events clamp + last-resort
+// truncate). Verified across breakpoints with a full events ring and
+// an active rate row, plus paused mode (extra chip row).
+// / TestViewFrameFitsTerminal 是 P2 契约：整帧永不超终端——行宽
+// 不超 m.width（JoinVertical 会 pad 到最宽行，一行宽全帧折），
+// 内容行数不超 m.height（实测 events 钳制 + 兜底裁剪）。在满
+// events ring、激活 rate 行的各断点下验证，含暂停态（多一行芯片）。
+func TestViewFrameFitsTerminal(t *testing.T) {
+	cases := []struct{ w, h int }{
+		{80, 24}, {60, 24}, {100, 30}, {120, 40}, {80, 16},
+	}
+	for _, c := range cases {
+		for _, paused := range []bool{false, true} {
+			st := newTestState(t)
+			st.TotalHosts.Store(24)
+			st.TotalPorts.Store(8000)
+			m := newTestModelWithState(st)
+			m.width, m.height = c.w, c.h
+			m.runState = runScanning
+			m.uiMode = modeRun
+			if paused {
+				m.uiMode = modePaused
+			}
+			// Fill the ring: 20 events (== eventCap).
+			// / 填满 ring：20 条事件（== eventCap）。
+			for i := 0; i < eventCap; i++ {
+				m.pushEvent(eventEntry{
+					Host: fmt.Sprintf("10.0.0.%d", i),
+					Port: 22, Service: "ssh", Kind: "hit",
+					At: time.Date(2026, 9, 12, 14, 23, i, 0, time.UTC),
+				})
+			}
+			m.counters = types.CountersView{
+				Stage: int64(types.StageIdentify), AliveProbed: 18, Ports: 142,
+				Results: 23, Creds: 2, Errors: 7,
+			}
+			m.elapsed = "12s"
+			m.rateHits, m.ratePorts = 28.5, 142.0
+
+			view := m.View()
+			lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+			if len(lines) > c.h {
+				t.Errorf("[%dx%d paused=%v]: %d content lines > terminal %d",
+					c.w, c.h, paused, len(lines), c.h)
+			}
+			for i, ln := range lines {
+				if w := lipgloss.Width(ln); w > c.w {
+					t.Errorf("[%dx%d paused=%v]: line %d width %d > terminal %d: %q",
+						c.w, c.h, paused, i+1, w, c.w, ln)
+					break
+				}
+			}
+			// Footer must survive the frame on normal terminals.
+			// / 常规终端上 footer 必须存活。
+			if c.h >= 16 && !strings.Contains(lines[len(lines)-1], "[q] quit") {
+				t.Errorf("[%dx%d paused=%v]: footer not the last content line: %q",
+					c.w, c.h, paused, lines[len(lines)-1])
+			}
+		}
+	}
+}

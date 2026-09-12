@@ -341,6 +341,10 @@ func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
 			Foreground(colorFgDim).
 			Render("  (no events yet)")
 	}
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
 	// Take last `height` events, newest at bottom.
 	n := len(events)
 	start := 0
@@ -355,7 +359,7 @@ func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
 		hostPort := truncate(fmt.Sprintf("%s:%d", e.Host, e.Port), 21)
 		svc := truncate(e.Service, 12)
 		rows = append(rows, lipgloss.NewStyle().Foreground(c).Render(
-			fmt.Sprintf("  [%s] %s %s %s", ts, sym, hostPort, svc)))
+			truncate(fmt.Sprintf("  [%s] %s %s %s", ts, sym, hostPort, svc), width)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -371,9 +375,16 @@ func (m Model) viewErrors(height int) string {
 	return m.viewErrorsCollapsed()
 }
 
-// viewErrorsCollapsed renders a single summary line: "ERRORS: timeout 42 refused 15 dns 7 reset 3"
-// / viewErrorsCollapsed 渲染单行汇总。
+// viewErrorsCollapsed renders a single summary line: "ERRORS: timeout 42 refused 15 dns 7 reset 3".
+// Indented 2 spaces + dim like every other region, and truncated to
+// the terminal width so a wide category list can't wrap the frame.
+// / viewErrorsCollapsed 渲染单行汇总。与其他区域一致缩进 2 空格 +
+// dim 色，并按终端宽度裁剪，防止类别过多撑折画面。
 func (m Model) viewErrorsCollapsed() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
 	// Extract top 4 categories from State.ErrorCategories via m.state.
 	// / 从 m.state 的 State.ErrorCategories 提取 top 4 类别。
 	cats := m.topErrorCategories(4)
@@ -384,7 +395,8 @@ func (m Model) viewErrorsCollapsed() string {
 	if len(parts) == 1 {
 		parts = append(parts, "(none)")
 	}
-	return strings.Join(parts, " ")
+	return lipgloss.NewStyle().Foreground(colorFgDim).
+		Render(truncate("  "+strings.Join(parts, " "), width))
 }
 
 // viewErrorsExpanded renders up to 4 rows of top error categories
@@ -506,10 +518,21 @@ func (m Model) viewTopPlugins(height int, bp Breakpoint) string {
 }
 
 // viewFooter renders the bottom keymap hint line. Always 1 row.
-// / viewFooter 渲染底部 keymap 提示行。始终 1 行。
+// The joined hint line is truncated to the terminal width: without
+// the cut, JoinVertical pads every other region to the footer's
+// width and the whole dashboard wraps on ≤89-col terminals
+// (found by the 80×24 probe — 18 of 20 lines overflowed).
+// / viewFooter 渲染底部 keymap 提示行。始终 1 行。拼接结果按终端
+// 宽度裁剪：不裁的话 JoinVertical 会把其他区域都 pad 到 footer 的
+// 宽度，≤89 列终端整个 dashboard 折行（80×24 探针实测 20 行里 18
+// 行溢出）。
 func (m Model) viewFooter(height int) string {
 	if height <= 0 {
 		return ""
+	}
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
 	km := DefaultKeymap()
 	parts := []string{
@@ -521,5 +544,5 @@ func (m Model) viewFooter(height int) string {
 	}
 	return lipgloss.NewStyle().
 		Foreground(colorFgDim).
-		Render(strings.Join(parts, "  "))
+		Render(truncate(strings.Join(parts, "  "), width))
 }
