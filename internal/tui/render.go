@@ -351,3 +351,88 @@ func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
 	}
 	return strings.Join(rows, "\n")
 }
+
+// viewErrors renders the bottom errors panel. Collapsed (default)
+// shows a single summary line; expanded shows up to 4 rows of top
+// error categories by count. / viewErrors 渲染底部 errors 面板。
+// 折叠态（默认）显示单行汇总；展开态显示最多 4 行 top 错误类别。
+func (m Model) viewErrors(height int) string {
+	if m.errorsExpanded && height >= 4 {
+		return m.viewErrorsExpanded(4)
+	}
+	return m.viewErrorsCollapsed()
+}
+
+// viewErrorsCollapsed renders a single summary line: "ERRORS: timeout 42 refused 15 dns 7 reset 3"
+// / viewErrorsCollapsed 渲染单行汇总。
+func (m Model) viewErrorsCollapsed() string {
+	// Extract top 4 categories from State.ErrorCategories via m.state.
+	// / 从 m.state 的 State.ErrorCategories 提取 top 4 类别。
+	cats := m.topErrorCategories(4)
+	parts := []string{"ERRORS:"}
+	for _, c := range cats {
+		parts = append(parts, fmt.Sprintf("%s %d", c.name, c.count))
+	}
+	if len(parts) == 1 {
+		parts = append(parts, "(none)")
+	}
+	return strings.Join(parts, " ")
+}
+
+// viewErrorsExpanded renders up to 4 rows of top error categories
+// with severity-colored bars. / viewErrorsExpanded 渲染最多 4 行
+// top 错误类别，带 severity 颜色 bar。
+func (m Model) viewErrorsExpanded(maxRows int) string {
+	cats := m.topErrorCategories(maxRows)
+	if len(cats) == 0 {
+		return lipgloss.NewStyle().Foreground(colorFgDim).Render("  (no errors)")
+	}
+	var rows []string
+	for _, c := range cats {
+		// Each row: "  timeout ▓▓▓▓▓▓▓▓▓░░ 42"
+		bar := renderBar(int(c.count), int(c.maxCount), 20)
+		rows = append(rows, fmt.Sprintf("  %-8s %s %d", c.name, bar, c.count))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// topErrorCategories returns up to n top categories sorted desc by count.
+// Reads from State.ErrorCategories via the m.state field (nil-safe).
+// / topErrorCategories 返回按 count 降序的前 n 个类别。
+// 经 m.state 字段读 State.ErrorCategories（nil 安全）。
+type errorCategory struct {
+	name     string
+	count    int64
+	maxCount int64
+}
+
+func (m Model) topErrorCategories(n int) []errorCategory {
+	if m.state == nil {
+		return nil
+	}
+	view := m.state.ErrorCategoriesView()
+	type kv struct {
+		k string
+		v int64
+	}
+	var all []kv
+	for k, v := range view {
+		if v <= 0 {
+			continue
+		}
+		all = append(all, kv{k, v})
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].v > all[j].v })
+	if len(all) == 0 {
+		return nil
+	}
+	if len(all) > n {
+		all = all[:n]
+	}
+	maxCount := all[0].v
+	out := make([]errorCategory, len(all))
+	for i, e := range all {
+		out[i] = errorCategory{name: e.k, count: e.v, maxCount: maxCount}
+	}
+	return out
+}

@@ -395,3 +395,31 @@ func TestViewLiveEvents_NarrowHides(t *testing.T) {
 		t.Errorf("narrow viewLiveEvents = %q, want empty", got)
 	}
 }
+
+// TestViewErrors_Collapsed verifies collapsed (height=1) shows a
+// single summary line. / 验证折叠态（height=1）显示单行汇总。
+func TestViewErrors_Collapsed(t *testing.T) {
+	m := newTestModel()
+	m.errorsExpanded = false
+	got := m.viewErrors(1)
+	if !strings.Contains(got, "ERRORS") && !strings.Contains(got, "errors") {
+		t.Errorf("collapsed viewErrors missing header: %q", got)
+	}
+	// Should be at most 1 line.
+	if strings.Count(got, "\n") > 0 {
+		t.Errorf("collapsed viewErrors has multiple lines: %q", got)
+	}
+}
+
+// TestViewErrors_Expanded verifies expanded mode shows up to 4 lines.
+// / 验证展开态显示最多 4 行。
+func TestViewErrors_Expanded(t *testing.T) {
+	m := newTestModel()
+	m.errorsExpanded = true
+	got := m.viewErrors(4)
+	// Should be ≤4 lines.
+	lines := strings.Count(got, "\n") + 1
+	if lines > 4 {
+		t.Errorf("expanded viewErrors has %d lines, want <=4", lines)
+	}
+}
