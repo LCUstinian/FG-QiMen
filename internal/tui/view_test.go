@@ -423,3 +423,22 @@ func TestViewErrors_Expanded(t *testing.T) {
 		t.Errorf("expanded viewErrors has %d lines, want <=4", lines)
 	}
 }
+
+// TestViewStage_ProgressBars verifies alive + ports use the new
+// progress bar glyphs. / 验证 alive + ports 用新进度条字符。
+func TestViewStage_ProgressBars(t *testing.T) {
+	st := newTestState(t)
+	st.TotalHosts.Store(24)
+	st.TotalPorts.Store(8000)
+	m := newTestModelWithState(st)
+	m.counters.AliveProbed = 18
+	m.counters.Ports = 142
+	got := m.viewStage(10, BreakMedium)
+	// Should contain both ▓ and ░ (filled + empty bar segments).
+	if !strings.Contains(got, "▓") {
+		t.Errorf("viewStage missing filled bar: %q", got)
+	}
+	if !strings.Contains(got, "░") {
+		t.Errorf("viewStage missing empty bar: %q", got)
+	}
+}

@@ -436,3 +436,63 @@ func (m Model) topErrorCategories(n int) []errorCategory {
 	}
 	return out
 }
+
+// totalPorts returns the State-cached total port count, or 0 when
+// the State is nil. Mirror of tui.go's totalHosts() for the ports
+// progress bar. / totalPorts 返回 State 缓存的总端口数；State 为
+// nil 时返回 0。totalHosts() 的镜像，供 ports 进度条用。
+func (m Model) totalPorts() int64 {
+	if m.state == nil {
+		return 0
+	}
+	return m.state.TotalPorts.Load()
+}
+
+// viewStage renders the stage/progress region: alive and ports get
+// renderBar progress bars against their State-cached totals;
+// results / creds / errors stay as plain counters (no denominator).
+// height<=0 hides the region; rows are capped to height.
+// / viewStage 渲染 stage/进度区域：alive 与 ports 依据 State 缓存
+// 的总数画 renderBar 进度条；results / creds / errors 保持纯计数
+// （无分母）。height<=0 隐藏该区域；行数按 height 截断。
+func (m Model) viewStage(height int, bp Breakpoint) string {
+	if height <= 0 {
+		return ""
+	}
+	barW := 20
+	if bp == BreakNarrow {
+		barW = 10
+	}
+	rows := []string{
+		fmt.Sprintf("  %-8s %s %d/%d", "alive",
+			renderBar(int(m.counters.AliveProbed), int(m.totalHosts()), barW),
+			m.counters.AliveProbed, m.totalHosts()),
+		fmt.Sprintf("  %-8s %s %d/%d", "ports",
+			renderBar(int(m.counters.Ports), int(m.totalPorts()), barW),
+			m.counters.Ports, m.totalPorts()),
+		fmt.Sprintf("  %-8s %d", "results", m.counters.Results),
+		fmt.Sprintf("  %-8s %d", "creds", m.counters.Creds),
+		fmt.Sprintf("  %-8s %d", "errors", m.counters.Errors),
+	}
+	if len(rows) > height {
+		rows = rows[:height]
+	}
+	return strings.Join(rows, "\n")
+}
+
+// viewTopPlugins renders the top-plugins region. Same body as the
+// existing renderTopPluginsPanel; breakpoint decides whether the
+// boxed variant is used (narrow stacks unboxed).
+// / viewTopPlugins 渲染 top-plugins 区域。内容与现有
+// renderTopPluginsPanel 相同；breakpoint 决定是否用带框变体
+// （narrow 无框堆叠）。
+func (m Model) viewTopPlugins(height int, bp Breakpoint) string {
+	if height <= 0 {
+		return ""
+	}
+	width := m.width
+	if bp == BreakNarrow {
+		width = 0 // unboxed stack / 无框堆叠
+	}
+	return m.renderTopPluginsPanel(width)
+}
