@@ -13,6 +13,22 @@
   （每条日志都能在硬退出下存活），并以 `0600` 权限创建（凭据
   命中行含明文口令）。日志文件打开失败降级为原行为并 stderr
   警告——绝不因此中止扫描。
+- **`just smoke <CIDR>`** —— 人工实机 TUI /24 冒烟测试固化为可执行
+  recipe（包装 `smoke` 标签的 `TestSmokeLiveTUIOnTarget` 探针，自动
+  设置颜色/终端环境；第二个可选参数经 `FGQI_SMOKE_MAX` 限定扫描
+  预算）。捕获流导出到临时目录供人工复核。
+- **`just test-short`** —— 快速测试通道。`go test -short` 跳过依赖
+  网络的插件冒烟探测（UDP 插件连关闭端口时没有 RST 可快速失败，
+  只能等满自身约 3 秒的内部 deadline，全量运行时每个 UDP 插件包
+  至少 3 秒）。fake-server 协议测试照常运行。单包迭代从 ≥3 秒降到
+  亚秒级；全量 wall-clock 收益随核数伸缩（包是并行的）。
+
+### Changed
+
+- **fingerprint：softmatch 降级为低置信度猜测** —— 当没有任何硬
+  规则命中 banner 时，首个 soft 命中现按 nmap 惯例报为 `service?`
+  且不带版本信息，而非看似权威的匹配。soft 正则是宽松的协议提示，
+  不是指纹。
 
 ### Removed
 
@@ -25,6 +41,17 @@
 
 ### Fixed
 
+- **fingerprint：垃圾 banner 上的幽灵服务（dps-shell 一类）** ——
+  pattern 编译器此前把字节转义（`\x7c` 等）解码成裸字节，且仅对
+  不可打印字节重新转义，于是解码出的 0x7c 变成了活的 `|` 正则
+  "或"分支。每个含 `\x7c` 协议字段分隔符的 pattern 都被静默切成
+  多分支——如 jrpgt 的 `^<<jrpgt!>>\x7c$` 变成 `^<<jrpgt!>>` | `$`，
+  裸 `$` 分支匹配任意 banner（垃圾字节实验：3000 个伪随机噪声命中
+  2972 次）。现在 pattern 以转义保真的形式（`\x{7c}`）交给 Go
+  regexp，整类误报消除。另外，空洞的 `nagios-nsca` 规则
+  （`^.{128}[\x52-\x7F]...$`——任何 ≥132 字节且第 129 字节落在
+  0x52..0x7F 的 banner 都命中）经证据拉黑在解析期丢弃；两项修复后
+  噪声 banner 实验的硬匹配误报为零。
 - **CI：homebrew-tap 不再与 release 构建赛跑** —— tap 工作流在
   11 平台 release 还在传产物时就去 fetch SHA256SUMS（v0.7.1 上 404）。
   现改为 `workflow_run: [release]` 触发 + 成功门槛，SHA256SUMS 获取

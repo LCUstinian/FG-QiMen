@@ -11,6 +11,40 @@ import (
 	"strings"
 )
 
+// looseRuleBlacklist lists services whose nmap-service-probes rules
+// are proven to fire on arbitrary noise bytes — without the blacklist,
+// MatchBanner would report phantom services on any junk banner.
+// Upstream nmap never suffers these because it only evaluates rules
+// for the probe that actually elicited the response; our MatchBanner
+// applies every rule to any banner, so vacuous rules are dropped at
+// parse time.
+//
+// Evidence (garbage-lab experiment, run AFTER the escape-fidelity fix
+// — pseudo-random noise banners through the full DB):
+//   - nagios-nsca: `m|^.{128}[\x52-\x7F]...$|s` — anchored but vacuous:
+//     ANY banner ≥132 bytes whose 129th byte falls in 0x52..0x7F
+//     matches. Upstream nmap only ever runs it against NSCA probe
+//     responses (port 5667).
+//
+// To extend: reproduce with a noise experiment first; never blacklist
+// on a single field report alone.
+//
+// looseRuleBlacklist 列出"已被证明会对任意噪声字节误报"的规则服务名；
+// 不拉黑的话 MatchBanner 会在垃圾 banner 上报出幽灵服务。上游 nmap
+// 不会踩坑，因为它只对真实发送过的探针的响应求值；我们的
+// MatchBanner 把所有规则套在任意 banner 上，所以空洞规则在解析期
+// 直接丢弃。
+//
+// 证据（转义保真修复后的垃圾字节实验：伪随机噪声 banner 过全库）：
+//   - nagios-nsca：`m|^.{128}[\x52-\x7F]...$|s`——锚定但空洞：任何
+//     ≥132 字节且第 129 字节落在 0x52..0x7F 的 banner 都命中。上游
+//     nmap 只对 NSCA 探针响应（端口 5667）使用它。
+//
+// 扩展方式：先用噪声实验复现，再拉黑；不要仅凭单次现场报告。
+var looseRuleBlacklist = map[string]bool{
+	"nagios-nsca": true,
+}
+
 // getDirectiveSyntax parses `name flag delimiter rest` (e.g. `q|` or
 // `m|...|`) into a Directive. / getDirectiveSyntax 把 `name flag delimiter rest`
 // （如 `q|` 或 `m|...|`）解析为 Directive。
@@ -67,13 +101,13 @@ func (p *Probe) fromString(data string) error {
 		switch {
 		case strings.HasPrefix(line, "match "):
 			m, err := p.getMatch(line)
-			if err != nil {
+			if err != nil || looseRuleBlacklist[m.Service] {
 				continue
 			}
 			matches = append(matches, m)
 		case strings.HasPrefix(line, "softmatch "):
 			m, err := p.getSoftMatch(line)
-			if err != nil {
+			if err != nil || looseRuleBlacklist[m.Service] {
 				continue
 			}
 			matches = append(matches, m)

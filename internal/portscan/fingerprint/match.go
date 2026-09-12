@@ -11,22 +11,6 @@ import (
 	"strings"
 )
 
-// BytesToRegexSafeString turns a raw byte pattern (e.g. SSH banner
-// bytes) into a Go regexp-safe string by escaping non-printable and
-// high bytes as \x{NN}. / BytesToRegexSafeString 把原始字节 pattern
-// 转为 Go regexp 安全字符串（非可打印/高位字节转 \x{NN}）。
-func BytesToRegexSafeString(b []byte) string {
-	var result strings.Builder
-	for _, c := range b {
-		if c < 32 || c >= 128 {
-			fmt.Fprintf(&result, "\\x{%02x}", c)
-		} else {
-			result.WriteByte(c)
-		}
-	}
-	return result.String()
-}
-
 // bytesToLatin1String maps each byte 1:1 to the corresponding Latin-1
 // Unicode code point so that \x{NN} patterns match the expected byte.
 // / bytesToLatin1String 把每个字节 1:1 映射到对应 Latin-1 Unicode 码点，
@@ -37,6 +21,96 @@ func bytesToLatin1String(b []byte) string {
 		runes[i] = rune(c)
 	}
 	return string(runes)
+}
+
+// patternToGoRegex translates an nmap-service-probes match pattern
+// into a Go-regexp source string, preserving upstream PCRE semantics.
+//
+// The critical rule: byte-level escapes (\xNN, octal \NNN) must reach
+// the regex engine AS ESCAPES, never as decoded raw bytes. The
+// pre-fix pipeline decoded \x7c into a raw '|' byte, which turned
+// every protocol-field separator inside a pattern into a live regex
+// ALTERNATION operator. That split e.g. jrpgt's `^<<jrpgt!>>\x7c$`
+// into `^<<jrpgt!>>` | `$` — the bare `$` branch matches ANY banner —
+// and is the root cause of the field-observed "arbitrary garbage
+// banner matches dps-shell / jrpgt" false positives (garbage-lab
+// experiment: jrpgt fired on 2972/3000 pseudo-random banners).
+// Go's regexp understands \x{NN} natively, so this translator re-emits
+// byte escapes textually and leaves every operator syntax
+// ((\d), {26}, ?, *, |, [...]) untouched.
+//
+// patternToGoRegex 把 nmap-service-probes 的 match pattern 翻译成
+// Go regexp 源串，保持上游 PCRE 语义。
+//
+// 关键规则：字节级转义（\xNN、八进制 \NNN）必须以转义形式到达正则
+// 引擎，绝不能解码成裸字节。修复前的管线把 \x7c 解码成裸 '|' 字节，
+// 让 pattern 里每个协议字段分隔符都变成正则的"或"分支：jrpgt 的
+// `^<<jrpgt!>>\x7c$` 被切成 `^<<jrpgt!>>` | `$`——裸 `$` 分支匹配
+// 任意 banner。这就是现场"任意垃圾 banner 误报 dps-shell / jrpgt"
+// 的根因（垃圾字节实验：jrpgt 在 3000 个伪随机 banner 上命中
+// 2972 次）。Go regexp 原生支持 \x{NN}，本翻译器把字节转义按文本
+// 重新输出，所有操作符语法（(\d)、{26}、?、*、|、[...]）原样保留。
+func patternToGoRegex(src string) string {
+	var b strings.Builder
+	b.Grow(len(src) + 8)
+	for i := 0; i < len(src); {
+		c := src[i]
+		if c == '\\' && i+1 < len(src) {
+			n := src[i+1]
+			switch {
+			case n == 'x' && i+3 < len(src) && isValidHex(src[i+2:i+4]):
+				// \xNN → \x{NN}: stays a literal byte for the engine.
+				// / \xNN → \x{NN}：对引擎保持字面字节。
+				b.WriteString(`\x{`)
+				b.WriteString(src[i+2 : i+4])
+				b.WriteByte('}')
+				i += 4
+			case n >= '0' && n <= '7':
+				// Octal \0..\377 → \x{NN}, same byte semantics as
+				// DecodePattern's octal branch. / 八进制 \0..\377 →
+				// \x{NN}，与 DecodePattern 八进制分支同字节语义。
+				val, j := 0, i+1
+				for j < len(src) && j < i+4 && src[j] >= '0' && src[j] <= '7' {
+					val = val*8 + int(src[j]-'0')
+					j++
+				}
+				if val <= 255 {
+					fmt.Fprintf(&b, `\x{%02x}`, val)
+					i = j
+				} else {
+					// >255: same fallback as DecodePattern — literal
+					// backslash, digits become plain chars. / >255：与
+					// DecodePattern 相同回退——反斜杠按字面量，数字变
+					// 普通字符。
+					b.WriteByte('\\')
+					i++
+				}
+			default:
+				// \d \w \. \+ \\ \a \f \t \n \r \v ... all pass through
+				// verbatim — Go regexp supports every shorthand the
+				// probes file uses. / \d \w \. \+ \\ \a \f \t \n \r \v
+				// 等全部原样通过——probes 文件用到的简写 Go regexp 全部
+				// 支持。
+				b.WriteByte('\\')
+				b.WriteByte(n)
+				i += 2
+			}
+			continue
+		}
+		if c < 32 || c >= 127 {
+			// Raw control/high bytes (rare in source, e.g. UTF-8
+			// literals) map to \x{NN} — consistent with
+			// bytesToLatin1String on the response side. / 裸控制/高位
+			// 字节（源中罕见，如 UTF-8 字面量）映射为 \x{NN}，与响应侧
+			// bytesToLatin1String 一致。
+			fmt.Fprintf(&b, `\x{%02x}`, c)
+			i++
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
 }
 
 // parseMatchDirective is the common implementation for both `match`
@@ -59,12 +133,14 @@ func (p *Probe) parseMatchDirective(data, prefix string, isSoft bool) (Match, er
 		versionInfo = versionInfo[idx:]
 	}
 
-	patternBytes, err := DecodePattern(pattern)
-	if err != nil {
-		return m, err
-	}
-	safe := BytesToRegexSafeString(patternBytes)
-	compiled, err := regexp.Compile(safe)
+	// Compile the pattern with escape fidelity intact — see
+	// patternToGoRegex for why DecodePattern must NOT be used here
+	// (decoding \x7c to a raw '|' byte splits the regex into
+	// alternations and lets e.g. jrpgt match any banner).
+	// / 用转义保真的方式编译 pattern——见 patternToGoRegex：这里
+	// 不能用 DecodePattern（把 \x7c 解码成裸 '|' 会把正则切成多分支，
+	// jrpgt 因此能匹配任意 banner）。
+	compiled, err := regexp.Compile(patternToGoRegex(pattern))
 	if err != nil {
 		return m, err
 	}

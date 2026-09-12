@@ -20,6 +20,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `0600` because credential-hit lines carry cleartext passwords.
   A failure to open the log file degrades to the previous behavior
   with a stderr warning — it never aborts a scan.
+- **`just smoke <CIDR>`** — the manual live-TUI /24 smoke test is now
+  an executable recipe (wraps the `smoke`-tagged
+  `TestSmokeLiveTUIOnTarget` probe with the colour/term env it needs;
+  optional second arg caps the scan budget via `FGQI_SMOKE_MAX`).
+  Captures are dumped to the temp dir for human review.
+- **`just test-short`** — fast test pass. `go test -short` skips the
+  network-bound plugin smoke probes (a UDP plugin hitting a closed
+  port has no RST to fail on, so each waited out its own ~3 s internal
+  deadline, costing every UDP plugin package ≥3 s per full run).
+  Fake-server protocol tests still run. Per-package iteration drops
+  from ≥3 s to sub-second; the full-suite saving scales with core
+  count (packages run in parallel).
+
+### Changed
+
+- **fingerprint: softmatches demoted to a low-confidence guess** —
+  when no hard rule matches a banner, the first soft hit is now
+  reported in nmap's convention as `service?` with empty version
+  info instead of an authoritative-looking match. A soft regex is a
+  loose protocol hint, not a fingerprint.
 
 ### Removed
 
@@ -33,6 +53,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **fingerprint: phantom services on garbage banners (dps-shell class)**
+  — the pattern compiler decoded byte escapes (`\x7c` etc.) into raw
+  bytes and re-escaped only non-printables, so a decoded 0x7c became a
+  LIVE `|` regex alternation operator. Every pattern with a `\x7c`
+  protocol-field separator was silently split into alternatives —
+  e.g. jrpgt's `^<<jrpgt!>>\x7c$` became `^<<jrpgt!>>` | `$`, whose
+  bare-`$` branch matched ANY banner (garbage-lab: 2972/3000
+  pseudo-random noise banners). Patterns now reach Go's regexp with
+  escapes intact (`\x{7c}`), eliminating the whole false-positive
+  class. Additionally, the vacuous `nagios-nsca` rule
+  (`^.{128}[\x52-\x7F]...$` — matched any banner ≥132 bytes whose
+  129th byte was in 0x52..0x7F) is dropped at parse time via an
+  evidence-seeded loose-rule blacklist; after both fixes the
+  noise-banner experiment reports zero hard-match false positives.
 - **CI: homebrew-tap no longer races the release build** — the tap
   workflow fetched SHA256SUMS while the 11-platform release was still
   uploading assets (404 on v0.7.1). It now triggers on

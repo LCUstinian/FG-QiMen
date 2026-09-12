@@ -77,6 +77,23 @@ func Smoke(t *testing.T, p plugins.Plugin) {
 		t.Errorf("Modes() returned 0 — plugin declares no capability")
 	}
 
+	// Network probes skipped under `go test -short`: UDP plugins bound
+	// for a closed port have no RST to fail fast on, so each one waits
+	// out its own internal deadline (~3 s, e.g. bacnet's SetDeadline)
+	// regardless of the ctx below. That made every UDP plugin package
+	// cost ≥3 s in `go test ./...`. The fake-server protocol tests in
+	// each plugin package (which are fast) still run under -short; only
+	// these closed-port no-false-positive probes are skipped.
+	// / `go test -short` 下跳过网络探测：UDP 插件连关闭端口时没有 RST
+	// 可以快速失败，只能等满自身内部 deadline（约 3 秒，如 bacnet 的
+	// SetDeadline），下面的 ctx 管不到它。这让每个 UDP 插件包在
+	// `go test ./...` 里至少花 3 秒。各插件包的 fake-server 协议测试
+	// （很快）在 -short 下照常运行；跳过的只是这些关闭端口探测。
+	if testing.Short() {
+		t.Log("-short: skipping closed-port Identify/Credential probes")
+		return
+	}
+
 	// Identify path — always run. / Identify 路径——总跑。
 	tctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
 	defer cancel()

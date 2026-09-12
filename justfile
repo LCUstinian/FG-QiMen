@@ -306,6 +306,43 @@ run: build
 test-local: build
     @./{{ release_dir }}/{{ binary }}{{ exe_suffix }} -H 127.0.0.1 --ports 18080,22,80,3306 -t 5 --shutdown-timeout 2s
 
+# Fast test pass: `go test -short` skips the network-bound smoke probes.
+# UDP plugins hitting a closed port wait out their own ~3 s internal
+# deadline (no RST to fail on), which costs every UDP plugin package
+# ≥3 s per full run. Fake-server protocol tests still run, so
+# coverage stays meaningful. Per-package iteration drops from ≥3 s to
+# sub-second; the full-suite wall-clock saving scales with core count
+# (packages run in parallel).
+# / 快速测试：`go test -short` 跳过依赖网络的冒烟探测。UDP 插件连关闭
+# 端口时没有 RST 可以快速失败，只能等满自身约 3 秒的内部 deadline，
+# 全量运行时每个 UDP 插件包至少 3 秒。fake-server 协议测试照常运行，
+# 覆盖率不失真。单包迭代从 ≥3 秒降到亚秒级；全量 wall-clock 收益随
+# 核数伸缩（包是并行的）。
+test-short:
+    CGO_ENABLED=0 go test -short ./...
+
+# Live TUI smoke probe against a real subnet — the executable form of
+# the manual /24 smoke test (internal/tui/smoke_live_test.go, build
+# tag `smoke`, env-gated). Renders to an in-memory buffer, injects a
+# scripted operator timeline (e/E/?/esc/p/r/L + resizes), asserts on
+# per-step deltas, dumps captures to %TEMP% for human review.
+# Usage: just smoke 192.168.204.0/24
+# Optional scan budget: just smoke 192.168.204.0/24 90s
+# / 对真实网段跑实机 TUI 冒烟探针——人工 /24 冒烟测试的可执行版
+# （internal/tui/smoke_live_test.go，build tag `smoke`，环境变量门控）。
+# 渲染到内存缓冲，注入脚本化操作员时间线（e/E/?/esc/p/r/L + 改变窗
+# 口尺寸），逐步增量断言，捕获导出到 %TEMP% 供人工复核。
+# 用法：just smoke 192.168.204.0/24
+# 可选扫描预算：just smoke 192.168.204.0/24 90s
+smoke cidr="" max="":
+    @if [ -z "{{ cidr }}" ]; then \
+        echo "usage: just smoke <CIDR> [max-duration]   e.g. just smoke 192.168.204.0/24 90s" >&2; \
+        exit 1; \
+    fi
+    @export FGQI_SMOKE_MAX="{{ max }}" && \
+        CLICOLOR_FORCE=1 TERM=xterm-256color FGQI_SMOKE_CIDR={{ cidr }} \
+        go test -tags smoke -run TestSmokeLiveTUIOnTarget -v -timeout 15m ./internal/tui/
+
 # Clean ephemeral-mode outputs / 清理即扫即走输出
 clean-out:
     @rm -rf {{ runs_dir }}/default

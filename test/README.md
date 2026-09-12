@@ -46,6 +46,29 @@ cat fgqm_workspace/default/*/fgqm_result_*.json | head
 just clean-runs
 ```
 
+## Automated commands / 自动化命令
+
+```bash
+# Live TUI smoke probe (build tag `smoke`, env-gated) — the executable
+# form of the manual /24 TUI verification. Renders to an in-memory
+# buffer, injects a scripted operator timeline, asserts on per-step
+# deltas, dumps captures to the temp dir for human review.
+# / 实机 TUI 冒烟探针（build tag `smoke`，环境变量门控）——人工 /24
+# TUI 验证的可执行版。渲染到内存缓冲，注入脚本化操作员时间线，逐步
+# 增量断言，捕获导出到临时目录供人工复核。
+just smoke 192.168.204.0/24        # default 150 s scan budget / 默认 150 秒扫描预算
+just smoke 192.168.204.0/24 90s    # custom budget / 自定义预算
+
+# Fast test pass — skips the network-bound plugin smoke probes (UDP
+# plugins wait out their ~3 s internal deadline on a closed port);
+# fake-server protocol tests still run. Per-package iteration drops
+# from ≥3 s to sub-second.
+# / 快速测试——跳过依赖网络的插件冒烟探测（UDP 插件在关闭端口上要
+# 等满自身约 3 秒的内部 deadline）；fake-server 协议测试照常运行。
+# 单包迭代从 ≥3 秒降到亚秒级。
+just test-short
+```
+
 ## Hard rule reminder / 硬性原则提醒
 
 The data in `passes.txt` is for **legitimate credential testing only**.

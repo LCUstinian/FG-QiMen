@@ -81,23 +81,38 @@ func NewVScan() *VScan {
 }
 
 // MatchBanner finds the best service match for a banner (or any
-// response bytes). Iterates all probes' match rules, returns the
-// first hit (probe order follows the upstream "rarity" order).
+// response bytes). Iterates all probes' match rules; a HARD match
+// returns immediately (authoritative). Soft matches are only a
+// fallback: if no hard rule matches anywhere, the FIRST soft hit is
+// reported in nmap's convention as "service?" with empty version info
+// — a soft regex is a loose protocol hint, not a fingerprint.
 // / MatchBanner 为给定 banner（或响应字节）找最佳服务匹配。遍历所有
-// probe 的 match 规则，返回首个命中（probe 顺序按上游 rarity 排）。
+// probe 的 match 规则；硬匹配立即返回（可信）。softmatch 只作兜底：
+// 全库无硬匹配时，首个 soft 命中按 nmap 惯例降级为 "service?" 且
+// 不带版本信息——soft 正则是宽松的协议提示，不是指纹。
 func (v *VScan) MatchBanner(banner []byte) (service, versionInfo string, found bool) {
 	if len(banner) == 0 {
 		return "", "", false
 	}
+	var softService string
 	for _, p := range v.Probes {
 		if p.Matchs == nil {
 			continue
 		}
 		for _, m := range *p.Matchs {
-			if m.MatchPattern(banner) {
+			if !m.MatchPattern(banner) {
+				continue
+			}
+			if !m.IsSoft {
 				return m.Service, m.VersionInfo, true
 			}
+			if softService == "" {
+				softService = m.Service
+			}
 		}
+	}
+	if softService != "" {
+		return softService + "?", "", true
 	}
 	return "", "", false
 }
