@@ -327,20 +327,30 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             curl -fsSL -o upx.zip "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-win64.zip"
             unzip -q upx.zip -d upx-dist
-            echo "UPX_BIN=$(pwd)/upx-dist/upx-5.2.0-win64/upx.exe" >> "$GITHUB_ENV"
+            UPX_BIN="$(pwd)/upx-dist/upx-5.2.0-win64/upx.exe"
           else
             curl -fsSL -o upx.tar.xz "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz"
             tar -xJf upx.tar.xz
-            echo "UPX_BIN=$(pwd)/upx-5.2.0-amd64_linux/upx" >> "$GITHUB_ENV"
+            UPX_BIN="$(pwd)/upx-5.2.0-amd64_linux/upx"
           fi
-          # $GITHUB_PATH does not apply to the CURRENT step, so verify
-          # and later invoke via the absolute path ($UPX_BIN) instead of
-          # bare `upx` — bare lookups also risk picking up a different
-          # version that happens to sit in the runner image.
-          # / $GITHUB_PATH 对当前步骤不生效，所以这里用绝对路径验证
-          # 并在后续步骤统一用 $UPX_BIN——裸 upx 还可能命中镜像里
-          # 巧合存在的其他版本。
-          "$UPX_BIN" --version | head -n1
+          # GITHUB_ENV / GITHUB_PATH only take effect from the NEXT
+          # step on, so verify inside this step with the local var and
+          # export UPX_BIN for the later compress step. Absolute paths
+          # everywhere — bare `upx` could pick a different version
+          # sitting in the runner image.
+          # / GITHUB_ENV / GITHUB_PATH 都从下一步骤才生效，所以本步
+          # 骤内用局部变量验证，并把 UPX_BIN 导出到 GITHUB_ENV 供后
+          # 续步骤使用。全程绝对路径——裸 upx 可能命中镜像里巧合
+          # 存在的其他版本。
+          echo "UPX_BIN=$UPX_BIN" >> "$GITHUB_ENV"
+          # No `| head -n1` here: on Windows bash, head closes the pipe
+          # after one line and upx.exe then fails on WriteFile (no Unix
+          # SIGPIPE semantics), which set -o pipefail turns into a
+          # step failure. Print the full banner instead.
+          # / 不要接 `| head -n1`：Windows bash 下 head 读一行就关管
+          # 道，upx.exe 写管道报错（没有 Unix SIGPIPE 语义），在
+          # pipefail 下整个步骤失败。直接打印完整版本横幅。
+          "$UPX_BIN" --version
 
       - name: upx compress (hardened)
         if: ${{ matrix.hardened == true }}
