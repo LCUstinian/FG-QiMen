@@ -42,12 +42,11 @@ git tag -a v0.3.1 -m "v0.3.1 — one-line description"
 git push origin v0.3.1
 ```
 
-The push triggers four GitHub Actions workflows:
+The push triggers three GitHub Actions workflows:
 
 | Workflow            | Trigger                  | Action |
 |---------------------|--------------------------|--------|
 | `release.yml`       | tag push (`v*`)          | 13-artifact build (11 standard platforms + 2 hardened editions) + cosign + SBOM + SLSA L2 + GitHub Release |
-| `container.yml`     | tag push (`v*`)          | ghcr.io multi-arch OCI image + cosign |
 | `ci.yml`            | every push + PR          | regular test matrix against the tag |
 | `workflow-lint.yml` | PRs touching .github/    | actionlint + shellcheck |
 
@@ -80,8 +79,6 @@ in parallel), the GitHub Release page shows:
 - One `SHA256SUMS` covering all 13 binaries
 - One full SPDX SBOM across all release artifacts
   (`FG-QiMen-release.spdx.json`)
-- One OCI image pushed to `ghcr.io/<owner>/fg-qimen:<version>`
-  (with `latest` tag also refreshed)
 
 To verify the artifacts on your workstation:
 
@@ -115,10 +112,6 @@ cosign verify-attestation \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
   fg-qimen-linux-amd64.intoto.jsonl
-
-# Pull the container image.
-docker pull ghcr.io/<owner>/fg-qimen:v0.3.1
-docker run --rm ghcr.io/<owner>/fg-qimen:v0.3.1 --help
 ```
 
 ## Prerelease tags
@@ -129,7 +122,7 @@ release-candidate smoke-testing before the final cut.
 
 ## Manual dry-run
 
-The `workflow_dispatch` trigger on `release.yml` and `container.yml`
+The `workflow_dispatch` trigger on `release.yml`
 lets you run the pipeline without a tag. Use this to verify the
 workflow still works after a refactor. A dispatch run produces the
 same 13 artifacts (11 standard + 2 hardened) as a tagged release —
@@ -192,12 +185,6 @@ permission isn't granted in the workflow — verify the `permissions:`
 block. If the OIDC issuer URL changed (Sigstore policy change),
 update `release.yml` to match.
 
-### ghcr.io push fails
-
-The workflow uses the auto-generated `GITHUB_TOKEN` for ghcr.io. If
-the org's "Allow GitHub Actions to create and approve pull requests"
-setting is disabled, this fails. Fix at the org settings page.
-
 ### UPX or garble fails (hardened builds)
 
 A UPX failure only downgrades the hardened artifact — the workflow
@@ -240,17 +227,15 @@ git push origin vX.Y.Z
 # 4. Verify on a workstation
 sha256sum -c SHA256SUMS          # 13 entries: 11 standard + 2 hardened
 cosign verify-blob --certificate ... --signature ...
-docker pull ghcr.io/<owner>/fg-qimen:vX.Y.Z
 ```
 
 ## Cross-references
 
-- Workflows: `.github/workflows/release.yml`, `container.yml`,
+- Workflows: `.github/workflows/release.yml`,
   `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`
 - Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
   `docs/verification/v0.3/second-batch-verification.md`,
   `docs/verification/v0.4/verification.md`,
   `docs/verification/v0.5/verification.md`
 - Release notes: `CHANGELOG.md`
-- Dockerfile: `.github/docker/Dockerfile`
 - Benchmark baselines: `docs/verification/v0.4/benchmarks.md`

@@ -2,6 +2,28 @@
 
 
 # Changelog
+## [Unreleased]
+
+### Removed
+
+- **container.yml + Dockerfile** —— OCI 镜像通道删除。该工作流自
+  v0.3.3 起每个 tag 都失败，从未产出过一个镜像（根因：ghcr.io 拒绝
+  含大写字母的镜像引用，而本仓库 owner 是 `LCUstinian`）；没人发现
+  是因为没人用它。网络扫描器进容器本来就是残废——Docker NAT 破坏
+  ARP/主机网段扫描和 UDP/组播插件。与 scoop-bucket 删除同一 YAGNI
+  判决。
+
+### Fixed
+
+- **CI：homebrew-tap 不再与 release 构建赛跑** —— tap 工作流在
+  11 平台 release 还在传产物时就去 fetch SHA256SUMS（v0.7.1 上 404）。
+  现改为 `workflow_run: [release]` 触发 + 成功门槛，SHA256SUMS 获取
+  重试 5 次、间隔 30 秒。
+- **CI：main 上 golangci-lint 报红** —— 五处 gofmt（flags、
+  modbus_test、snmpv3）加一处 errorlint（modbus 改用 `errors.Is`
+  判断 `io.ErrUnexpectedEOF`）。问题自 v0.6.1 起就存在；release
+  工作流不跑 lint，所以 v0.7.1 是带着红 CI 发出去的。
+
 ## [0.7.1] - 2026-09-12
 
 安全加固与审计闭环版本。全项目审计（P0/P1/P2）的所有发现在本版全部

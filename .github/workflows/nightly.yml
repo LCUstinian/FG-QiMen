@@ -2,14 +2,13 @@
 # FG-QiMen nightly 构建——每天 dry-run 发布流水线。
 #
 # Goals:
-#   1. Catch breakage of release.yml / container.yml / Dockerfile
-#      / etc. early, before someone tries to cut a real release.
+#   1. Catch breakage of release.yml / etc. early, before someone
+#      tries to cut a real release.
 #   2. Detect upstream Go releases that break our build flags.
 #   3. Detect new security advisories in our dependency closure.
 #
 # / 目标：
-#   1. 提早捕获 release.yml / container.yml / Dockerfile 等的破
-#      坏，避免真发布时才发现。
+#   1. 提早捕获 release.yml 等的破坏，避免真发布时才发现。
 #   2. 检测上游 Go 新版本是否破坏我们的 build flags。
 #   3. 检测依赖闭包的新安全公告。
 #

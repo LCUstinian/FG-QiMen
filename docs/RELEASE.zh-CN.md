@@ -42,12 +42,11 @@ git tag -a v0.3.1 -m "v0.3.1 — one-line description"
 git push origin v0.3.1
 ```
 
-tag push 触发四个 GitHub Actions 工作流：
+tag push 触发三个 GitHub Actions 工作流：
 
 | 工作流              | 触发条件                 | 动作 |
 |---------------------|--------------------------|------|
 | `release.yml`       | tag push (`v*`)          | 13 个产物构建（11 个标准平台 + 2 个加固版）+ cosign + SBOM + SLSA L2 + GitHub Release |
-| `container.yml`     | tag push (`v*`)          | ghcr.io 多架构 OCI 镜像 + cosign |
 | `ci.yml`            | 每次 push + PR           | 对该 tag 跑常规测试矩阵 |
 | `workflow-lint.yml` | 触碰 .github/ 的 PR      | actionlint + shellcheck |
 
@@ -76,8 +75,6 @@ Release 页面会展示：
 - 一个覆盖全部 13 个二进制的 `SHA256SUMS`
 - 一份覆盖全部发布产物的全量 SPDX SBOM
   （`FG-QiMen-release.spdx.json`）
-- 一个推送到 `ghcr.io/<owner>/fg-qimen:<version>` 的 OCI 镜像
-  （`latest` tag 同步刷新）
 
 在工作站上验证产物：
 
@@ -111,10 +108,6 @@ cosign verify-attestation \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
   fg-qimen-linux-amd64.intoto.jsonl
-
-# 拉取容器镜像。
-docker pull ghcr.io/<owner>/fg-qimen:v0.3.1
-docker run --rm ghcr.io/<owner>/fg-qimen:v0.3.1 --help
 ```
 
 ## 预发布标签
@@ -124,7 +117,7 @@ docker run --rm ghcr.io/<owner>/fg-qimen:v0.3.1 --help
 
 ## 手动 dry-run
 
-`release.yml` 和 `container.yml` 的 `workflow_dispatch` 触发器让你
+`release.yml` 的 `workflow_dispatch` 触发器让你
 不打 tag 也能跑流水线。重构工作流之后用它验证流水线仍然可用。
 dispatch 运行产出与正式 tag 发布相同的 13 个产物（11 个标准版 +
 2 个加固版）——只有 Release 发布步骤跳过。
@@ -183,12 +176,6 @@ failed jobs"）。最常见原因：新 Go 目标需要矩阵项没提供的构�
 `id-token` 权限——检查 `permissions:` 块。如果 OIDC issuer URL
 变了（Sigstore 策略变更），同步更新 `release.yml`。
 
-### ghcr.io 推送失败
-
-工作流使用自动生成的 `GITHUB_TOKEN` 推 ghcr.io。如果组织的
-"Allow GitHub Actions to create and approve pull requests" 设置
-被禁用，会失败。到组织设置页修复。
-
 ### UPX 或 garble 失败（加固版构建）
 
 UPX 失败只会降级加固产物——工作流告警后发布仅 garble 混淆的
@@ -228,17 +215,15 @@ git push origin vX.Y.Z
 # 4. 工作站验证
 sha256sum -c SHA256SUMS          # 13 条：11 个标准版 + 2 个加固版
 cosign verify-blob --certificate ... --signature ...
-docker pull ghcr.io/<owner>/fg-qimen:vX.Y.Z
 ```
 
 ## 交叉引用
 
-- 工作流：`.github/workflows/release.yml`、`container.yml`、
+- 工作流：`.github/workflows/release.yml`、
   `workflow-lint.yml`、`ci.yml`、`homebrew-tap.yml`
 - 分批验证报告：`docs/verification/v0.3/first-batch-verification.md`、
   `docs/verification/v0.3/second-batch-verification.md`、
   `docs/verification/v0.4/verification.md`、
   `docs/verification/v0.5/verification.md`
 - 发布说明：`CHANGELOG.md`
-- Dockerfile：`.github/docker/Dockerfile`
 - 基准测试：`docs/verification/v0.4/benchmarks.md`

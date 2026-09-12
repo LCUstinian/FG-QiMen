@@ -10,7 +10,6 @@ on:
   pull_request:
     paths:
       - '.github/workflows/**'
-      - '.github/docker/**'
       - '.github/actions/**'
   push:
     branches:

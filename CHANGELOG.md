@@ -7,6 +7,31 @@ All notable changes to FG-QiMen are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **container.yml + Dockerfile** — the OCI image channel is deleted.
+  It failed on every tag since v0.3.3 and never produced a single
+  image (root cause: ghcr.io rejects uppercase image references and
+  the owner is `LCUstinian`); nobody noticed because nobody used it.
+  A network scanner inside a container is hobbled anyway — Docker NAT
+  breaks ARP/host-segment scanning and UDP/multicast plugins. Same
+  YAGNI verdict as the scoop-bucket removal.
+
+### Fixed
+
+- **CI: homebrew-tap no longer races the release build** — the tap
+  workflow fetched SHA256SUMS while the 11-platform release was still
+  uploading assets (404 on v0.7.1). It now triggers on
+  `workflow_run: [release]` with a success gate and retries the
+  SHA256SUMS fetch 5×/30 s.
+- **CI: golangci-lint red on main** — five gofmt findings (flags,
+  modbus_test, snmpv3) and one errorlint (`errors.Is` for
+  `io.ErrUnexpectedEOF` in modbus). Pre-existing since v0.6.1; the
+  release workflow does not run lint, so v0.7.1 shipped while CI was
+  red.
+
 ## [0.7.1] - 2026-09-12
 
 Security-hardening and audit-closure release. Every finding from the
