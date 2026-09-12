@@ -105,6 +105,10 @@ fg-qimen --project corp-intranet -f fgqm_workspace/projects/corp-intranet/target
 # resume / info
 fg-qimen resume --project corp-intranet
 fg-qimen projects info corp-intranet
+
+# retention: drop resume state (seen-hashes) older than a cutoff.
+# results / creds are never touched. --yes skips the confirm prompt.
+fg-qimen projects prune corp-intranet --before 2026-09-01 --compact --yes
 ```
 
 ### TUI
@@ -277,6 +281,7 @@ fg-qimen projects delete <n>                # delete project
 fg-qimen projects info <n>                  # show project details
 fg-qimen projects export <n> <out.fgq>      # export project to single .fgq file
 fg-qimen projects import <in.fgq> <n>      # import from .fgq file
+fg-qimen projects prune <n> --before <date> # delete seen-hashes older than <date> (--compact reclaims disk)
 fg-qimen version                 # show version
 fg-qimen completion bash         # generate shell completion
 ```

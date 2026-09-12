@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -67,6 +68,33 @@ var (
 		Args:  cobra.ExactArgs(2),
 		RunE:  runProjectsImport,
 	}
+	// M-5 audit fix: retention for long-lived projects. Without it the
+	// seen-hash set (targets bucket) grows unboundedly and -resume's
+	// LoadSeenHashes slows linearly. / M-5 审计修复：长期项目的保留
+	// 策略。没有它 seen-hash 集合（targets bucket）无限增长，-resume
+	// 的 LoadSeenHashes 线性变慢。
+	projectsPruneCmd = &cobra.Command{
+		Use:   "prune <name> --before <date>",
+		Short: "Delete seen-hash entries older than a cutoff date",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProjectsPrune,
+	}
+)
+
+var (
+	// pruneBefore is the retention cutoff: RFC3339 ("2026-09-01T00:00:00Z")
+	// or a plain date ("2026-09-01", local midnight). Required — a prune
+	// with no cutoff would mean "delete everything", and that's what
+	// `projects delete` is for.
+	// pruneBefore 是保留截止：RFC3339 或纯日期（本地时区零点）。必填
+	// ——不带截止的 prune 等于"全删"，那是 `projects delete` 的职责。
+	pruneBefore string
+	// pruneCompact rewrites the DB file after pruning to actually shrink
+	// it on disk. / prune 后重写 DB 文件，真正收缩磁盘占用。
+	pruneCompact bool
+	// pruneYes confirms the destructive step non-interactively (CI /
+	// scripts). / 非交互确认破坏性步骤（CI / 脚本）。
+	pruneYes bool
 )
 
 func init() {
@@ -77,6 +105,11 @@ func init() {
 	projectsCmd.AddCommand(projectsInfoCmd)
 	projectsCmd.AddCommand(projectsExportCmd)
 	projectsCmd.AddCommand(projectsImportCmd)
+	projectsPruneCmd.Flags().StringVar(&pruneBefore, "before", "", "cutoff date: RFC3339 or YYYY-MM-DD (entries seen before this are deleted)")
+	projectsPruneCmd.Flags().BoolVar(&pruneCompact, "compact", false, "rewrite fgqm.db after pruning to reclaim disk space")
+	projectsPruneCmd.Flags().BoolVar(&pruneYes, "yes", false, "skip the interactive confirmation (for scripts)")
+	_ = projectsPruneCmd.MarkFlagRequired("before")
+	projectsCmd.AddCommand(projectsPruneCmd)
 }
 
 // runProjectsList lists all projects under ./fgqm_workspace/projects/.
@@ -252,4 +285,136 @@ func runProjectsImport(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Imported %s as project %q\n", inPath, name)
 	return nil
+}
+
+// parsePruneCutoff accepts either a plain date ("2026-09-01", local
+// midnight) or RFC3339. The plain-date form is the common operator
+// input, so it comes first. / parsePruneCutoff 接受纯日期（本地时
+// 区零点）或 RFC3339。纯日期是操作员的常用输入，所以先试。
+func parsePruneCutoff(s string) (time.Time, error) {
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--before must be YYYY-MM-DD or RFC3339 (e.g. 2026-09-01), got %q", s)
+	}
+	return t, nil
+}
+
+// runProjectsPrune deletes seen-hash entries older than --before.
+// Destructive: it previews the count, then requires either --yes or
+// an interactive terminal confirmation before touching anything.
+// Results / creds buckets are never touched — they hold the
+// operator's findings, not resume state.
+//
+// runProjectsPrune 删除早于 --before 的 seen-hash 条目。破坏性：
+// 先预览条数，然后要求 --yes 或交互终端确认才动手。results /
+// creds bucket 永不触碰——那是操作员的发现记录，不是 resume 状态。
+func runProjectsPrune(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	cutoff, err := parsePruneCutoff(pruneBefore)
+	if err != nil {
+		return err
+	}
+	proj, err := workspace.Open(name)
+	if err != nil {
+		return fmt.Errorf("open project %q: %w", name, err)
+	}
+	defer func() { _ = proj.Close() }()
+
+	// Prune works on plaintext keys only — the seen-hash timestamps in
+	// the targets bucket are never encrypted — so no project key is
+	// needed here. / prune 只操作明文 key——targets bucket 的
+	// seen-hash 时间戳从不加密——因此不需要项目密钥。
+	st := proj.AsStore()
+	if st == nil {
+		return fmt.Errorf("project %q has no persistent state (created with --no-state?)", name)
+	}
+	out := cmd.OutOrStdout()
+	n, err := st.CountSeenBefore(cutoff)
+	if err != nil {
+		return fmt.Errorf("count prunable entries: %w", err)
+	}
+	fmt.Fprintf(out, "Project %q: %d seen-hash entries older than %s\n", name, n, cutoff.Format("2006-01-02 15:04:05"))
+	if n == 0 {
+		fmt.Fprintln(out, "nothing to prune")
+		return nil
+	}
+	// Confirmation gate: scripts must pass --yes; interactive callers
+	// get a y/N prompt. A non-interactive stdin without --yes is a
+	// likely mistake (CI without the flag), so refuse rather than
+	// guess. / 确认门：脚本必须传 --yes；交互调用方拿到 y/N 提示。
+	// 非交互 stdin 且无 --yes 多半是失误（CI 忘了 flag），拒绝而非
+	// 猜测。
+	if !pruneYes {
+		if !stdinIsTerminal() {
+			return fmt.Errorf("refusing to prune non-interactively without --yes (add --yes to confirm)")
+		}
+		fmt.Fprint(out, "delete these entries? [y/N] ")
+		var answer string
+		if _, err := fmt.Scanln(&answer); err != nil {
+			answer = ""
+		}
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintln(out, "aborted")
+			return nil
+		}
+	}
+	deleted, err := st.PruneSeen(cutoff)
+	if err != nil {
+		return fmt.Errorf("prune: %w", err)
+	}
+	fmt.Fprintf(out, "[+] pruned %d seen-hash entries (results and creds untouched)\n", deleted)
+
+	if !pruneCompact {
+		return nil
+	}
+	dbPath := proj.DBPath
+	sizeBefore := fileSize(dbPath)
+	if err := proj.Compact(); err != nil {
+		return fmt.Errorf("compact: %w", err)
+	}
+	fmt.Fprintf(out, "[+] compacted %s: %s → %s\n", dbPath, humanBytes(sizeBefore), humanBytes(fileSize(dbPath)))
+	return nil
+}
+
+// stdinIsTerminal reports whether stdin is an interactive terminal.
+// It is a variable so tests can stub the terminal check without
+// wrestling with real OS handles. / stdinIsTerminal 报告 stdin 是否
+// 为交互终端。定义为变量以便测试替换终端检测，不必纠缠真实 OS 句柄。
+var stdinIsTerminal = func() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// fileSize returns the size in bytes of path, or 0 when it cannot be
+// stat'ed (the caller only uses it for a before/after printout).
+// / fileSize 返回 path 的字节大小，stat 失败返回 0（调用方只用它
+// 打印前后对比）。
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// humanBytes formats a byte count with binary units. / humanBytes
+// 用二进制单位格式化字节数。
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }

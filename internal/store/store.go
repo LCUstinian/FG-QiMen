@@ -144,6 +144,88 @@ func (s *Store) LoadSeenHashes() ([]string, error) {
 	return out, err
 }
 
+// seenBefore returns the keys of targets-bucket entries whose
+// RFC3339Nano timestamp value is strictly before `before`. Entries
+// with an unparsable value are kept (fail-open: a corrupted timestamp
+// must not silently become a deletion). The keys are copied so they
+// stay valid after the transaction closes.
+//
+// seenBefore 返回 targets bucket 中时间戳（RFC3339Nano）严格早于
+// before 的条目 key。时间戳解析失败的条目保留（fail-open：损坏的
+// 时间戳绝不能悄悄变成一次删除）。key 做拷贝，事务结束后仍有效。
+func (s *Store) seenBefore(tx *bolt.Tx, before time.Time) [][]byte {
+	var stale [][]byte
+	bk := tx.Bucket(bucketTargets)
+	if bk == nil {
+		return nil
+	}
+	_ = bk.ForEach(func(k, v []byte) error {
+		if v == nil {
+			return nil
+		}
+		t, err := time.Parse(time.RFC3339Nano, string(v))
+		if err != nil || !t.Before(before) {
+			return nil
+		}
+		stale = append(stale, append([]byte(nil), k...))
+		return nil
+	})
+	return stale
+}
+
+// CountSeenBefore returns how many seen-hash entries would be removed
+// by PruneSeen(before) — the dry-run counter behind `projects prune`.
+//
+// CountSeenBefore 返回 PruneSeen(before) 将删除的 seen-hash 条数
+// —— `projects prune` 预览用的计数。
+func (s *Store) CountSeenBefore(before time.Time) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	var n int
+	err := s.db.View(func(tx *bolt.Tx) error {
+		n = len(s.seenBefore(tx, before))
+		return nil
+	})
+	return n, err
+}
+
+// PruneSeen deletes seen-hash entries from the targets bucket whose
+// timestamp is before `before`, returning the number deleted. Results
+// and creds buckets are intentionally untouched: they are the
+// operator's findings record and have no time index on their keys.
+// This is the retention half of the M-5 audit fix — without it,
+// long-lived projects grow unboundedly and -resume's LoadSeenHashes
+// slows linearly.
+//
+// PruneSeen 删除 targets bucket 中时间戳早于 before 的 seen-hash 条目，
+// 返回删除数。results / creds bucket 刻意不动：它们是操作员的发现
+// 记录，且 key 上没有时间索引。这是 M-5 审计修复的保留策略半边——
+// 没有它，长期项目会无限增长，-resume 的 LoadSeenHashes 线性变慢。
+func (s *Store) PruneSeen(before time.Time) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	var stale [][]byte
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		stale = s.seenBefore(tx, before)
+		bk := tx.Bucket(bucketTargets)
+		if bk == nil {
+			return nil
+		}
+		for _, k := range stale {
+			if err := bk.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(stale), nil
+}
+
 // PutResult persists a structured result to the results bucket.
 // PutResult 把结构化结果持久化到 results bucket。
 //

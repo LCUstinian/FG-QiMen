@@ -220,6 +220,74 @@ func (p *Project) Close() error {
 	return p.DB.Close()
 }
 
+// Compact rewrites fgqm.db to reclaim the space freed by deletions
+// (e.g. after Project.PruneSeen). bbolt never shrinks a file on its
+// own — freed pages go to a freelist that new writes reuse, so a
+// pruned long-lived project keeps its peak file size until compacted.
+//
+// The rewrite goes to a sibling temp file that is swapped over the
+// original; on any failure the original DB is left untouched and
+// re-opened so the Project remains usable (and Close() still works).
+// The swap requires closing and reopening the DB, so Compact must not
+// be called while a scan is running.
+//
+// Compact 重写 fgqm.db 以回收删除（如 PruneSeen 之后）释放的空间。
+// bbolt 自身从不收缩文件——释放的页进入 freelist 供新写入复用，
+// 所以做过 prune 的长期项目在被压缩前会一直保持峰值文件大小。
+//
+// 重写写到同目录临时文件再换回原文件；任何一步失败原 DB 都不受影
+// 响并保持打开状态（Close() 仍可用）。换盘需要关闭再重开 DB，因此
+// 扫描运行期间不得调用 Compact。
+func (p *Project) Compact() error {
+	if p == nil || p.DB == nil {
+		return nil
+	}
+	tmp := p.DBPath + ".compact"
+	dst, err := bolt.Open(tmp, 0o600, nil)
+	if err != nil {
+		return fmt.Errorf("open compact target %s: %w", tmp, err)
+	}
+	if err := bolt.Compact(dst, p.DB, 0); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("compact %s: %w", p.DBPath, err)
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("close compact target %s: %w", tmp, err)
+	}
+	// Swap: close the live DB, move the compacted file over it, reopen.
+	// On Windows os.Rename over an existing path works (MoveFileEx with
+	// REPLACE_EXISTING) as long as both handles are closed — hence the
+	// explicit close first.
+	//
+	// 换盘：关闭活动 DB，把压缩文件移过去，重开。Windows 上 os.Rename
+	// 可覆盖已存在路径（MoveFileEx REPLACE_EXISTING），前提是两边句柄
+	// 都已关闭——所以先显式关闭。
+	if err := p.DB.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("close %s for swap: %w", p.DBPath, err)
+	}
+	p.DB = nil
+	if err := os.Rename(tmp, p.DBPath); err != nil {
+		_ = os.Remove(tmp)
+		// Reopen the original so the caller's deferred Close() cleans up
+		// a live handle instead of hitting the nil-DB no-op on a file
+		// that is fine. / 重开原 DB，让调用方 defer 的 Close() 清理的
+		// 是活动句柄，而不是对一个完好的文件空转。
+		if re, err2 := bolt.Open(p.DBPath, 0o600, nil); err2 == nil {
+			p.DB = re
+		}
+		return fmt.Errorf("swap compacted DB into place: %w", err)
+	}
+	re, err := bolt.Open(p.DBPath, 0o600, nil)
+	if err != nil {
+		return fmt.Errorf("reopen compacted %s: %w", p.DBPath, err)
+	}
+	p.DB = re
+	return nil
+}
+
 // Stats returns human-readable statistics about the project.
 // Stats 返回项目的可读统计信息。
 func (p *Project) Stats() (string, error) {

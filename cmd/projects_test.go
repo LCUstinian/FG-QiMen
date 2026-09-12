@@ -37,8 +37,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 )
@@ -500,5 +502,203 @@ func TestRunProjectsImportRefusesExisting(t *testing.T) {
 	err := runProjectsImport(importCmd, []string{fgqPath, "dst"})
 	if err == nil {
 		t.Fatal("import into existing project should fail; got nil")
+	}
+}
+
+// setupPruneFixture creates a project with three seen hashes (two
+// older than the cutoff, one newer) plus one result and one cred —
+// the prune tests' shared fixture. The project is closed before
+// returning so the command under test opens it fresh.
+//
+// setupPruneFixture 创建一个带三个 seen hash（两个早于截止、一个
+// 晚于）外加一个 result 和一个 cred 的项目——prune 测试共用。返回
+// 前先关闭项目，让被测命令全新打开它。
+func setupPruneFixture(t *testing.T, name string, cutoff time.Time) {
+	t.Helper()
+	proj, err := workspace.Open(name)
+	if err != nil {
+		t.Fatalf("open %q: %v", name, err)
+	}
+	st := proj.AsStore()
+	old := cutoff.Add(-24 * time.Hour)
+	if err := st.MarkSeenPersisted("old-1", old); err != nil {
+		t.Fatalf("mark old-1: %v", err)
+	}
+	if err := st.MarkSeenPersisted("old-2", old); err != nil {
+		t.Fatalf("mark old-2: %v", err)
+	}
+	if err := st.MarkSeenPersisted("new-1", cutoff.Add(24*time.Hour)); err != nil {
+		t.Fatalf("mark new-1: %v", err)
+	}
+	if err := st.PutResult("result-1", map[string]string{"h": "10.0.0.1"}); err != nil {
+		t.Fatalf("put result: %v", err)
+	}
+	if err := st.PutCred("cred-1", map[string]string{"u": "admin"}); err != nil {
+		t.Fatalf("put cred: %v", err)
+	}
+	if err := proj.Close(); err != nil {
+		t.Fatalf("close %q: %v", name, err)
+	}
+}
+
+// setPruneFlags pins the prune flag globals for one test and restores
+// them afterwards (they are package-level, shared across tests).
+//
+// setPruneFlags 为单个测试固定 prune 的全局 flag 并在结束时恢复
+// （它们是包级的，测试间共享）。
+func setPruneFlags(t *testing.T, before string, yes, compact bool) {
+	t.Helper()
+	oldBefore, oldYes, oldCompact := pruneBefore, pruneYes, pruneCompact
+	pruneBefore, pruneYes, pruneCompact = before, yes, compact
+	t.Cleanup(func() { pruneBefore, pruneYes, pruneCompact = oldBefore, oldYes, oldCompact })
+}
+
+// pruneStats reopens the project read-only and returns the per-bucket
+// key counts. / pruneStats 只读重开项目，返回各 bucket 的 key 数。
+func pruneStats(t *testing.T, name string) (seen, results, creds int) {
+	t.Helper()
+	proj, err := workspace.Open(name)
+	if err != nil {
+		t.Fatalf("reopen %q: %v", name, err)
+	}
+	defer func() { _ = proj.Close() }()
+	st := proj.AsStore()
+	hashes, err := st.LoadSeenHashes()
+	if err != nil {
+		t.Fatalf("load seen: %v", err)
+	}
+	seen = len(hashes)
+	_ = proj.DB.View(func(tx *bolt.Tx) error {
+		results = tx.Bucket([]byte("results")).Stats().KeyN
+		creds = tx.Bucket([]byte("creds")).Stats().KeyN
+		return nil
+	})
+	return seen, results, creds
+}
+
+// TestRunProjectsPrune_Yes — the scripted path: --before + --yes
+// deletes exactly the stale seen hashes and leaves results/creds
+// untouched. / TestRunProjectsPrune_Yes — 脚本路径：--before + --yes
+// 精确删除过期 seen hash，results/creds 不动。
+func TestRunProjectsPrune_Yes(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local)
+	setupPruneFixture(t, "alpha", cutoff)
+	setPruneFlags(t, cutoff.Format("2006-01-02"), true, false)
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsPrune)
+	if err := runProjectsPrune(cmd, []string{"alpha"}); err != nil {
+		t.Fatalf("runProjectsPrune: %v", err)
+	}
+	if !strings.Contains(buf.String(), "pruned 2 seen-hash entries") {
+		t.Errorf("expected 'pruned 2' in output, got %q", buf.String())
+	}
+	seen, results, creds := pruneStats(t, "alpha")
+	if seen != 1 {
+		t.Errorf("seen after prune = %d, want 1 (new-1)", seen)
+	}
+	if results != 1 || creds != 1 {
+		t.Errorf("findings must survive: results=%d creds=%d, want 1/1", results, creds)
+	}
+}
+
+// TestRunProjectsPrune_RefusesNonInteractive — a non-interactive stdin
+// without --yes must be refused (CI forgot the flag) and change nothing.
+// / TestRunProjectsPrune_RefusesNonInteractive — 非交互 stdin 且无
+// --yes 必须拒绝（CI 忘了 flag）且什么都不改。
+func TestRunProjectsPrune_RefusesNonInteractive(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local)
+	setupPruneFixture(t, "alpha", cutoff)
+	// Stub the terminal check: tests run with whatever stdin the parent
+	// process had (often a real console on Windows), so we force the
+	// non-interactive branch explicitly.
+	// / stub 终端检测：测试的 stdin 随父进程（Windows 上常是真控制台
+	// ），所以显式强制走非交互分支。
+	oldCheck := stdinIsTerminal
+	stdinIsTerminal = func() bool { return false }
+	t.Cleanup(func() { stdinIsTerminal = oldCheck })
+	setPruneFlags(t, cutoff.Format("2006-01-02"), false, false)
+
+	cmd, _ := newCmdForTestCapture(t, runProjectsPrune)
+	if err := runProjectsPrune(cmd, []string{"alpha"}); err == nil {
+		t.Fatal("prune without --yes on non-interactive stdin should fail; got nil")
+	}
+	seen, _, _ := pruneStats(t, "alpha")
+	if seen != 3 {
+		t.Errorf("seen after refused prune = %d, want 3 (nothing deleted)", seen)
+	}
+}
+
+// TestRunProjectsPrune_NothingToDo — a cutoff earlier than every entry
+// reports "nothing to prune" and succeeds. / TestRunProjectsPrune_
+// NothingToDo — 截止早于所有条目时报"nothing to prune"并成功。
+func TestRunProjectsPrune_NothingToDo(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local)
+	setupPruneFixture(t, "alpha", cutoff)
+	// Entries sit at cutoff-24h and cutoff+24h; a cutoff before every
+	// entry has nothing to delete. / 条目在 cutoff-24h 和 cutoff+24h；
+	// 早于所有条目的截止无东西可删。
+	setPruneFlags(t, cutoff.Add(-48*time.Hour).Format("2006-01-02"), true, false)
+
+	cmd, buf := newCmdForTestCapture(t, runProjectsPrune)
+	if err := runProjectsPrune(cmd, []string{"alpha"}); err != nil {
+		t.Fatalf("runProjectsPrune: %v", err)
+	}
+	if !strings.Contains(buf.String(), "nothing to prune") {
+		t.Errorf("expected 'nothing to prune', got %q", buf.String())
+	}
+	seen, _, _ := pruneStats(t, "alpha")
+	if seen != 3 {
+		t.Errorf("seen = %d, want 3", seen)
+	}
+}
+
+// TestRunProjectsPrune_Compact — --compact rewrites the DB file in
+// place and the project stays readable afterwards. /
+// TestRunProjectsPrune_Compact — --compact 原地重写 DB 文件，之后
+// 项目仍可读。
+func TestRunProjectsPrune_Compact(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local)
+	setupPruneFixture(t, "alpha", cutoff)
+	setPruneFlags(t, cutoff.Format("2006-01-02"), true, true)
+
+	dbPath := filepath.Join(tmp, "fgqm_workspace", "projects", "alpha", "fgqm.db")
+	cmd, buf := newCmdForTestCapture(t, runProjectsPrune)
+	if err := runProjectsPrune(cmd, []string{"alpha"}); err != nil {
+		t.Fatalf("runProjectsPrune: %v", err)
+	}
+	if !strings.Contains(buf.String(), "compacted") {
+		t.Errorf("expected 'compacted' in output, got %q", buf.String())
+	}
+	// No leftover .compact temp file. / 不残留 .compact 临时文件。
+	if _, err := os.Stat(dbPath + ".compact"); !os.IsNotExist(err) {
+		t.Errorf("compact temp file still present: %v", err)
+	}
+	seen, results, creds := pruneStats(t, "alpha")
+	if seen != 1 || results != 1 || creds != 1 {
+		t.Errorf("after compact: seen=%d results=%d creds=%d, want 1/1/1", seen, results, creds)
+	}
+}
+
+// TestParsePruneCutoff — the two accepted formats plus a rejection.
+// / TestParsePruneCutoff — 两种接受的格式外加一种拒绝。
+func TestParsePruneCutoff(t *testing.T) {
+	if got, err := parsePruneCutoff("2026-09-01"); err != nil {
+		t.Errorf("date-only rejected: %v", err)
+	} else if got.Format("2006-01-02") != "2026-09-01" {
+		t.Errorf("date-only parsed as %v", got)
+	}
+	if _, err := parsePruneCutoff("2026-09-01T00:00:00Z"); err != nil {
+		t.Errorf("RFC3339 rejected: %v", err)
+	}
+	if _, err := parsePruneCutoff("yesterday"); err == nil {
+		t.Error("relative time should be rejected; got nil")
 	}
 }

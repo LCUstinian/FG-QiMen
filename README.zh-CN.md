@@ -103,6 +103,10 @@ fg-qimen --project corp-intranet -f fgqm_workspace/projects/corp-intranet/target
 # 续传 / 查看信息
 fg-qimen resume --project corp-intranet
 fg-qimen projects info corp-intranet
+
+# 保留策略：删除早于截止时间的续传状态（已见 hash）。
+# results / creds 永不触碰。--yes 跳过确认提示。
+fg-qimen projects prune corp-intranet --before 2026-09-01 --compact --yes
 ```
 
 ### TUI 模式
@@ -246,6 +250,7 @@ fg-qimen projects delete <n>                     # 删除项目
 fg-qimen projects info <n>                       # 查看项目详情
 fg-qimen projects export <n> <out.fgq>           # 导出项目到单 .fgq 文件
 fg-qimen projects import <in.fgq> <n>           # 从 .fgq 文件导入
+fg-qimen projects prune <n> --before <date>      # 删除早于 <date> 的已见 hash（--compact 回收磁盘）
 fg-qimen version                                 # 显示版本
 fg-qimen completion bash                         # 生成 shell 补全
 ```
