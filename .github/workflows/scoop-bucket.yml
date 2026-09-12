@@ -1,8 +1,18 @@
 # FG-QiMen Scoop bucket update — opens a PR to a sibling repo
-# (e.g. LCUstinian/scoop-bucket) with the updated manifest on tag
-# push.
-# FG-QiMen Scoop bucket 更新——tag push 时向同级仓库（如
-# LCUstinian/scoop-bucket）开 PR 更新 manifest。
+# (e.g. LCUstinian/scoop-bucket) with the updated manifest AFTER the
+# release workflow has published the release assets.
+# FG-QiMen Scoop bucket 更新——在 release workflow 发布产物之后，向
+# 同级仓库（如 LCUstinian/scoop-bucket）开 PR 更新 manifest。
+#
+# Trigger: workflow_run on a successful "release" run. The original
+# tag-push trigger raced the release publish — it fired the moment the
+# tag landed and downloaded SHA256SUMS ~4 minutes before the publish
+# job created it (curl 404 / exit 22, run 34688836987). workflow_run
+# removes the race causally: assets exist when this workflow starts.
+# / 触发：release workflow 成功完成后。原先的 tag-push 触发与 release
+# 发布存在竞态——标签落地即刻触发，在 publish job 生成 SHA256SUMS
+# 的约 4 分钟之前就尝试下载（curl 404 / exit 22，run 34688836987）。
+# workflow_run 从因果上消除竞态：本 workflow 启动时产物必然已存在。
 #
 # Pre-requisites (one-time):
 #   1. Create the bucket repo at github.com/<owner>/scoop-bucket
@@ -20,9 +30,9 @@
 name: scoop-bucket
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -36,22 +46,57 @@ jobs:
   scoop-pr:
     name: open Scoop bucket PR
     runs-on: windows-latest  # sha256sum tool differences — Windows runner matches user install path
+    # Fire only on: manual dispatch, or a SUCCESSFUL release run whose
+    # head_branch starts with 'v' (a tag push sets the release run's
+    # head_branch to the tag name; branch dry-runs use the branch
+    # name). The strict stable-tag regex is enforced in the
+    # derive-version step below.
+    # / 仅两种情况触发：手动 dispatch，或 release 运行成功且
+    # head_branch 以 'v' 开头（tag push 时 release 运行的 head_branch
+    # 即标签名；分支 dry-run 则是分支名）。严格的稳定版标签正则由
+    # 下方 derive-version 步骤把关。
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     steps:
       - uses: actions/checkout@v4
 
       - name: derive version
         id: ver
         shell: bash
+        # head_branch / inputs flow in via env (not inline
+        # interpolation) so untrusted-ish ref names never land directly
+        # in the script body.
+        # / head_branch / inputs 经 env 传入（不做内联插值），避免
+        # 半可信的 ref 名直接落入脚本体。
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="${INPUT_VERSION}"
           else
-            VERSION="${{ inputs.version }}"
+            # Only STABLE vX.Y.Z tags may reach the bucket —
+            # pre-release tags (vX.Y.Z-rc.1) and 'v'-prefixed branches
+            # are skipped: a package-manager stable channel must not
+            # ship RCs.
+            # / 仅稳定 vX.Y.Z 标签进入 bucket——预发布标签
+            # （vX.Y.Z-rc.1）与 'v' 开头的分支一律跳过：包管理器的
+            # 稳定渠道不应发 RC。
+            VERSION="${RUN_HEAD_BRANCH}"
+            if ! [[ "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::release head_branch '${VERSION}' is not a stable version tag — skipping bucket update"
+              exit 0
+            fi
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: fetch SHA256SUMS + compute windows-amd64 hash
+        if: steps.ver.outputs.skip != 'true'
         shell: bash
         run: |
           curl -fsSL \
@@ -66,6 +111,7 @@ jobs:
           echo "win_sha256=${WIN_SHA256}" >> "$GITHUB_ENV"
 
       - name: clone bucket repo
+        if: steps.ver.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
@@ -77,6 +123,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: update bucket/fg-qimen.json
+        if: steps.ver.outputs.skip != 'true'
         shell: bash
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -100,6 +147,7 @@ jobs:
           mv "${MANIFEST}.tmp" "${MANIFEST}"
 
       - name: open PR via gh CLI
+        if: steps.ver.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
