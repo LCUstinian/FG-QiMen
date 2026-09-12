@@ -346,17 +346,19 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 
 ## 验证发布
 
-每个 GitHub Release 都会发布 **11 个平台二进制**，外加每个二进制的 cosign
-签名、签名证书、CycloneDX SBOM：
+每个 GitHub Release 都会发布 **11 个标准版平台二进制 + 2 个加固版**
+（linux-amd64、windows-amd64——garble + UPX，刻意不可复现），外加每个
+二进制的 cosign 签名、签名证书、CycloneDX SBOM：
 
 | 文件 | 用途 |
 |---|---|
-| `fg-qimen-<platform>` | 编译后的二进制（Linux/macOS/BSD 无 `.exe`） |
-| `SHA256SUMS` | 所有二进制的 sha256 校验和 |
+| `fg-qimen-<platform>` | 标准版二进制（Linux/macOS/BSD 无 `.exe`） |
+| `fg-qimen-<platform>-hardened` | 加固版二进制（garble 混淆 + UPX 压缩；Windows 带 `.exe` 后缀） |
+| `SHA256SUMS` | 所有二进制的 sha256 校验和（13 条） |
 | `*.sig` | cosign keyless 签名（OIDC、Sigstore） |
 | `*.pem` | 含 OIDC 身份的签名证书 |
 | `*.sbom.json` | 平台级 CycloneDX SBOM |
-| `FG-QiMen-release.spdx.json` | 跨 11 平台的全量 SPDX SBOM |
+| `FG-QiMen-release.spdx.json` | 覆盖全部发布产物的全量 SPDX SBOM |
 
 ### 1. 校验和
 

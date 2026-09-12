@@ -33,6 +33,21 @@ find fgqm_workspace/projects -name 'fg.db' -exec mv {} {}.tmp \; -exec mv {}.tmp
 **不**提供 `--workspace-root` 兼容 flag——硬切。在单台主机上想保留
 旧路径可以建符号链接：`ln -s fgqm_workspace runs`（仅向下兼容）。
 
+### Added
+
+- **双版本发布流水线**（.github/workflows/release.yml、scripts/harden.sh、
+  scripts/harden.ps1、scripts/strip_upx.py）。每个 GitHub Release 同时
+  发布两个版本：标准版（可复现，SOURCE_DATE_EPOCH 固定，11 个平台）和
+  加固版（仅 linux-amd64 + windows-amd64；garble `-seed=random` 混淆、
+  UPX `--best --lzma` 压缩、经 scripts/strip_upx.py 消除 UPX 特征）。
+  加固版产物带 `-hardened` 后缀（fg-qimen-linux-amd64-hardened、
+  fg-qimen-windows-amd64-hardened.exe），刻意不可复现（每次构建
+  SHA256 都不同），但与标准版同样获得 cosign 签名 / 逐二进制 SBOM /
+  SLSA 证明。本地用 scripts/harden.sh（Linux/macOS）与 scripts/harden.ps1
+  （Windows；harden.bat 是薄包装）复现同一管线，版本号从
+  internal/version/version.go 自动推导；garble 固定在 v0.17.0 与
+  CI 一致。
+
 ### Changed
 
 - TUI v2 Spec B (panel layout) + Spec C (visual polish): 3-breakpoint responsive layout (narrow/medium/wide); LIVE EVENTS panel with severity-coloured ring buffer; rate sparkline in header; collapsible ERRORS panel (e/E); single dark theme with severity colours; progress bars for alive/ports; status symbols + 200ms hit flash. See docs/superpowers/specs/2026-09-12-tui-v2-spec-bc-design.md.
@@ -116,9 +131,11 @@ applyHTTPForm（空 + 填）、detectScheduleMode（4 种 mode +
 - 二进制内嵌 time/tzdata（main.go）。二进制 +~400 KB（压
 缩后）让 --tz 在精简容器镜像（没 /usr/share/zoneinfo）
 上也能工作。少了这个，系统 tz DB 缺失会静默回退
-time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时
-间静默错。v0.5.1 改为默认开启，消除"我机器行 CI 挂"
+time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时间静默错。v0.5.1 改为默认开启，消除"我机器行 CI 挂"
 的尴尬。
+
+### Changed
+
 - 短参全面重构（cmd/flags.go、cmd/multishort.go、cmd/multishort_test.go、
 cmd/{root,resume,scan,schedules}.go、internal/core/credential/pool.go、
 README*）。单字母短参全部小写 + mnemonic；2 字母短参用于命名空

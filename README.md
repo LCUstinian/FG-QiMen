@@ -383,17 +383,20 @@ Complete CLI usage templates (one per common workflow) live in
 
 ## Verifying releases
 
-Each GitHub Release ships **11 platform binaries** plus per-binary cosign
-signatures, signing certificates, and CycloneDX SBOMs:
+Each GitHub Release ships **11 standard platform binaries + 2 hardened
+editions** (linux-amd64, windows-amd64 — garble + UPX, not reproducible
+by design) plus per-binary cosign signatures, signing certificates, and
+CycloneDX SBOMs:
 
 | File | Purpose |
 |---|---|
-| `fg-qimen-<platform>` | Compiled binary (no `.exe` on Linux/macOS/BSD) |
-| `SHA256SUMS` | sha256 checksums for every binary |
+| `fg-qimen-<platform>` | Compiled standard binary (no `.exe` on Linux/macOS/BSD) |
+| `fg-qimen-<platform>-hardened` | Hardened binary (garble obfuscation + UPX compression; `.exe` suffix on Windows) |
+| `SHA256SUMS` | sha256 checksums for every binary (13 entries) |
 | `*.sig` | cosign keyless signature (OIDC, Sigstore) |
 | `*.pem` | signing certificate embedding the OIDC identity |
 | `*.sbom.json` | CycloneDX SBOM for the binary (per-platform) |
-| `FG-QiMen-release.spdx.json` | Full SPDX SBOM across all 11 platforms |
+| `FG-QiMen-release.spdx.json` | Full SPDX SBOM across all release artifacts |
 
 ### 1. Checksums
 

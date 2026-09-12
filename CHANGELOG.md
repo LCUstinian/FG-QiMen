@@ -26,12 +26,10 @@ from `fg.db` to `fgqm.db` for the same reason.
 **Migration:**
 
 ```bash
-# One-shot rename of an existing workspace tree. Safe — nothing
-# inside the tree needs to change, only its parent dir name.
+# One-shot rename; safe — nothing inside the tree changes, only the
+# parent dir name. In project dirs, rename fg.db → fgqm.db.
 mv runs fgqm_workspace
 
-# Inside project dirs, rename fg.db → fgqm.db (bbolt tolerates the
-# rename as long as the file content is unchanged).
 find fgqm_workspace/projects -name 'fg.db' -exec mv {} {}.tmp \; -exec mv {}.tmp "$(dirname {})/fgqm.db" \;
 ```
 
@@ -42,6 +40,25 @@ before. No re-scan or state rebuild needed.
 There is **no** `--workspace-root` compatibility flag — the rename
 is a hard cut. Operators who want to keep the old path on a single
 host can symlink: `ln -s fgqm_workspace runs` (downward only).
+
+### Added
+
+- **Dual-edition release pipeline** (`.github/workflows/release.yml`,
+  `scripts/harden.sh`, `scripts/harden.ps1`, `scripts/strip_upx.py`).
+  Every GitHub Release now ships two editions: the standard binaries
+  (reproducible, `SOURCE_DATE_EPOCH`-pinned, 11 platforms) and hardened
+  editions for linux-amd64 + windows-amd64 (garble `-seed=random`
+  obfuscation, UPX `--best --lzma` compression, UPX signature
+  stripping via `scripts/strip_upx.py`). Hardened artifacts carry a
+  `-hardened` suffix (`fg-qimen-linux-amd64-hardened`,
+  `fg-qimen-windows-amd64-hardened.exe`), are intentionally NOT
+  reproducible (every build has a different SHA256), and get the same
+  cosign signature / per-binary SBOM / SLSA provenance as the standard
+  builds. Locally, `scripts/harden.sh` (Linux/macOS) and
+  `scripts/harden.ps1` (Windows; `harden.bat` is a thin wrapper)
+  reproduce the same pipeline with the version auto-derived from
+  `internal/version/version.go`; garble is pinned at v0.17.0 to match
+  CI.
 
 ### Changed
 
