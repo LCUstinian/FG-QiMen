@@ -89,6 +89,80 @@ func TestDispatcherEventMsg(t *testing.T) {
 	}
 }
 
+// TestDispatcherEventMsg_SetsFlash — the dispatcher→pushEvent seam
+// also wires the flash map: every kind the dispatcher can produce
+// ("hit" from scan tags, "cred_success" from cred tags) is hit-family,
+// so both must set a 200ms flashUntil expiry keyed by host:port.
+// The complement ("miss" kinds never flash) is asserted via a direct
+// pushEvent since the dispatcher cannot emit misses.
+//
+// TestDispatcherEventMsg_SetsFlash — dispatcher→pushEvent 接缝同样
+// 接好了 flash map：dispatcher 能产生的所有 kind（scan 标签的
+// "hit"、cred 标签的 "cred_success"）都是 hit 类，所以两者都必须
+// 设置以 host:port 为键的 200ms flashUntil 过期。"miss 类不闪"
+// 的补集通过直接 pushEvent 断言（dispatcher 不会产生 miss）。
+func TestDispatcherEventMsg_SetsFlash(t *testing.T) {
+	mm := NewModel(nil)
+	d := dispatcher{inner: &mm}
+	// The dispatcher mutates d.inner through the shared *Model
+	// pointer, so return values are discarded here.
+	// dispatcher 通过共享 *Model 指针改 d.inner，返回值直接丢弃。
+	_, _ = d.Update(eventMsg{
+		when: "12:00:00", tag: "cred",
+		host: "10.0.0.1", port: 22, svc: "ssh", text: "root:toor",
+	})
+	_, _ = d.Update(eventMsg{
+		when: "12:00:01", tag: "scan",
+		host: "10.0.0.2", port: 80, svc: "http", text: "nginx",
+	})
+	for _, key := range []string{"10.0.0.1:22", "10.0.0.2:80"} {
+		if _, ok := mm.flashUntil[key]; !ok {
+			t.Errorf("flashUntil[%q] not set after dispatcher eventMsg (hit family must flash)", key)
+		}
+	}
+	// Miss complement: non-hit kinds bypass the flash map entirely.
+	// / miss 补集：非 hit 类完全绕过 flash map。
+	mm.pushEvent(eventEntry{Host: "10.0.0.3", Port: 23, Kind: "miss"})
+	if _, ok := mm.flashUntil["10.0.0.3:23"]; ok {
+		t.Error("flashUntil set for miss kind; non-hit kinds must not flash")
+	}
+}
+
+// TestDispatcherPausedDropsEvents — in paused mode the dispatcher
+// drops eventMsg on the floor: the ring buffer must stay empty and
+// no flash may be set. runState promotion happens *before* the drop
+// guard by design (an event is still a sign of life even while the
+// display is frozen), so we assert that too. This pins the
+// "lose history rather than OOM" contract documented on the
+// dispatcher's pause branch.
+//
+// TestDispatcherPausedDropsEvents — 暂停态下 dispatcher 把 eventMsg
+// 直接丢弃：ring buffer 必须保持为空、不得设置任何 flash。
+// runState 提升发生在丢弃守卫*之前*（即使显示冻结，事件仍是"有
+// 动静"的信号），所以一并断言。这条测试钉住 dispatcher 暂停分支
+// 文档里的"丢历史好过 OOM"契约。
+func TestDispatcherPausedDropsEvents(t *testing.T) {
+	mm := NewModel(nil)
+	mm.uiMode = modePaused
+	m := tea.Model(dispatcher{inner: &mm})
+	for i := 0; i < 10; i++ {
+		m, _ = m.Update(eventMsg{
+			when: "12:00:00", tag: "scan",
+			host: fmt.Sprintf("10.0.0.%d", i), port: 22, svc: "ssh",
+			text: "OpenSSH 9.0",
+		})
+	}
+	if got := mm.eventsOrdered(); len(got) != 0 {
+		t.Errorf("len(eventsOrdered) = %d while paused, want 0 (events must drop)", len(got))
+	}
+	if len(mm.flashUntil) != 0 {
+		t.Errorf("flashUntil has %d entries while paused, want 0 (no flash on dropped events)", len(mm.flashUntil))
+	}
+	if mm.runState != runScanning {
+		t.Errorf("runState = %d while paused, want runScanning (events still signal life)", mm.runState)
+	}
+}
+
 // TestDispatcherDoneMsg — doneMsg sets the final summary, flips
 // runState to runDone, primes the linger countdown, and returns
 // nil cmd. The actual quit is fired by the model from its
