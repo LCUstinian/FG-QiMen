@@ -47,6 +47,30 @@ host can symlink: `ln -s fgqm_workspace runs` (downward only).
 
 - TUI v2 Spec B (panel layout) + Spec C (visual polish): 3-breakpoint responsive layout (narrow/medium/wide); LIVE EVENTS panel with severity-coloured ring buffer; rate sparkline in header; collapsible ERRORS panel (e/E); single dark theme with severity colours; progress bars for alive/ports; status symbols + 200ms hit flash. See docs/superpowers/specs/2026-09-12-tui-v2-spec-bc-design.md.
 
+### Fixed
+
+- TUI layout hardening (probe-driven): the footer hint line was never
+  truncated to the terminal width, so `JoinVertical` padded every
+  region to its 89-col width and the whole frame wrapped on ≤89-col
+  terminals (18 of 20 lines overflowed at 80×24). Footer / collapsed
+  ERRORS / events rows are now width-clamped and the keymap descs
+  shortened (`toggle errors panel` → `errors panel`).
+- TUI frame height: `regions()` under-counted the chrome rows (title
+  bar 2, header rate line), so a full events panel pushed the frame
+  past the terminal on 80×24. Regions now reserve the real chrome;
+  `View()` clamps the events budget to the measured remainder and
+  reconciles height (pads short frames, truncates overframes as a
+  last resort). Pinned by `TestViewFrameFitsTerminal` across
+  breakpoints, paused included.
+- The `e` toggle flipped `errorsExpanded` but the dashboard never
+  rendered the expanded panel (`regions()` always budgeted 1 row;
+  expansion needs ≥4). `View()` now widens the budget to 4 rows when
+  expanded. The `E` keymap desc matches its collapse-only behavior
+  ("collapse errors", was "clear errors").
+- Help overlay lists the new `e`/`E`/`L` keys; the collapsed ERRORS
+  line is indented + dim like the other regions; the TOP PLUGINS
+  panel no longer injects stray blank lines into the composition.
+
 ## [0.6.0] - 2026-09-10
 
 Fake-server coverage push. 35 of 43 adapted plugins gained in-process

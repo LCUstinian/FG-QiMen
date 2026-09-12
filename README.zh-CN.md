@@ -29,9 +29,9 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 │   creds        2     │   [redis     1] █░░░░░░░░░░░░░░░░░       │
 │   errors      7     │   [https     1] █░░░░░░░░░░░░░░░░░       │
 ├──────────────────────┴─────────────────────────────────────────┤
-│ ERRORS: timeout 42  refused 15  dns 7  reset 3  [e] expand     │
+│ ERRORS: timeout 42  refused 15  dns 7  reset 3                 │
 ├────────────────────────────────────────────────────────────────┤
-│ [q] quit  [p] pause  [e] toggle errors  [L] live overlay  [?] help │
+│ [q] quit  [p] pause  e errors panel  L live overlay  ? toggle help │
 └────────────────────────────────────────────────────────────────┘
 ```
 

@@ -30,9 +30,9 @@ vs persistent project workspace with bbolt state).
 │   creds        2     │   [redis     1] █░░░░░░░░░░░░░░░░░       │
 │   errors      7     │   [https     1] █░░░░░░░░░░░░░░░░░       │
 ├──────────────────────┴─────────────────────────────────────────┤
-│ ERRORS: timeout 42  refused 15  dns 7  reset 3  [e] expand     │
+│ ERRORS: timeout 42  refused 15  dns 7  reset 3                 │
 ├────────────────────────────────────────────────────────────────┤
-│ [q] quit  [p] pause  [e] toggle errors  [L] live overlay  [?] help │
+│ [q] quit  [p] pause  e errors panel  L live overlay  ? toggle help │
 └────────────────────────────────────────────────────────────────┘
 ```
 

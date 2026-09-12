@@ -67,6 +67,40 @@ severity 颜色（遵循 `NO_COLOR`）；alive/ports 换 `▓/░` 进度条
 `flashTickMsg` 剪枝 `flashUntil`）；断点打磨以区域尺寸/面板放置落地，
 narrow 默认隐藏 events、`L` 键 overlay 显示最近 5 条。
 
+## Layout hardening (post-branch review)
+
+A rendered-frame probe at common terminal sizes (80×24, 60×24,
+100×30, 120×40 — paused and running) caught three defects the
+per-region unit tests missed, fixed before tag:
+
+1. **Footer never truncated to width** — `JoinVertical` padded every
+   region to the footer's 89-col width; 18 of 20 lines overflowed at
+   80×24. Footer / collapsed ERRORS / events rows are width-clamped
+   now, keymap descs shortened.
+2. **Chrome rows under-counted** — `regions()` reserved 1 row for the
+   header but it renders 2 (rate line), plus the 2-row title bar;
+   a full events panel pushed the frame 3 rows past 80×24. Regions
+   reserve the real chrome, `View()` clamps events to the measured
+   remainder and reconciles height (pad short / truncate over).
+3. **`e` expanded nothing** — `regions()` always budgeted 1 errors
+   row; `viewErrors` needs ≥4 to expand, so the toggle flipped state
+   with no visual change. `View()` widens the budget to 4 when
+   expanded. `E` desc corrected to its collapse-only behavior.
+
+Five contract tests pin these: `TestViewFooter_TruncatedToWidth`,
+`TestViewErrors_Collapsed_IndentedDim`, `TestRenderTopPlugins_NoBlankLines`,
+`TestViewFrameFitsTerminal` (frame ≤ terminal at every breakpoint,
+paused included), `TestViewExpandedErrorsRenders`. Post-fix probe:
+0 overflow lines at all probed sizes.
+
+/ 分支合并前的一次渲染探针（80×24、60×24、100×30、120×40，含暂停态）
+发现了单区域单测抓不到的三个缺陷：footer 未按宽度裁剪导致 ≤89 列
+终端整帧折行（80×24 下 20 行溢出 18 行）；chrome 行少记（header 实
+际 2 行 + 标题栏 2 行）导致 events 满时 80×24 超帧 3 行；`e` 开关
+翻了状态但展开态从不渲染（regions 恒给 1 行预算，展开需 ≥4）。修复
+以 5 个契约测试钉住（含 `TestViewFrameFitsTerminal`：任意断点整帧
+宽高不超终端），修复后探针全尺寸 0 溢出。
+
 ## Deviations from the plan
 
 - **No `runner.EventStream()` subscription** (Task 11): the codebase's
@@ -101,13 +135,13 @@ YAGNI）。Windows 上未跑 `-race`：race runtime 加载失败
 
 ## Test coverage
 
-51 tests across 4 test files, all PASS. Coverage:
-**`internal/tui/` 76.2%** (floor 60% — PER_PLUGIN_FLOOR, met).
+56 tests across 4 test files, all PASS. Coverage:
+**`internal/tui/` 80.6%** (floor 60% — PER_PLUGIN_FLOOR, met).
 
 | Test file | Tests | Status |
 |---|---|---|
 | `internal/tui/layout_test.go` | 6 — TestPickBreakpoint, TestRegions_AllBreakpoints, TestTwoColumn_NarrowWidthCollapses, TestWindowSizeMsg_ReValidatesLayout, TestUpdate_PromotesRunStateIdleToScanning, TestUpdate_PromotesScanningToDone | PASS |
-| `internal/tui/view_test.go` | 19 — TestRenderBar, TestSparkline, TestTruncate, TestSymFor, TestSeverityColor, TestViewHeader_{Narrow,Medium,Wide,ZeroHeight}, TestStageBadge, TestCountersLine, TestEtaLine, TestUptimeLine, TestViewLiveEvents_{Empty,RendersRecentEvents,NarrowHides}, TestViewErrors_{Collapsed,Expanded}, TestViewStage_ProgressBars | PASS |
+| `internal/tui/view_test.go` | 24 — TestRenderBar, TestSparkline, TestTruncate, TestSymFor, TestSeverityColor, TestViewHeader_{Narrow,Medium,Wide,ZeroHeight}, TestStageBadge, TestCountersLine, TestEtaLine, TestUptimeLine, TestViewLiveEvents_{Empty,RendersRecentEvents,NarrowHides}, TestViewErrors_{Collapsed,Expanded,Collapsed_IndentedDim}, TestViewStage_ProgressBars, TestViewFooter_TruncatedToWidth, TestRenderTopPlugins_NoBlankLines, TestViewExpandedErrorsRenders, TestViewFrameFitsTerminal | PASS |
 | `internal/tui/model_test.go` | 6 — TestEventRingBuffer_{PushAndOrder,LessThanCap}, TestRateRingBuffer, TestPushEvent_SetsFlash, TestPruneExpiredFlashes, TestClearErrors | PASS |
 | `internal/tui/program_test.go` | 20 — TestDispatcherEventMsg (ring-cap contract), TestDispatcherEventMsg_SetsFlash, TestDispatcherPausedDropsEvents, TestDispatcherStatsMsg/DoneMsg/Fallthrough/ViewDelegates, TestModelLingerExits, TestModelTickAdvancesSpinner, TestNewProgram*, TestProgram{Done,Banner,Stats,Event,CredFound}*, TestDispatcher_{RendersRateAndPlugins,RateEmptyState,E2E_StateWiring} | PASS |
 
@@ -118,7 +152,7 @@ Plan-named tests adapted to the real architecture:
 severity colour) is covered by `TestSeverityColor`'s expired-flash
 case using a synthetic clock instead of a sleep.
 
-/ 4 个测试文件共 51 个测试全过；`internal/tui/` 覆盖率 **76.2%**
+/ 4 个测试文件共 56 个测试全过；`internal/tui/` 覆盖率 **80.6%**
 （地板 60%——PER_PLUGIN_FLOOR，达标）。计划里的测试名按真实架构
 做了适配：`TestEventSubscriptionWiresThrough` →
 `TestDispatcherEventMsg_SetsFlash`（钉住 dispatcher→pushEvent 接缝的
@@ -132,7 +166,7 @@ severity 颜色）由 `TestSeverityColor` 的 expired-flash 用例以合成
 gofmt -l internal/tui/            → no diffs
 go vet ./internal/tui/            → clean
 golangci-lint run internal/tui/   → clean
-go test ./internal/tui/           → ok, 76.2% coverage
+go test ./internal/tui/           → ok, 80.6% coverage
 go test -race ./internal/tui/     → N/A on this machine (see deviations)
 go build ./...                    → clean
 go build . && fg-qimen --help     → exits 0, no panic
