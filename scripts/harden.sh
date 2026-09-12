@@ -184,9 +184,14 @@ else
     fi
     export GOTOOLCHAIN=local
 
-    # Build with garble
-    log "Building with garble -seed=$GARBLE_SEED -literals ..."
-    CGO_ENABLED=0 "$GARBLE_BIN" -seed="$GARBLE_SEED" -literals build \
+    # Build with garble. GOGARBLE scopes obfuscation to the main
+    # module only — obfuscating cobra breaks its text/template help
+    # rendering (`{{.Long}}` field lookups) and `--help` fails.
+    # / 用 garble 构建。GOGARBLE 把混淆限定在主模块——混淆 cobra
+    # 会破坏其 text/template help 渲染（`{{.Long}}` 字段查找），
+    # 导致 `--help` 运行时报错。
+    log "Building with garble -seed=$GARBLE_SEED -literals (scope: $(go list -m)) ..."
+    CGO_ENABLED=0 GOGARBLE="$(go list -m)" "$GARBLE_BIN" -seed="$GARBLE_SEED" -literals build \
         -ldflags="$LD_FLAGS" \
         -trimpath \
         -buildvcs=false \

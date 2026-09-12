@@ -184,11 +184,20 @@ if ($SkipBuild) {
         Write-Err "GOTOOLCHAIN=local failed: no real Go toolchain installed. garble cannot patch a GOMODCACHE-downloaded toolchain -- install Go matching go.mod's version."
     }
 
-    # Build with garble via temp batch file to handle quoting correctly
-    Write-Log "Building with garble -seed=$GarbleSeed -literals ..."
+    # Build with garble via temp batch file to handle quoting correctly.
+    # GOGARBLE scopes obfuscation to the main module only -- obfuscating
+    # cobra breaks its text/template help rendering ({{.Long}} field
+    # lookups) and --help fails at runtime. go list -m derives the
+    # module path dynamically (no hardcoded value to drift).
+    # / 通过临时 bat 构建以正确处理引号。GOGARBLE 把混淆限定在主模
+    # 块——混淆 cobra 会破坏其 text/template help 渲染（{{.Long}}
+    # 字段查找），--help 运行时报错。go list -m 动态推导模块路径，
+    # 不留会漂移的硬编码值。
+    $GogarbleScope = & go list -m
+    Write-Log "Building with garble -seed=$GarbleSeed -literals (scope: $GogarbleScope) ..."
     $env:CGO_ENABLED = "0"
     $tmpBat = "$env:TEMP\fgqimen_harden.bat"
-    $batContent = "@echo off`r`nset CGO_ENABLED=0`r`n""$GarbleBin"" -seed=$GarbleSeed -literals build ""-ldflags=$LdFlags"" -trimpath -buildvcs=false -o ""$Binary"" ."
+    $batContent = "@echo off`r`nset CGO_ENABLED=0`r`nset GOGARBLE=$GogarbleScope`r`n""$GarbleBin"" -seed=$GarbleSeed -literals build ""-ldflags=$LdFlags"" -trimpath -buildvcs=false -o ""$Binary"" ."
     Set-Content -Path $tmpBat -Value $batContent -Encoding ASCII
     $proc = Start-Process -FilePath $tmpBat -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\fgqimen_harden_stdout.txt" -RedirectStandardError "$env:TEMP\fgqimen_harden_stderr.txt"
     $buildOutput = Get-Content "$env:TEMP\fgqimen_harden_stderr.txt" -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch "^warning: -seed only uses the first 8 bytes" }

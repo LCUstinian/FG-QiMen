@@ -49,6 +49,14 @@ version := `sed -n 's/^var Value = "\([^"]*\)".*/\1/p' internal/version/version.
 use_garble := "1"
 garble_seed := "random"
 garble_bin := if env_var_or_default("GARBLE", "") != "" { env_var("GARBLE") } else { "$(go env GOPATH)/bin/garble" }
+# Scope garble to the main module only (dynamic, no hardcoded path).
+# Obfuscating third-party deps (cobra) breaks their text/template
+# reflection: cobra renders help via `{{.Long}}` field lookups, and
+# garbled field names make `--help` fail at runtime. / 把 garble 限定
+# 在主模块（动态推导，不硬编码路径）。混淆第三方依赖（cobra）会破
+# 坏其 text/template 反射：cobra 用 `{{.Long}}` 字段名渲染 help，
+# 字段名被混淆后 `--help` 运行时报错。
+garble_scope := "$(go list -m)"
 
 # Build ldflags (strip + clear build-id + version injection) / 构建 ldflags
 # -s: omit symbol table
@@ -128,7 +136,7 @@ build:
             go install mvdan.cc/garble@latest; \
         fi; \
         echo "==> Building {{ binary }} {{ version }} (cgo=off, garble obfuscated, seed={{ garble_seed }}, literals)"; \
-        {{ garble_bin }} -seed={{ garble_seed }} -literals build \
+        GOGARBLE={{ garble_scope }} {{ garble_bin }} -seed={{ garble_seed }} -literals build \
             -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
             -o {{ release_dir }}/{{ binary }}{{ exe_suffix }} . 2>&1 \
             | { grep -v "^warning: -seed only uses the first 8 bytes" || true; }; \
@@ -159,7 +167,7 @@ all: clean-build
         out="{{ release_dir }}/{{ binary }}-$goos-$goarch$ext"; \
         echo "  -> $goos/$goarch"; \
         if [ "{{ use_garble }}" = "1" ]; then \
-            GOOS=$goos GOARCH=$goarch {{ garble_bin }} -seed={{ garble_seed }} -literals build \
+            GOOS=$goos GOARCH=$goarch GOGARBLE={{ garble_scope }} {{ garble_bin }} -seed={{ garble_seed }} -literals build \
                 -ldflags="{{ ldflags }}" -trimpath -buildvcs=false \
                 -o "$out" . 2>&1 \
                 | { grep -v "^warning: -seed only uses the first 8 bytes" || true; } || exit 1; \

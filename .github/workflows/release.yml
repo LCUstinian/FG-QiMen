@@ -271,7 +271,18 @@ jobs:
           # edition is intentionally NOT reproducible.
           # / -seed=random：每次加固构建 SHA256 都不同，对抗基于文件
           # 哈希的识别。加固版有意不可复现。
-          "$(go env GOPATH)/bin/garble" -seed=random -literals build \
+          # GOGARBLE scopes garble to the main module only (dynamic, no
+          # hardcoded path). Obfuscating third-party deps breaks their
+          # text/template reflection: cobra renders help via `{{.Long}}`
+          # field lookups, and garbled field names made the hardened
+          # binary fail `--help` at runtime (caught by the publish
+          # smoke test, run 34688351802).
+          # / GOGARBLE 把 garble 限定在主模块（动态推导，不硬编码）。
+          # 混淆第三方依赖会破坏其 text/template 反射：cobra 用
+          # `{{.Long}}` 字段名渲染 help，字段名被混淆后加固版
+          # `--help` 运行时报错（publish smoke test 抓到，run
+          # 34688351802）。
+          GOGARBLE="$(go list -m)" "$(go env GOPATH)/bin/garble" -seed=random -literals build \
             -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v${{ steps.ver.outputs.version }}" \
             -trimpath \
             -buildvcs=false \
