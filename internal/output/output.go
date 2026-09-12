@@ -325,6 +325,26 @@ func (o *Output) Close() error {
 		} else {
 			err = c.w.Close()
 		}
+		// Sweep untouched sinks: a scan that produced no creds / no
+		// RDP fingerprints / no results for a given format used to
+		// leave a zero-byte file behind, which read as "scan output
+		// is missing" to anyone inspecting the workspace (the exact
+		// confusion that triggered the cleanup request). Deleting
+		// only size-0 files keeps fail-fast OpenOutput semantics
+		// (unwritable paths still error at startup) and rotation
+		// intact — a rotated sink always has bytes. / 清扫未写过
+		// 的 sink：没有凭据 / RDP 指纹 / 某格式结果的扫描此前会留
+		// 下 0 字节文件，检查工作区的人会误读为"扫描没输出"（正
+		// 是引发清理诉求的困惑）。只删 size-0 文件：OpenOutput 的
+		// fail-fast 语义（路径不可写启动即报错）与轮转机制都不
+		// 受影响——轮转过的文件必有字节。
+		if err == nil && c.w.rw != nil && c.w.rw.path != "" {
+			if fi, statErr := os.Stat(c.w.rw.path); statErr == nil && fi.Size() == 0 {
+				if rmErr := os.Remove(c.w.rw.path); rmErr != nil && firstErr == nil {
+					firstErr = fmt.Errorf("remove empty %s sink: %w", c.label, rmErr)
+				}
+			}
+		}
 		c.mu.Unlock()
 		if err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close %s: %w", c.label, err)

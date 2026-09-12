@@ -34,6 +34,7 @@ var expectedFlagGroups = map[string]string{
 	// Workspace
 	"project":     "Workspace",
 	"project-key": "Workspace",
+	"workspace":   "Workspace",
 	"mode":        "Workspace",
 	"resume":      "Workspace",
 	"no-state":    "Workspace",

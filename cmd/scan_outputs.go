@@ -18,6 +18,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
+	"github.com/LCUstinian/FG-QiMen/internal/workspace"
 )
 
 // openOutputSinks opens the multi-format result sink and attaches it
@@ -169,9 +170,9 @@ func resolveOutputPath(cfg *types.Config, flagValue, defaultName string, now tim
 	day := dailyRunSubdir(now)
 	stamped := stampFileName(defaultName, now)
 	if cfg.Project != "" {
-		return filepath.Join("fgqm_workspace", "projects", cfg.Project, day, stamped), nil
+		return filepath.Join(workspace.Root(), "projects", cfg.Project, day, stamped), nil
 	}
-	return filepath.Join("fgqm_workspace", "default", day, stamped), nil
+	return filepath.Join(workspace.Root(), "default", day, stamped), nil
 }
 
 // dailyRunSubdir formats `t` as the YYYY-MM-DD bucket name used

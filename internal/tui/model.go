@@ -337,17 +337,11 @@ func (m *Model) clearErrors() {
 }
 
 // toEntry converts a runner.Event-shaped call into an eventEntry.
-// The 5-argument form is the fallback when runner.Event is unexported;
-// if the runner package later exposes a public Event with matching
-// fields, replace this with a struct conversion. / toEntry 把
-// runner.Event 形态的调用转成 eventEntry。5 参数形式是 runner.Event
-// 未导出时的回退；若 runner 包后续导出公开 Event，改成结构体转换。
-//
-// eventEntry as the wire format (planned Task 4+); not used yet
-// because no runner package code calls into the TUI package's
-// unexported helpers today.
-//
-//nolint:unused // wired by the runner→TUI dispatcher once it adopts
+// Wired by the dispatcher's eventMsg case (the production runner→TUI
+// path) and available to tests constructing entries from raw fields.
+// / toEntry 把 runner.Event 形态的调用转成 eventEntry。由
+// dispatcher 的 eventMsg case（生产 runner→TUI 路径）接线，测试也
+// 可用它从原始字段构造条目。
 func toEntry(host string, port int, service, kind string, at time.Time) eventEntry {
 	return eventEntry{Host: host, Port: port, Service: service, Kind: kind, At: at}
 }

@@ -65,6 +65,13 @@ func readLines(t *testing.T, path string) []string {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Tolerable since the empty-sink sweep: Close() deletes
+			// size-0 sink files, so "no file" == "no lines". /
+			// 空 sink 清扫后的可容忍情形：Close() 会删除 0 字节
+			// sink 文件，"无文件"=="无行"。
+			return nil
+		}
 		t.Fatalf("open %s: %v", path, err)
 	}
 	defer f.Close()

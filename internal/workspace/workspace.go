@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -379,7 +380,53 @@ func (p *Project) AsStoreWithPassphrase(passphrase string) *store.Store {
 // `fgqm_` 前缀与结果文件名（`fgqm_result.txt`、`fgqm_creds.txt` 等）
 // 对齐；`_workspace` 段让目录角色在混合 cwd 里自解释。
 func ProjectsRoot() string {
-	return filepath.Join("fgqm_workspace", "projects")
+	return filepath.Join(Root(), "projects")
+}
+
+// rootOverride holds a process-wide workspace root set via SetRoot
+// (the --workspace flag). Atomic so a concurrent read from the scan
+// pipeline never sees a torn value.
+// / rootOverride 保存 SetRoot（--workspace flag）设置的进程级工作区
+// 根。原子操作保证扫描管线的并发读不会读到撕裂值。
+var rootOverride atomic.Value // string
+
+// SetRoot overrides the workspace root for the whole process (wired
+// from the --workspace flag). Empty string resets to the default.
+// Must be called before any workspace I/O; cmd-layer init does this
+// right after flag parsing.
+// / SetRoot 为整个进程覆盖工作区根（由 --workspace flag 接线）。空串
+// 重置为默认。必须在任何工作区 I/O 之前调用；cmd 层在 flag 解析后立
+// 即调用。
+func SetRoot(dir string) {
+	rootOverride.Store(dir)
+}
+
+// Root returns the effective workspace root: SetRoot override first,
+// then the FGQI_WORKSPACE environment variable, then the default
+// `fgqm_workspace` relative to the cwd.
+//
+// Why env at all: debug/scratch workflows (running the binary from an
+// IDE terminal, smoke scripts) otherwise litter the repo root with
+// fgqm_workspace/ — the exact pollution that motivated this hook.
+// The env var lets a persistent sandbox live outside the repo without
+// threading a flag through every entry point. The flag wins over the
+// env so scripted invocations stay explicit.
+//
+// Root 返回生效的工作区根：优先 SetRoot 覆盖，其次 FGQI_WORKSPACE
+// 环境变量，最后是相对 cwd 的默认 `fgqm_workspace`。
+//
+// 为什么要有 env：调试/临时工作流（IDE 终端里跑二进制、冒烟脚本）
+// 否则会在仓库根乱丢 fgqm_workspace/——正是催生这个钩子的污染。
+// env 让持久沙箱可以放在仓库之外，无需给每个入口穿透一个 flag。
+// flag 优先于 env，脚本化调用保持显式语义。
+func Root() string {
+	if v, ok := rootOverride.Load().(string); ok && v != "" {
+		return v
+	}
+	if env := os.Getenv("FGQI_WORKSPACE"); env != "" {
+		return env
+	}
+	return "fgqm_workspace"
 }
 
 // List returns the names of all persistent project directories that

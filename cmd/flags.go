@@ -45,11 +45,12 @@ var (
 	flagHostsFile string
 
 	// 2. Workspace / 工作区
-	flagProject    string
-	flagProjectKey string
-	flagMode       string
-	flagResume     bool
-	flagNoState    bool
+	flagProject     string
+	flagProjectKey  string
+	flagWorkspace   string
+	flagMode        string
+	flagResume      bool
+	flagNoState     bool
 
 	// 3. Port selection / 端口选择
 	flagPorts        string
@@ -217,6 +218,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"project name (empty = ephemeral oneshot mode)")
 	pf.StringVar(&flagProjectKey, "project-key", "",
 		"passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Falls back to env FG_QIMEN_PROJECT_KEY. Empty = plaintext (v0.2.x compatible).")
+	pf.StringVar(&flagWorkspace, "workspace", "",
+		"workspace root directory (default: ./fgqm_workspace, override also via env FGQI_WORKSPACE). Use to keep scan output out of the repo root.")
 	pf.StringVar(&flagMode, "mode", "scan",
 		"run mode: scan | crack | linked")
 	// -r for --resume: high-frequency operation (resuming an
@@ -379,7 +382,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 分组标注（root.go 的 SetUsageTemplate 用 "group" 注解渲染）。
 	// 这是单一真源——flag 名列表要与上面的 StringVarP/Var 调用对齐。
 	annotate(pf, []string{"host", "hosts-file"}, groupTarget)
-	annotate(pf, []string{"project", "project-key", "mode", "resume", "no-state"}, groupWorkspace)
+	annotate(pf, []string{"project", "project-key", "workspace", "mode", "resume", "no-state"}, groupWorkspace)
 	annotate(pf, []string{"ports", "exclude-ports", "alive-only"}, groupPorts)
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)

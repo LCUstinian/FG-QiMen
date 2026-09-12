@@ -200,13 +200,7 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			at = time.Now()
 		}
-		d.inner.pushEvent(eventEntry{
-			Host:    m.host,
-			Port:    m.port,
-			Service: m.svc,
-			Kind:    kind,
-			At:      at,
-		})
+		d.inner.pushEvent(toEntry(m.host, m.port, m.svc, kind, at))
 		return d, nil
 	case doneMsg:
 		d.inner.finalSummary = m.summary

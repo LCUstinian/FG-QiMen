@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
@@ -152,13 +153,30 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 		}
 	}()
 
-	// cleanup: idempotent. First call quits the TUI and blocks until
-	// the Run goroutine returns; subsequent calls are no-ops (close
-	// of an already-closed channel panics, so guard).
+	// cleanup: idempotent. First call schedules the TUI force-quit
+	// backstop and blocks until the Run goroutine returns; subsequent
+	// calls are no-ops (close of an already-closed channel panics, so
+	// guard).
 	//
-	// cleanup：幂等。首次调用退出 TUI 并阻塞到 Run goroutine 返回；
-	// 后续调用空操作（对已关闭的 channel 再 close 会 panic，所以守
-	// 卫）。
+	// The force-quit is deliberately deferred past tui.LingerBudget:
+	// the normal completion path relies on the doneMsg → linger →
+	// self-quit chain inside the model to show the DONE chip and the
+	// final summary. An immediate p.Quit() here races that chain and
+	// truncates the linger — the exact symptom seen in the /24 live
+	// smoke test. The AfterFunc backstop covers paths where Done()
+	// never fired (early-error) or the model is wedged; calling
+	// p.Quit() on an already-exited program is a safe no-op.
+	//
+	// cleanup：幂等。首次调用安排 TUI 强制退出兜底并阻塞到 Run
+	// goroutine 返回；后续调用空操作（对已关闭 channel 再 close 会
+	// panic，所以守卫）。
+	//
+	// 强制退出刻意推迟到 tui.LingerBudget 之后：正常完成路径依赖
+	// model 内部的 doneMsg → linger → 自退链来展示 DONE 芯片与最终
+	// 摘要。此处立即 p.Quit() 会与该链竞争并截断 linger——正是 /24
+	// 实机冒烟测试看到的症状。AfterFunc 兜底覆盖 Done() 从未触发的
+	// 路径（早错）或模型卡死的场景；对已退出的 program 调 p.Quit()
+	// 是安全的空操作。
 	var cleanedUp bool
 	var cleanupMu sync.Mutex
 	cleanup := func() {
@@ -168,7 +186,7 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 			return
 		}
 		cleanedUp = true
-		p.Quit()
+		time.AfterFunc(tui.LingerBudget, p.Quit)
 		<-*runDone
 	}
 

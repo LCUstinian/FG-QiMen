@@ -176,6 +176,15 @@ func wantCredential(mode types.RunMode) bool {
 // formatPortfinger formats the matched banner into a single line.
 // formatPortfinger 把匹配结果格式化为单行。
 func formatPortfinger(svc, ver, banner string) string {
+	banner = strings.TrimSpace(banner)
+	if svc == "" && ver == "" && banner == "" {
+		// Nothing known about this port — an empty string keeps the
+		// result line clean ("host:port  []") instead of dragging a
+		// decorative "| banner=" tail. / 对该端口一无所知——空串保
+		// 持结果行干净（"host:port  []"），不再拖着装饰性的
+		// "| banner=" 尾巴。
+		return ""
+	}
 	out := svc
 	if ver != "" {
 		// Trim leading whitespace from versionInfo (the format is
@@ -186,5 +195,5 @@ func formatPortfinger(svc, ver, banner string) string {
 	if len(banner) > 80 {
 		banner = banner[:80] + "..."
 	}
-	return out + " | banner=" + strings.TrimSpace(banner)
+	return out + " | banner=" + banner
 }

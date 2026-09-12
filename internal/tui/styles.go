@@ -306,12 +306,23 @@ func symFor(kind string) string {
 }
 
 // severityColor returns the right color for an event kind. Honors
-// flash expiry: if host:port is currently flashing, return colorErr.
+// flash expiry: if host:port is currently flashing, return the flash
+// color — red (colorErr) for most kinds, but green (colorOk) for
+// cred_success. A credential hit is the scan's most valuable finding;
+// flashing it in the same red as errors made operators misread wins
+// as failures (the "flash colour tuning" leftover from TUI v2 Spec
+// C). The steady-state color below the flash window is unchanged.
 // / severityColor 返回事件类型对应的颜色。遵循 flash 过期：如果
-// host:port 当前在 flash，返回 colorErr。
+// host:port 当前在 flash，返回 flash 色——多数事件红色（colorErr），
+// 但 cred_success 用绿色（colorOk）。凭据命中是扫描中价值最高的发
+// 现；与错误同色闪红会让操作员把命中误读为失败（TUI v2 Spec C 遗
+// 留的"flash 颜色调优"项）。flash 窗口之后的稳态色不变。
 func (m Model) severityColor(e eventEntry) lipgloss.Color {
 	key := fmt.Sprintf("%s:%d", e.Host, e.Port)
 	if until, ok := m.flashUntil[key]; ok && time.Now().Before(until) {
+		if e.Kind == "cred_success" {
+			return colorOk
+		}
 		return colorErr
 	}
 	switch e.Kind {

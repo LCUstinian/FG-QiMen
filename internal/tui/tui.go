@@ -126,6 +126,22 @@ const spinnerTick = 100 * time.Millisecond
 // 过 linger）。
 const lingerTicks = 15
 
+// LingerBudget is the wall-clock window the TUI needs to run its
+// full doneMsg → linger → self-quit chain (lingerTicks × spinnerTick
+// ≈ 1.5s, plus margin). External quitters — notably the cmd-layer
+// cleanup watcher — MUST NOT force-quit inside this window, or the
+// DONE chip and final summary get cut off (the race observed in the
+// /24 live smoke test). Force-quit is only legitimate after this
+// deadline, as a backstop for paths where Done() never fired.
+//
+// LingerBudget 是 TUI 跑完 doneMsg → linger → 自退全链路所需的墙
+// 钟窗口（lingerTicks × spinnerTick ≈ 1.5s，加余量）。外部退出者
+// ——特别是 cmd 层的 cleanup watcher——不得在该窗口内强制退出，
+// 否则 DONE 芯片与最终摘要会被截断（/24 实机冒烟测试观察到的竞
+// 态）。只有超过该期限后才允许强制退出，作为 Done() 从未触发的
+// 路径的兜底。
+const LingerBudget = 3 * time.Second
+
 // tickMsg advances the spinner frame. Bubbletea uses this pattern
 // (Update returning a tea.Cmd that sends itself) instead of timers
 // the model has to poll, so the model only re-renders when

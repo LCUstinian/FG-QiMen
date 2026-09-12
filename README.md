@@ -88,6 +88,24 @@ fg-qimen -H 10.0.0.5 --ports 22,80,3306,6379,8080 -t 50
 fg-qimen -H 10.0.0.5 -o myscan.txt -j myscan.json
 ```
 
+> **Tip — keep scan output out of the repo root:** by default the
+> workspace (result sinks, bbolt state, daily buckets) is created at
+> `./fgqm_workspace` relative to the cwd. Point it elsewhere with
+> `--workspace <dir>` or the `FGQI_WORKSPACE` env var (flag wins) so
+> debug runs and scratch scans never litter the project directory.
+> / **提示 — 别让扫描输出污染仓库根**：默认工作区（结果 sink、
+> bbolt 状态、日桶）建在相对 cwd 的 `./fgqm_workspace`。用
+> `--workspace <dir>` 或环境变量 `FGQI_WORKSPACE`（flag 优先）把它
+> 指到别处，调试 run 和临时扫描就不会弄脏项目目录。
+
+> **Tip — faster alive discovery on Windows:** without elevation the
+> ICMP prober cannot open a raw socket, so alive detection falls back
+> to spawning `ping.exe` per host (works, but slower). Run the scanner
+> from an elevated shell to enable the fast ICMP path.
+> / **提示 — Windows 下加速存活探测**：非管理员无法打开 ICMP raw
+> socket，存活探测会退化为逐主机 spawn `ping.exe`（可用但较慢）。
+> 用管理员终端运行扫描器即可启用快速 ICMP 路径。
+
 ### Project mode
 
 ```bash

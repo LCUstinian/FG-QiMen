@@ -102,6 +102,53 @@ func TestProjectsRoot(t *testing.T) {
 	}
 }
 
+// TestRootOverridePrecedence pins the resolution order of the
+// workspace root: SetRoot (--workspace flag) > FGQI_WORKSPACE env >
+// default `fgqm_workspace`. The override is process-global state, so
+// every branch restores it via defer — these subtests must NOT run
+// in parallel with anything touching workspace I/O.
+// / TestRootOverridePrecedence 锁定工作区根的解析顺序：SetRoot
+// （--workspace flag）> FGQI_WORKSPACE 环境变量 > 默认
+// `fgqm_workspace`。覆盖是进程级全局状态，每个分支用 defer 恢复
+// ——这些子测试不得与任何触碰工作区 I/O 的测试并行。
+func TestRootOverridePrecedence(t *testing.T) {
+	t.Run("default when no override and no env", func(t *testing.T) {
+		t.Setenv("FGQI_WORKSPACE", "")
+		SetRoot("")
+		defer SetRoot("")
+		if got := Root(); got != "fgqm_workspace" {
+			t.Errorf("Root() = %q, want default %q", got, "fgqm_workspace")
+		}
+	})
+
+	t.Run("env wins over default", func(t *testing.T) {
+		t.Setenv("FGQI_WORKSPACE", filepath.Join("sandbox", "ws"))
+		SetRoot("")
+		defer SetRoot("")
+		if got := Root(); got != filepath.Join("sandbox", "ws") {
+			t.Errorf("Root() = %q, want env value", got)
+		}
+	})
+
+	t.Run("SetRoot wins over env", func(t *testing.T) {
+		t.Setenv("FGQI_WORKSPACE", filepath.Join("sandbox", "ws"))
+		SetRoot("flagged-root")
+		defer SetRoot("")
+		if got := Root(); got != "flagged-root" {
+			t.Errorf("Root() = %q, want flag override to win", got)
+		}
+	})
+
+	t.Run("ProjectsRoot follows Root", func(t *testing.T) {
+		SetRoot("flagged-root")
+		defer SetRoot("")
+		want := filepath.Join("flagged-root", "projects")
+		if got := ProjectsRoot(); got != want {
+			t.Errorf("ProjectsRoot() = %q, want %q", got, want)
+		}
+	})
+}
+
 // TestOpenEphemeral returns a Project with no DB, rooted at cwd.
 func TestOpenEphemeral(t *testing.T) {
 	p, err := Open("")

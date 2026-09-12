@@ -124,6 +124,75 @@ func TestPipelineWorkers_PanicRecovery(t *testing.T) {
 	}
 }
 
+// TestPipelineWorkers_PortLevelResultForEveryOpenPort pins the
+// firewalled-network fix: EVERY open port must produce exactly one
+// port-level Result, regardless of banner availability. Banner
+// fingerprinting only enriches the svc/banner fields — it must not
+// gate the result. Subtests cover the three banner states: absent,
+// present-but-unmatched, and signature match. Ports 7676-7678 are
+// deliberately unregistered (no plugin dispatch) so the assertion is
+// exactly the Stage 0 behaviour.
+// / TestPipelineWorkers_PortLevelResultForEveryOpenPort 锁定防火墙网
+// 络修复：每个开放端口必须恰好产出一条端口级 Result，与 banner 无
+// 关。banner 指纹只充实 svc/banner 字段——不能作为产出门槛。三个
+// 子测试覆盖 banner 三态：缺失、存在但不匹配、签名命中。端口
+// 7676-7678 故意不注册插件（无插件派发），断言的就是纯 Stage 0 行
+// 为。
+func TestPipelineWorkers_PortLevelResultForEveryOpenPort(t *testing.T) {
+	tests := []struct {
+		name        string
+		banner      string
+		wantService string // asserted only when assertService is true
+		// assertService pins the svc field only for the no-banner
+		// case: for real banners the nmap probe DB's loose matches
+		// make the service name a fingerprint-quality concern, not
+		// a Stage 0 contract. / svc 字段只在无 banner 用例锁定：真
+		// 实 banner 下 nmap 探针库的宽松匹配会让 service 名成为指
+		// 纹质量问题，而非 Stage 0 契约。
+		assertService bool
+	}{
+		{name: "no banner", banner: "", wantService: "", assertService: true},
+		{name: "unmatched banner", banner: "GARBAGE-NOT-A-SERVICE\r\n"},
+		{name: "ssh banner", banner: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1\r\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sess, _, _, _ := newWorkerFixture(t)
+			port := 7676
+			items := make(chan types.ScanItem, 1)
+			results := make(chan *types.Result, 8)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				runPluginWorker(context.Background(), sess, nil, items, results)
+			}()
+
+			items <- types.ScanItem{Host: "127.0.0.1", Port: port, Banner: tc.banner}
+			close(items)
+			<-done // worker exited after input closed
+			// Release the results channel so the range below can end.
+			// / 释放 results channel 让下面的 range 能结束。
+			close(results)
+
+			var got []*types.Result
+			for r := range results {
+				got = append(got, r)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d results, want exactly 1 port-level result", len(got))
+			}
+			r := got[0]
+			if r.Host != "127.0.0.1" || r.Port != port {
+				t.Errorf("result host:port = %s:%d, want 127.0.0.1:%d", r.Host, r.Port, port)
+			}
+			if tc.assertService && r.Service != tc.wantService {
+				t.Errorf("Service = %q, want %q", r.Service, tc.wantService)
+			}
+		})
+	}
+}
+
 // newWorkerFixture builds a minimal session and the input/result
 // channels for worker tests. The cancel func closes both channels
 // to release any blocked goroutines. Safe to call multiple times. /

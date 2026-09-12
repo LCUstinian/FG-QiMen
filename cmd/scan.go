@@ -41,12 +41,15 @@ import (
 )
 
 var scanCmd = &cobra.Command{
-	Use:   "scan",
+	Use:   "scan [target]",
 	Short: "Run a scan (default action of fg-qimen)",
 	Long: `Run a scan. By default this is ephemeral (oneshot) mode, writing
 results to ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt and the corresponding
 .json in the current directory. Pass --project <name> to switch into
-persistent project mode.`,
+persistent project mode.
+
+The target may be given as a positional argument (fg-qimen scan
+192.168.1.0/24) or via --host/-H; --host wins when both are set.`,
 	// Reuse the root RunE so flags and behavior are identical.
 	// 复用根 RunE，flags 和行为完全一致。
 	RunE: runScan,
@@ -65,6 +68,32 @@ func init() {
 // 流程：flag → Config → workspace open → context + signal handler →
 // session → resume load → output open → core.RunScan。
 func runScan(cmd *cobra.Command, args []string) error {
+	// Positional target support: `fg-qimen scan 192.168.1.0/24` is
+	// the muscle-memory invocation for every pentest tool; requiring
+	// --host forced a flag on the most common argument. --host wins
+	// on conflict so scripted invocations keep priority. More than
+	// one positional is a usage error (the host spec syntax already
+	// covers lists via commas).
+	// / 位置参数目标支持：`fg-qimen scan 192.168.1.0/24` 是渗透测试
+	// 工具的肌肉记忆式调用；强制 --host 给最常见参数添了负担。冲突
+	// 时 --host 优先，脚本化调用保持既有语义。多个位置参数是用法错
+	// 误（逗号列表语法已覆盖多目标场景）。
+	if len(args) > 0 {
+		if len(args) > 1 {
+			return fmt.Errorf("expected at most 1 positional target, got %d (use commas for multiple hosts: --host \"a,b\")", len(args))
+		}
+		if flagHost == "" {
+			flagHost = args[0]
+		}
+	}
+
+	// Wire the workspace override before any workspace I/O — this is
+	// the earliest hook in runScan, so Open / resolveOutputPath /
+	// List all see the effective root. / 在任何工作区 I/O 之前接线工
+	// 作区覆盖——这是 runScan 里最早的钩子，Open / resolveOutputPath
+	// / List 都能看到生效根。
+	workspace.SetRoot(flagWorkspace)
+
 	cfg, err := buildConfig()
 	if err != nil {
 		return fmt.Errorf("config error: %w", err)
