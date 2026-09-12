@@ -260,6 +260,15 @@ type Model struct {
 	// countString) 元组。每次 statsMsg 从 State 视图重算。
 	topPlugins [][2]string
 	topErrors  [][2]string
+
+	// flashUntil maps "host:port" → expiry wall-clock for the
+	// "recent critical event" highlight. Looked up by
+	// severityColor in styles.go so freshly-flashed rows paint
+	// red regardless of their underlying kind. / flashUntil 把
+	// "host:port" 映射到"最近关键事件"高亮的到期墙钟时间。
+	// styles.go 的 severityColor 会查它，让刚 flash 的行不管
+	// 底层 kind 是什么都画红。
+	flashUntil map[string]time.Time
 }
 
 // NewModel constructs a fresh dashboard model.
@@ -925,7 +934,7 @@ func (m Model) renderEventsCol() string {
 		var style lipgloss.Style
 		switch ev.tag {
 		case "cred":
-			sym, style = symWarn, stWarn
+			sym, style = symCredHit, stWarn
 		case "err":
 			sym, style = symError, stError
 		default:
@@ -939,7 +948,7 @@ func (m Model) renderEventsCol() string {
 		text := ev.text
 		maxText := m.eventTextWidth()
 		if maxText > 0 && lipgloss.Width(text) > maxText {
-			text = truncate(text, maxText, "…")
+			text = truncByWidth(text, maxText, "…")
 		}
 		// Layout: "  ▸ HH:MM:SS  host:port  [svc]  text" — host:port
 		// is concatenated inline (not fixed width) so the column
@@ -1008,9 +1017,15 @@ func (m Model) eventTextWidth() int {
 // truncate shortens s to maxW display columns, appending an
 // ellipsis if anything was dropped. maxW must be > 0.
 //
-// truncate 把 s 截短到 maxW 个显示列，如果截掉了就加省略号。
+// truncByWidth 把 s 截短到 maxW 个显示列，如果截掉了就加省略号。
 // maxW 必须 > 0。
-func truncate(s string, maxW int, ell string) string {
+//
+// v0.7.0: renamed from `truncate` to make room for the rune-based
+// `truncate(s, n)` helper added in styles.go (Task 2 of the v0.7.0
+// TUI plan). The old 3-arg signature used display-width tracking so
+// CJK glyphs counted as 2 cols; the new rune-based helper is for
+// simple text where the 2-col vs 1-col distinction doesn't matter.
+func truncByWidth(s string, maxW int, ell string) string {
 	if maxW <= 0 {
 		return s
 	}
