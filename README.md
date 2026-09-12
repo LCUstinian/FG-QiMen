@@ -112,24 +112,31 @@ fg-qimen projects info corp-intranet
 The TUI is **on by default** when stdout is a TTY. Force plain text with
 `--no-tui`.
 
-The dashboard renders in a fixed-width two-column layout that fits in
-a 100-column terminal (gracefully stacks single-column on narrower
-terminals):
+The dashboard composes six regions driven by a 3-breakpoint responsive
+layout (narrow <80 / medium 80–119 / wide ≥120 columns); wide terminals
+place STAGE and TOP PLUGINS side-by-side, narrower ones stack them:
 
 - **Header**: per-stage `[ ▶ STAGE ]` badge with ETA on the right
   (`[ ▶ ALIVE ]   ETA ~12s`); scan rate in hits/s and ports/s
-  (EWMA-smoothed); mid-alive-sweep "alive N/M" counter ticks up as
-  probes complete (no more stuck-at-zero until alive finishes).
-- **Stats panel** (left): per-stage counters — alive probed,
-  ports found, identified, credentials attempted / hit.
-- **Top plugins panel** (right): the 6 plugins with the most hits
+  (EWMA-smoothed) plus a 60-sample hits/s sparkline; mid-alive-sweep
+  "alive N/M" counter ticks up as probes complete (no more
+  stuck-at-zero until alive finishes).
+- **LIVE EVENTS**: the last 20 events in a fixed ring buffer (never
+  grows), severity-coloured (`✓` cred hit, `✗` error, `⚠` warning);
+  each hit flashes red for ~200ms. Hidden on narrow terminals; `L`
+  overlays the last 5.
+- **STAGE** (left / upper): alive and ports rendered as `▓/░` progress
+  bars against their totals; results / creds / errors stay as plain
+  counters.
+- **TOP PLUGINS** (right / lower): the 5 plugins with the most hits
   this run, rendered as a fixed-width bar chart with the
   `[plugin N]` name on the left and a `████░░` bar showing share.
-- **Errors panel** (bottom): a compact
-  `ERRORS: timeout 42  refused 15  dns 7` line, with categories
-  coming from `core.ClassifyError` (errors.Is / errors.As first,
-  substring fallback). The line is `(no errors yet)` until the
-  first categorized failure lands.
+- **ERRORS** (bottom): a compact `ERRORS: timeout 42  refused 15` line;
+  `e` expands it to the top-4 category bars, `E` collapses it back.
+  Categories come from `core.ClassifyError` (errors.Is / errors.As
+  first, substring fallback).
+- **Footer**: keymap hints — `[q] quit  [p] pause  e errors panel
+  L live overlay  ? toggle help` (`?` opens the full help overlay).
 
 All of this is read off a `CountersView` projection on
 `internal/types.State` so the view layer is decoupled from the

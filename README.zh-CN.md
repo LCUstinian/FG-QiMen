@@ -113,12 +113,14 @@ TUI 在 stdout 是 TTY 时**默认开启**。强制纯文本：
 fg-qimen -H 127.0.0.1 --no-tui
 ```
 
-仪表盘采用定宽两栏布局（适合 ≥100 列终端，窄终端自动堆叠为单列）：
+仪表盘由六个区域组成，按 3 断点响应式布局排布（narrow <80 / medium 80–119 / wide ≥120 列）；宽终端把 STAGE 和 TOP PLUGINS 并排放置，窄终端堆叠：
 
-- **Header**：按阶段的 `[ ▶ STAGE ]` 徽章，ETA 右对齐（如 `[ ▶ ALIVE ]   ETA ~12s`）；扫描速率（hits/s、ports/s，EWMA 平滑）；mid-alive-sweep 的 "alive N/M" 计数随探测完成即时增长（不再卡在 0/M 直到 alive 阶段结束）。
-- **统计面板**（左）：按阶段计数——alive 已探、端口已扫、已识别、凭证尝试 / 命中。
-- **Top plugins 面板**（右）：本次 run 命中最多的 6 个 plugin，定宽条形图渲染，名字在左、`████░░` 占比条在右。
-- **Errors 面板**（底部）：压缩的 `ERRORS: timeout 42  refused 15  dns 7` 汇总行，类别来自 `core.ClassifyError`（errors.Is / errors.As 优先、子串 fallback）。第一次分类化失败落地前显示 `(no errors yet)`。
+- **Header**：按阶段的 `[ ▶ STAGE ]` 徽章，ETA 右对齐（如 `[ ▶ ALIVE ]   ETA ~12s`）；扫描速率（hits/s、ports/s，EWMA 平滑）+ 60 样本 hits/s sparkline；mid-alive-sweep 的 "alive N/M" 计数随探测完成即时增长（不再卡在 0/M 直到 alive 阶段结束）。
+- **LIVE EVENTS**：最近 20 条事件存放在固定 ring buffer（永不增长），按 severity 着色（`✓` 凭据命中、`✗` 错误、`⚠` 警告）；每次命中红色闪高 ~200ms。窄终端默认隐藏，`L` 键 overlay 显示最近 5 条。
+- **STAGE**（左 / 上）：alive 与 ports 按总数渲染成 `▓/░` 进度条；results / creds / errors 保持纯计数。
+- **TOP PLUGINS**（右 / 下）：本次 run 命中最多的 5 个 plugin，定宽条形图渲染，名字在左、`████░░` 占比条在右。
+- **ERRORS**（底部）：压缩的 `ERRORS: timeout 42  refused 15` 汇总行；`e` 展开为 top-4 类别条形图，`E` 折叠回汇总。类别来自 `core.ClassifyError`（errors.Is / errors.As 优先、子串 fallback）。
+- **Footer**：按键提示——`[q] quit  [p] pause  e errors panel  L live overlay  ? toggle help`（`?` 打开完整帮助浮层）。
 
 所有这些都从 `internal/types.State` 的 `CountersView` 投影读，让视图层与 scanner 内部 channel 布局解耦。
 
