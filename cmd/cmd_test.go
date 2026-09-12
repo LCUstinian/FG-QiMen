@@ -36,6 +36,7 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/transport"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
+	"github.com/spf13/pflag"
 )
 
 // --- buildConfig ---
@@ -73,7 +74,7 @@ func TestBuildConfigReadsFlagVars(t *testing.T) {
 	flagShutdownTime = 10 * time.Second
 	flagPlugins = "ssh,redis"
 
-	cfg, err := buildConfig()
+	cfg, err := buildConfig(nil)
 	if err != nil {
 		t.Fatalf("buildConfig: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestBuildConfigValidates(t *testing.T) {
 	flagTimeout = time.Second
 	flagShutdownTime = time.Second
 
-	_, err := buildConfig()
+	_, err := buildConfig(nil)
 	if err == nil || !strings.Contains(err.Error(), "threads must be > 0") {
 		t.Errorf("buildConfig with invalid threads = %v, want threads error", err)
 	}
@@ -142,9 +143,97 @@ func TestBuildConfigResumeRequiresProject(t *testing.T) {
 	flagResume = true
 	flagProject = "" // resume without project — must fail
 
-	_, err := buildConfig()
+	_, err := buildConfig(nil)
 	if err == nil {
 		t.Error("buildConfig(Resume, no Project) = nil, want error")
+	}
+}
+
+// TestBuildConfigExcludeAndPrescreenFlags: the fscan-borrowed target
+// filters (--exclude-hosts / --exclude-hosts-file) and the prescreen
+// kill switch (--no-prescreen) pass through buildConfig into the
+// Config untouched — parsing/validation of the exclude spec happens
+// at runtime in core (types.ApplyExcludeHosts), so buildConfig is a
+// pure carrier here.
+// / TestBuildConfigExcludeAndPrescreenFlags：借鉴 fscan 的目标排除
+// flag 与预筛 kill switch 原样进 Config——排除 spec 的解析/校验在
+// core 运行时做，buildConfig 在此只是纯载体。
+func TestBuildConfigExcludeAndPrescreenFlags(t *testing.T) {
+	save := snapshotFlags()
+	defer restoreFlags(save)
+
+	flagThreads = 1
+	flagTimeout = time.Second
+	flagShutdownTime = time.Second
+	flagExcludeHosts = "10.0.0.5,192.168.1.0/28,192"
+	flagExcludeHostsFile = "/tmp/excludes.txt"
+	flagNoPrescreen = true
+
+	cfg, err := buildConfig(nil)
+	if err != nil {
+		t.Fatalf("buildConfig: %v", err)
+	}
+	if cfg.ExcludeHosts != "10.0.0.5,192.168.1.0/28,192" {
+		t.Errorf("ExcludeHosts = %q, want passthrough", cfg.ExcludeHosts)
+	}
+	if cfg.ExcludeHostsFile != "/tmp/excludes.txt" {
+		t.Errorf("ExcludeHostsFile = %q, want passthrough", cfg.ExcludeHostsFile)
+	}
+	if !cfg.NoSubnetProbe {
+		t.Error("NoSubnetProbe = false, want true (--no-prescreen)")
+	}
+}
+
+// TestBuildConfigExplicitTracking: threadsExplicit/timeoutExplicit
+// come from pflag.Changed on the caller-supplied FlagSet, NOT from
+// whether the value differs from the default — `--threads 200` (the
+// default value, explicitly typed) must still count as explicit so
+// the env profiler leaves it alone.
+// / TestBuildConfigExplicitTracking：explicit 标记来自调用方传入
+// FlagSet 的 pflag.Changed，与"值是否等于默认"无关——显式敲了
+// `--threads 200`（等于默认值）也必须算显式，环境画像才不会覆盖。
+func TestBuildConfigExplicitTracking(t *testing.T) {
+	save := snapshotFlags()
+	defer restoreFlags(save)
+
+	flagThreads = 250
+	flagTimeout = 5 * time.Second
+	flagShutdownTime = time.Second
+
+	// nil FlagSet (direct-var tests): nothing is explicit.
+	// / nil FlagSet（直接变量测试）：一切都不算显式。
+	cfg, err := buildConfig(nil)
+	if err != nil {
+		t.Fatalf("buildConfig(nil): %v", err)
+	}
+	if cfg.ThreadsExplicit || cfg.TimeoutExplicit {
+		t.Errorf("explicit flags with nil FlagSet = %v/%v, want false/false",
+			cfg.ThreadsExplicit, cfg.TimeoutExplicit)
+	}
+
+	// Real FlagSet with only --threads set: threads explicit,
+	// timeout not (even though flagTimeout differs from the
+	// registered default — only Changed matters).
+	// / 真实 FlagSet 只设了 --threads：threads 显式、timeout 不
+	// （即使 flagTimeout 与注册默认不同——只看 Changed）。
+	pf := pflag.NewFlagSet("explicit-test", pflag.ContinueOnError)
+	var dummyThreads int
+	var dummyTimeout time.Duration
+	pf.IntVar(&dummyThreads, "threads", 200, "")
+	pf.DurationVar(&dummyTimeout, "timeout", 3*time.Second, "")
+	if err := pf.Set("threads", "250"); err != nil {
+		t.Fatalf("pf.Set(threads): %v", err)
+	}
+
+	cfg, err = buildConfig(pf)
+	if err != nil {
+		t.Fatalf("buildConfig(pf): %v", err)
+	}
+	if !cfg.ThreadsExplicit {
+		t.Error("ThreadsExplicit = false, want true after pf.Set(threads)")
+	}
+	if cfg.TimeoutExplicit {
+		t.Error("TimeoutExplicit = true, want false (flag not Changed)")
 	}
 }
 
@@ -635,8 +724,10 @@ func TestOpenProjectEphemeral(t *testing.T) {
 // can mutate them safely without leaking into other tests.
 type flagSnapshot struct {
 	host, hostsFile, project, mode, ports, excludePorts        string
+	excludeHosts, excludeHostsFile                             string
 	userFile, passFile, outputTXT, outputJSON, plugins         string
 	resume, noState, aliveOnly, silent, noTUI, noICMP, verbose bool
+	noPrescreen                                                bool
 	threads                                                    int
 	timeout, shutdownTime                                      time.Duration
 	user, pass                                                 []string
@@ -650,23 +741,27 @@ func snapshotFlags() flagSnapshot {
 		mode:         flagMode,
 		ports:        flagPorts,
 		excludePorts: flagExcludePorts,
-		userFile:     flagUserFile,
-		passFile:     flagPassFile,
-		outputTXT:    flagOutputTXT,
-		outputJSON:   flagOutputJSON,
-		plugins:      flagPlugins,
-		resume:       flagResume,
-		noState:      flagNoState,
-		aliveOnly:    flagAliveOnly,
-		silent:       flagSilent,
-		noTUI:        flagNoTUI,
-		noICMP:       flagNoICMP,
-		verbose:      flagVerbose,
-		threads:      flagThreads,
-		timeout:      flagTimeout,
-		shutdownTime: flagShutdownTime,
-		user:         append([]string(nil), flagUser...),
-		pass:         append([]string(nil), flagPass...),
+		excludeHosts: flagExcludeHosts,
+
+		excludeHostsFile: flagExcludeHostsFile,
+		userFile:         flagUserFile,
+		passFile:         flagPassFile,
+		outputTXT:        flagOutputTXT,
+		outputJSON:       flagOutputJSON,
+		plugins:          flagPlugins,
+		resume:           flagResume,
+		noState:          flagNoState,
+		aliveOnly:        flagAliveOnly,
+		silent:           flagSilent,
+		noTUI:            flagNoTUI,
+		noICMP:           flagNoICMP,
+		verbose:          flagVerbose,
+		noPrescreen:      flagNoPrescreen,
+		threads:          flagThreads,
+		timeout:          flagTimeout,
+		shutdownTime:     flagShutdownTime,
+		user:             append([]string(nil), flagUser...),
+		pass:             append([]string(nil), flagPass...),
 	}
 }
 
@@ -677,6 +772,8 @@ func restoreFlags(s flagSnapshot) {
 	flagMode = s.mode
 	flagPorts = s.ports
 	flagExcludePorts = s.excludePorts
+	flagExcludeHosts = s.excludeHosts
+	flagExcludeHostsFile = s.excludeHostsFile
 	flagUserFile = s.userFile
 	flagPassFile = s.passFile
 	flagOutputTXT = s.outputTXT
@@ -689,6 +786,7 @@ func restoreFlags(s flagSnapshot) {
 	flagNoTUI = s.noTUI
 	flagNoICMP = s.noICMP
 	flagVerbose = s.verbose
+	flagNoPrescreen = s.noPrescreen
 	flagThreads = s.threads
 	flagTimeout = s.timeout
 	flagShutdownTime = s.shutdownTime

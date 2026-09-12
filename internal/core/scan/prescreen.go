@@ -22,6 +22,28 @@ import (
 // PrescreenThreshold 是触发预筛的最小主机数量。
 const PrescreenThreshold = 256
 
+// phase2ProbePorts are the rotating ports used by the phase-2 per-host
+// fallback (host i gets port i%len). Mirrors fscan's subnetProbePorts.
+// phase2ProbePorts 是阶段 2 逐主机兜底用的轮换端口（主机 i 用
+// i%len 号端口）。对齐 fscan 的 subnetProbePorts。
+var phase2ProbePorts = []int{80, 443, 22, 445, 3389, 8080, 3306, 6379}
+
+// Phase2SampleCap bounds how many hosts per gateway-missed segment the
+// phase-2 fallback probes (first N hosts in segment order, one rotating
+// port each). Without a cap, a fully-dead /16 pays 254 hosts × 1 probe
+// per dead segment; at 64 the whole /16 fallback sweep stays under
+// ~2 minutes at the default concurrency instead of ~10+. The residual
+// false-negative window (a live host beyond the first 64 positions in
+// an otherwise-silent segment) is accepted and documented — the kill
+// switch is PrescreenOptions.Phase2=false.
+// Phase2SampleCap 限制阶段 2 兜底对每个网关未命中网段探测的主机数
+// （按网段内顺序取前 N 台，每台一个轮换端口）。不限幅时，全死 /16
+// 的每个死网段都要付 254 台 × 1 探测；取 64 时默认并发下整个 /16
+// 兜底可控制在 ~2 分钟内而非 ~10+。残余误杀窗口（网段内排位 64 之
+// 后的存活主机）是有意接受并文档化的——关掉兜底用
+// PrescreenOptions.Phase2=false。
+const Phase2SampleCap = 64
+
 // PrescreenOptions configures pre-screening behavior.
 // PrescreenOptions 配置预筛行为。
 type PrescreenOptions struct {
@@ -44,6 +66,22 @@ type PrescreenOptions struct {
 	// Concurrency is the number of concurrent gateway probes.
 	// Concurrency 是并发网关探测数量。
 	Concurrency int
+
+	// Phase2 enables the per-host rotating-port fallback for segments
+	// whose gateways were silent (default true). Borrowed from fscan's
+	// two-phase probeSubnets: protects live segments whose .1/.254 are
+	// firewalled from being dropped by the phase-1 gateway heuristic.
+	// Phase2 开启网关静默网段的逐主机轮换端口兜底（默认 true）。借
+	// 鉴 fscan 两阶段 probeSubnets：防止 .1/.254 被防火墙挡住的存活
+	// 网段被阶段 1 网关启发式误杀。
+	Phase2 bool
+
+	// Phase2SampleCap caps the per-segment host count probed by the
+	// phase-2 fallback (0 = Phase2SampleCap default). See the
+	// Phase2SampleCap const for the worst-case math.
+	// Phase2SampleCap 限制阶段 2 兜底每网段探测的主机数（0 = 用
+	// Phase2SampleCap 默认值）。最坏成本分析见 Phase2SampleCap 常量注释。
+	Phase2SampleCap int
 }
 
 // DefaultPrescreenOptions returns sensible defaults.
@@ -54,7 +92,8 @@ func DefaultPrescreenOptions() PrescreenOptions {
 		Threshold:   PrescreenThreshold,
 		ProbePorts:  []int{22, 80, 443, 3389}, // SSH, HTTP, HTTPS, RDP
 		Timeout:     2 * time.Second,
-		Concurrency: 50,
+		Concurrency: 200,
+		Phase2:      true,
 	}
 }
 
@@ -93,8 +132,43 @@ func (p *Prescreener) ShouldPrescreen(hostCount int) bool {
 // 返回在响应网段中的主机。对于 .1 和 .254 网关在所有探测端口都不可达
 // 的网段，排除其中的主机。
 func (p *Prescreener) FilterHosts(ctx context.Context, hosts []string) []string {
+	filtered, _ := p.FilterHostsSummary(ctx, hosts)
+	return filtered
+}
+
+// FilterHostsSummary is FilterHosts with a PrescreenSummary report.
+// FilterHostsSummary 是带 PrescreenSummary 报告的 FilterHosts。
+//
+// Two-phase strategy (borrowed from fscan's probeSubnets, with fixes):
+//
+//	Phase 1 (fast): probe each segment's .1/.254 gateways on the
+//	                configured probe ports; a hit marks the segment live.
+//	Phase 2 (fallback): segments where BOTH gateways were silent get a
+//	                bounded per-host sweep — first Phase2SampleCap hosts,
+//	                one rotating port each — so a live segment whose
+//	                gateways are firewalled isn't silently dropped.
+//
+// Single-segment inputs skip screening entirely (mirrors fscan's
+// `len(subnets) <= 1` guard): with only one /24 present there is
+// nothing to compare against, and a gateway-silent-but-live /24 would
+// otherwise be wiped out wholesale.
+//
+// 两阶段策略（借鉴 fscan 的 probeSubnets，含修正）：
+//
+//	阶段 1（快）：探测每个网段的 .1/.254 网关（配置的探测端口），
+//	              命中即标记网段存活。
+//	阶段 2（兜底）：两个网关都静默的网段做有界逐主机扫描——前
+//	              Phase2SampleCap 台、每台一个轮换端口——避免网关被
+//	              防火墙挡住的存活网段被静默丢弃。
+//
+// 单网段输入完全跳过预筛（对齐 fscan 的 `len(subnets) <= 1` 守卫）：
+// 只有一个 /24 时没有对照对象，且"网关静默但网段存活"的场景会把整
+// 个 /24 一刀切掉。
+func (p *Prescreener) FilterHostsSummary(ctx context.Context, hosts []string) ([]string, PrescreenSummary) {
+	start := time.Now()
+	summary := PrescreenSummary{TotalHosts: len(hosts)}
 	if !p.ShouldPrescreen(len(hosts)) {
-		return hosts
+		return hosts, summary
 	}
 
 	// Group hosts by /24 network segment / 按 /24 网段分组主机
@@ -122,22 +196,135 @@ func (p *Prescreener) FilterHosts(ctx context.Context, hosts []string) []string 
 		}
 	}
 
-	// Probe gateways for each segment / 探测每个网段的网关
+	// Single-segment guard: nothing to compare against. / 单网段守卫：
+	// 没有对照对象。
+	if len(segments) <= 1 {
+		summary.PrescreenTime = time.Since(start)
+		return hosts, summary
+	}
+
+	// Phase 1: probe gateways for each segment / 阶段 1：探测每个网段的网关
 	liveSegments := p.probSegments(ctx, segments)
+
+	// Phase 2: bounded per-host fallback for gateway-silent segments /
+	// 阶段 2：对网关静默的网段做有界逐主机兜底
+	if p.opts.Phase2 {
+		missed := make(map[string][]string, len(segments))
+		for network, segmentHosts := range segments {
+			if network == "" || liveSegments[network] {
+				continue
+			}
+			missed[network] = segmentHosts
+		}
+		if len(missed) > 0 {
+			live2 := p.probSegmentHosts(ctx, missed)
+			for network := range live2 {
+				liveSegments[network] = true
+			}
+		}
+	}
 
 	// Rebuild host list with only live segments / 用活跃网段重建主机列表
 	var result []string
+	liveCount := 0
 	for network, segmentHosts := range segments {
 		if network == "" {
 			// Pass-through hosts / 直通主机
 			result = append(result, segmentHosts...)
-		} else if liveSegments[network] {
-			result = append(result, segmentHosts...)
+			continue
 		}
-		// else: skip dead segment / 否则：跳过死网段
+		liveCount++
+		if liveSegments[network] {
+			result = append(result, segmentHosts...)
+		} else {
+			summary.DeadSegments++
+			summary.SkippedHosts += len(segmentHosts)
+		}
+	}
+	summary.LiveSegments = liveCount - summary.DeadSegments
+	summary.FilteredHosts = len(result)
+	summary.PrescreenTime = time.Since(start)
+	summary.WasPrescreened = true
+	return result, summary
+}
+
+// probSegmentHosts is the phase-2 fallback: for each gateway-silent
+// segment, probe up to Phase2SampleCap hosts (segment order), one
+// rotating port per host index (host i → phase2ProbePorts[i%len]).
+// A single hit marks the whole segment live and the remaining hosts of
+// that segment are skipped as soon as the flag is observed.
+//
+// probSegmentHosts 是阶段 2 兜底：对每个网关静默的网段，探测前
+// Phase2SampleCap 台主机（按网段内顺序），主机 i 用轮换端口
+// phase2ProbePorts[i%len]。任一命中即把整个网段标记为存活，后续主
+// 机在观察到标记后立即跳过。
+func (p *Prescreener) probSegmentHosts(ctx context.Context, missed map[string][]string) map[string]bool {
+	live := make(map[string]bool)
+	var mu sync.Mutex
+
+	type task struct {
+		network string
+		host    string
+		port    int
 	}
 
-	return result
+	limit := p.opts.Phase2SampleCap
+	if limit <= 0 {
+		limit = Phase2SampleCap
+	}
+
+	// Snapshot the live set at dispatch time so hosts of a segment that
+	// went live mid-flight are not dispatched. Cheap: task list is
+	// built once, and the inner Probe observes ctx for cancellation.
+	// / 派发时快照存活集合，网段中途变活后不再派发其主机。代价小：
+	// 任务列表只构建一次，内层 Probe 通过 ctx 观察取消。
+	var tasks []task
+	for network, segmentHosts := range missed {
+		n := len(segmentHosts)
+		if n > limit {
+			n = limit
+		}
+		for i := 0; i < n; i++ {
+			tasks = append(tasks, task{
+				network: network,
+				host:    segmentHosts[i],
+				port:    phase2ProbePorts[i%len(phase2ProbePorts)],
+			})
+		}
+	}
+
+	sem := make(chan struct{}, p.opts.Concurrency)
+	var wg sync.WaitGroup
+
+dispatch:
+	for _, t := range tasks {
+		mu.Lock()
+		alreadyLive := live[t.network]
+		mu.Unlock()
+		if alreadyLive {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func(t task) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			res, err := p.probe.Probe(ctx, t.host, t.port, p.opts.Timeout)
+			if err == nil && res.State == StateOpen {
+				mu.Lock()
+				live[t.network] = true
+				mu.Unlock()
+			}
+		}(t)
+	}
+
+	wg.Wait()
+	return live
 }
 
 // probeSegments probes gateways (.1/.254) for each network segment.

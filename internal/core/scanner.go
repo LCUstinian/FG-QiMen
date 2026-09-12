@@ -112,12 +112,91 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		return 0, nil
 	}
 
+	// Host exclusions (borrowed from fscan's -eh/-ehf): filter the
+	// expanded list before any probe traffic so excluded hosts never
+	// see a packet. / 主机排除（借鉴 fscan 的 -eh/-ehf）：在任何探测
+	// 流量之前过滤展开列表，被排除的主机不会收到任何包。
+	targets, excluded, err := types.ApplyExcludeHosts(targets, cfg.ExcludeHosts, cfg.ExcludeHostsFile)
+	if err != nil {
+		return 0, fmt.Errorf("exclude hosts: %w", err)
+	}
+	if excluded > 0 {
+		sess.Log.Info("[*] excluded %d host(s) via --exclude-hosts", excluded)
+	}
+	if len(targets) == 0 {
+		sess.Log.Info("all targets excluded; nothing to scan")
+		return 0, nil
+	}
+
+	// Network environment profiling (borrowed from fscan's
+	// network_profiler): sample a few targets, classify LAN/WAN/
+	// Internet/Slow, auto-tune timeout & threads — but only values the
+	// operator didn't set explicitly. Runs BEFORE prescreen so the
+	// segment probes inherit the tuned timeout. / 网络环境画像（借鉴
+	// fscan 的 network_profiler）：抽样少量目标，分类 LAN/WAN/
+	// Internet/Slow，自动调优超时与线程——但只调操作员未显式指定的
+	// 值。在预筛之前跑，让网段探测继承调优后的超时。
+	envProbe := scan.NewTCPConnectProbe()
+	if len(targets) >= EnvProbeMinHosts && envProbe.Available() == nil {
+		profile := ProbeNetwork(ctx, targetAddrs(targets), envProbe, time.Second)
+		if summary := ApplyEnvTuning(cfg, profile); summary != "" {
+			sess.Log.Info("[*] network profile: %s", summary)
+		}
+	}
+
+	// Segment pre-screen (borrowed from fscan's probeSubnets, with the
+	// wiring fscan lacks): for multi-/24 inputs, probe each segment's
+	// gateways BEFORE the alive sweep and drop segments that show no
+	// sign of life (bounded phase-2 per-host fallback protects
+	// gateway-firewalled-but-live segments). On a dead /16 this skips
+	// both the alive sweep AND the port scan, not just the latter.
+	// / 网段预筛（借鉴 fscan 的 probeSubnets，并补上 fscan 缺失的接
+	// 线位置）：多 /24 输入时，在 alive sweep 之前探测每个网段的网
+	// 关，丢弃无存活迹象的网段（有界阶段 2 逐主机兜底保护"网关被防
+	// 火墙挡但网段存活"的场景）。死 /16 上这里同时省掉 alive sweep
+	// 和端口扫描，而不只是后者。
+	if !cfg.NoSubnetProbe {
+		opts := scan.DefaultPrescreenOptions()
+		// cfg.Timeout is validated > 0; the tuned value (env profile
+		// above) feeds the segment probes. / cfg.Timeout 校验过 >0；
+		// 上方环境画像调优后的值喂给网段探测。
+		opts.Timeout = cfg.Timeout
+		pres := scan.NewPrescreener(opts, envProbe)
+		if pres.ShouldPrescreen(len(targets)) {
+			filtered, summary := pres.FilterHostsSummary(ctx, targetAddrs(targets))
+			sess.Log.Info("[*] prescreen: %s", summary)
+			if len(filtered) == 0 {
+				sess.Log.Info("[*] prescreen: every segment silent; nothing to scan")
+				sess.State.TotalHosts.Store(0)
+				sess.UI.Done(summaryString(sess))
+				return 0, nil
+			}
+			// Filter the typed targets by the surviving addr set so
+			// input Tags survive the prescreen. / 用存活地址集合过滤
+			// 带类型的 targets，保留输入 Tag。
+			survivors := make(map[string]struct{}, len(filtered))
+			for _, h := range filtered {
+				survivors[h] = struct{}{}
+			}
+			kept := targets[:0]
+			for _, t := range targets {
+				if _, ok := survivors[t.Addr]; ok {
+					kept = append(kept, t)
+				}
+			}
+			targets = kept
+		}
+	}
+
 	// TUI Spec A (Task 3): record total host count so the TUI can
 	// show "alive 2/4" progress instead of just "alive 2". Stored
 	// once at scan start so it stays correct if targets is later
-	// mutated. / TUI Spec A（Task 3）：记录总主机数，让 TUI 显示
-	// "alive 2/4" 而非仅 "alive 2"。在扫描开始时存一次，避免后
-	// 续 targets 被改时出错。
+	// mutated. Deliberately AFTER the exclude/prescreen filters so
+	// the denominator reflects what will actually be probed.
+	// / TUI Spec A（Task 3）：记录总主机数，让 TUI 显示 "alive 2/4"
+	// 而非仅 "alive 2"。在扫描开始时存一次，避免后续 targets 被改
+	// 时出错。刻意放在排除/预筛过滤之后，让分母反映实际会被探测的
+	// 目标数。
 	sess.State.TotalHosts.Store(int64(len(targets)))
 
 	// Stage 0: alive (core/alive). / 阶段 0：存活发现。
@@ -265,8 +344,33 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		// 覆盖所有返回路径。此处早先的重复 defer close(items) 会在每
 		// 次扫描时 double-close 并 panic。v0.2 审计删除。
 		scanRes := make(chan scan.Result, DefaultChannelBuffer)
+		// RetryableProbe (borrowed from fscan): retries ONLY resource-
+		// exhausted errors (EMFILE / socket exhaustion) with
+		// exponential backoff — timeout/refused are legitimate scan
+		// results and never retried, so this cannot slow a healthy
+		// scan. TrackStats feeds the end-of-scan failure report below.
+		// / RetryableProbe（借鉴 fscan）：只对资源耗尽错误（EMFILE /
+		// socket 耗尽）做指数退避重试——timeout/refused 是合法扫描结
+		// 果，绝不重试，因此不可能拖慢健康扫描。TrackStats 喂给下方
+		// 扫描结束的失败率报告。
+		rp := scan.NewRetryableProbe(
+			scan.NewTCPConnectProbeWithBanner(scan.FirstBanner),
+			scan.RetryConfig{MaxRetries: 3,
+				InitialBackoff:    200 * time.Millisecond,
+				BackoffMultiplier: 2.0,
+				TrackStats:        true,
+			})
 		sc := scan.NewScanner(scan.ScanOptions{
-			Probe:      scan.NewTCPConnectProbe(),
+			// Banner grabbing is wired (FirstBanner) so the Stage-0
+			// nmap-style fingerprint in the plugin worker has raw
+			// response bytes to match. Without a reader every open
+			// port yielded an empty banner and the fingerprint layer
+			// was dead code on real scans.
+			// / 抓 banner 已接线（FirstBanner），让插件 worker 的
+			// Stage-0 nmap 风格指纹有原始响应字节可匹配。不接 reader
+			// 时每个开放端口的 banner 恒为空，指纹层在真实扫描里是
+			// 死代码。
+			Probe:      rp,
 			Timeout:    cfg.Timeout,
 			Threads:    cfg.Threads,
 			MinThreads: DefaultMinThreads,
@@ -309,6 +413,28 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		defer close(items) // see P1#1 above / 见上方 P1#1
 		go func() {
 			_ = sc.Run(ctx, scan.NewCrossIterator(targetAddrs(targets), ports), scanRes)
+			// Failure-rate report (borrowed from fscan): resource-
+			// exhaustion retries that still failed are the "scanner
+			// outgrew its FD/socket budget" signal. Report the rate
+			// against the planned probe total so an operator stuck on
+			// a suspiciously slow scan sees WHY, with a concrete fix.
+			// / 失败率报告（借鉴 fscan）：重试后仍失败的资源耗尽探测
+			// 是"扫描器超出 FD/socket 预算"的信号。按计划探测总量报
+			// 告比率，让困在异常缓慢扫描里的操作员看到原因和具体修法。
+			if st := rp.Stats(); st.FailedRetries > 0 {
+				total := sess.State.TotalPorts.Load()
+				rate := float64(st.FailedRetries) / float64(total)
+				switch {
+				case rate > 0.20:
+					sess.Log.Warn("[!] %d/%d probes failed after resource-exhaustion retries (%.0f%%) — scan is likely FD/socket starved; rerun with lower --threads",
+						st.FailedRetries, total, rate*100)
+				case rate > 0.05:
+					sess.Log.Warn("[!] %d/%d probes hit resource exhaustion (%.0f%%); consider lower --threads",
+						st.FailedRetries, total, rate*100)
+				default:
+					sess.Log.Info("[*] %d probe(s) recovered via resource-exhaustion retry", st.ResourceErrors)
+				}
+			}
 			close(scanDone)
 		}()
 		for {
@@ -486,6 +612,16 @@ func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	targets, err := types.ExpandTargets(cfg.Host, cfg.HostsFile)
 	if err != nil {
 		return 0, fmt.Errorf("expand targets: %w", err)
+	}
+	// Host exclusions apply to crack mode too — a target the operator
+	// excluded must never be credential-tested. / 主机排除对 crack 模
+	// 式同样生效——操作员排除的目标绝不能被凭据测试。
+	targets, excluded, err := types.ApplyExcludeHosts(targets, cfg.ExcludeHosts, cfg.ExcludeHostsFile)
+	if err != nil {
+		return 0, fmt.Errorf("exclude hosts: %w", err)
+	}
+	if excluded > 0 {
+		sess.Log.Info("[*] excluded %d host(s) via --exclude-hosts", excluded)
 	}
 	ports, err := cfg.ResolvePorts()
 	if err != nil {

@@ -46,6 +46,14 @@ type Config struct {
 	Host      string // IP / CIDR / range / comma-list
 	HostsFile string // optional file of targets
 
+	// Host exclusions (borrowed from fscan's -eh/-ehf). Syntax: exact
+	// IP, CIDR, IP range (a-b or last-octet suffix), hostnames, and
+	// RFC1918 shortcuts 192/172/10. / 主机排除（借鉴 fscan 的
+	// -eh/-ehf）。语法：精确 IP、CIDR、IP 范围（a-b 或末八位组后缀）、
+	// 主机名、RFC1918 快捷 192/172/10。
+	ExcludeHosts     string // comma-separated spec / 逗号分隔 spec
+	ExcludeHostsFile string // one entry per line, #-comments ok / 每行一条，支持 #-注释
+
 	// Workspace / 工作区
 	Project    string // empty = ephemeral; non-empty = persistent project
 	ProjectKey string // passphrase for AES-256-GCM at-rest encryption; empty = plaintext (v0.2.x compat)
@@ -71,6 +79,20 @@ type Config struct {
 	NoICMP           bool
 	Plugins          string // comma-separated plugin names; empty = all
 	MaxPluginWorkers int    // maximum number of plugin workers; 0 = default (16)
+
+	// NoSubnetProbe disables the /24 segment pre-screen (kill switch
+	// for the prescreen heuristic). / NoSubnetProbe 关闭 /24 网段预筛
+	// （预筛启发式的kill switch）。
+	NoSubnetProbe bool
+
+	// ThreadsExplicit / TimeoutExplicit record whether the operator
+	// set the flag on the CLI. The env-profiler only auto-tunes
+	// non-explicit values (fscan's isExplicit pattern).
+	// ThreadsExplicit / TimeoutExplicit 记录操作员是否在 CLI 显式设
+	// 置了该 flag。环境画像只自动调优非显式值（fscan 的 isExplicit
+	// 模式）。
+	ThreadsExplicit bool
+	TimeoutExplicit bool
 
 	// Credentials / 凭据
 	Users    []string

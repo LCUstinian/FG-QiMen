@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential/auth/network"
@@ -95,7 +96,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// / List 都能看到生效根。
 	workspace.SetRoot(flagWorkspace)
 
-	cfg, err := buildConfig()
+	cfg, err := buildConfig(cmd.Flags())
 	if err != nil {
 		return fmt.Errorf("config error: %w", err)
 	}
@@ -298,11 +299,33 @@ func resolveProjectKey() string {
 }
 
 // buildConfig collects the global flag values into a Config struct.
-// buildConfig 把全局 flag 值汇总成 Config 结构。
-func buildConfig() (*types.Config, error) {
+// pf (the executed command's merged flag set) supplies the explicit-
+// tracking info; nil is tolerated (explicit = false, e.g. in tests).
+//
+// buildConfig 把全局 flag 值汇总成 Config 结构。pf（执行命令的合并
+// flag 集）提供显式追踪信息；允许 nil（显式 = false，如测试中）。
+func buildConfig(pf *pflag.FlagSet) (*types.Config, error) {
+	// Explicit-tracking (fscan's isExplicit pattern): the core env
+	// profiler only auto-tunes values the operator did NOT set on the
+	// CLI. pflag.Changed is the authoritative source — flag defaults
+	// (e.g. --threads 200) do not count as explicit. The flag set is
+	// passed in (not rootCmd.PersistentFlags()) because referencing
+	// rootCmd here creates an initialization cycle through runScan.
+	// / 显式追踪（fscan 的 isExplicit 模式）：核心环境画像只自动调
+	// 优操作员未在 CLI 显式设置的值。pflag.Changed 是权威来源——flag
+	// 默认值（如 --threads 200）不算显式。FlagSet 由参数传入（而非
+	// 直接引用 rootCmd.PersistentFlags()），因为这里引用 rootCmd 会
+	// 经由 runScan 形成初始化环。
+	var threadsExplicit, timeoutExplicit bool
+	if pf != nil {
+		threadsExplicit = pf.Changed("threads")
+		timeoutExplicit = pf.Changed("timeout")
+	}
 	cfg := &types.Config{
 		Host:             flagHost,
 		HostsFile:        flagHostsFile,
+		ExcludeHosts:     flagExcludeHosts,
+		ExcludeHostsFile: flagExcludeHostsFile,
 		Project:          flagProject,
 		ProjectKey:       resolveProjectKey(),
 		Mode:             types.RunMode(flagMode),
@@ -330,6 +353,7 @@ func buildConfig() (*types.Config, error) {
 		NoTUI:            flagNoTUI,
 		NoICMP:           flagNoICMP,
 		NoBatch:          flagNoBatch,
+		NoSubnetProbe:    flagNoPrescreen,
 		Verbose:          flagVerbose,
 		ShowCleartext:    flagShowCleartext,
 		InsecureTLS:      flagInsecureTLS,
@@ -337,6 +361,9 @@ func buildConfig() (*types.Config, error) {
 		KnownHostsFile:   flagKnownHosts,
 		ShutdownTimeout:  flagShutdownTime,
 		Plugins:          flagPlugins,
+
+		ThreadsExplicit: threadsExplicit,
+		TimeoutExplicit: timeoutExplicit,
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err

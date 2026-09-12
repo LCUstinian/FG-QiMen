@@ -22,6 +22,7 @@ package scan
 import (
 	"context"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,6 +319,251 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// routingProbe returns Open only for host:port pairs listed in open
+// (key "host|port"), Closed otherwise. Records every probe by category
+// (gateway = host ends in .1/.254) so tests can assert on phase-1 vs
+// phase-2 traffic separately.
+//
+// routingProbe 仅对 open 列表（键 "host|port"）中的 host:port 返回
+// Open，其余 Closed。按类别记录每次探测（网关 = host 以 .1/.254 结
+// 尾），供测试分别断言阶段 1 / 阶段 2 流量。
+type routingProbe struct {
+	mu     sync.Mutex
+	open   map[string]bool
+	probed []string
+}
+
+func newRoutingProbe(open map[string]bool) *routingProbe {
+	return &routingProbe{open: open}
+}
+
+func (p *routingProbe) Name() string     { return "routing" }
+func (p *routingProbe) Method() Method   { return MethodTCPConnect }
+func (p *routingProbe) Available() error { return nil }
+
+func (p *routingProbe) Probe(_ context.Context, host string, port int, _ time.Duration) (Result, error) {
+	p.mu.Lock()
+	p.probed = append(p.probed, host+"|"+strconv.Itoa(port))
+	p.mu.Unlock()
+	if p.open[host+"|"+strconv.Itoa(port)] {
+		return Result{State: StateOpen, Method: MethodTCPConnect}, nil
+	}
+	return Result{State: StateClosed, Method: MethodTCPConnect}, nil
+}
+
+// countHostProbes counts probes to non-gateway hosts (.1/.254 excluded).
+// countHostProbes 统计对非网关主机（排除 .1/.254）的探测次数。
+func (p *routingProbe) countHostProbes() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, rec := range p.probed {
+		host := rec[:strings.IndexByte(rec, '|')]
+		if !strings.HasSuffix(host, ".1") && !strings.HasSuffix(host, ".254") {
+			n++
+		}
+	}
+	return n
+}
+
+func (p *routingProbe) totalProbes() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.probed)
+}
+
+// segHosts builds "10.<b>.0.i" hosts for i in [1, n].
+// segHosts 构建 "10.<b>.0.i"（i ∈ [1, n]）主机列表。
+func segHosts(b, n int) []string {
+	hosts := make([]string, 0, n)
+	for i := 1; i <= n; i++ {
+		// Plain itoa for octets: net.ParseIP rejects leading zeros, so
+		// zero-padded hosts would fall into the pass-through bucket.
+		// / 八位组用普通 itoa：net.ParseIP 拒绝前导零，零填充主机会被
+		// 归入直通分组。
+		hosts = append(hosts, "10."+itoa3(b)+".0."+strconv.Itoa(i))
+	}
+	return hosts
+}
+
+// TestPrescreenPhase2RescuesGatewaySilentSegment — the core reason the
+// phase-2 fallback exists: two segments, all gateways firewalled, but
+// one host in segment B answers on its rotating fallback port. Without
+// phase 2 the gateway heuristic would drop BOTH segments; with it,
+// segment B is rescued and segment A (fully silent) is still dropped.
+//
+// / TestPrescreenPhase2RescuesGatewaySilentSegment — 阶段 2 兜底存在
+// 的核心理由：两个网段、全部网关被防火墙挡住，但 B 网段有一台主机在
+// 轮换兜底端口上应答。没有阶段 2 时网关启发式会把两个网段都丢掉；
+// 有阶段 2 时 B 被救回，完全静默的 A 仍被丢弃。
+func TestPrescreenPhase2RescuesGatewaySilentSegment(t *testing.T) {
+	// 10.200.0.x and 10.201.0.x, 130 hosts each → 260 ≥ threshold 256.
+	// / 10.200.0.x 和 10.201.0.x 各 130 台 → 260 ≥ 阈值 256。
+	a := segHosts(200, 130)
+	b := segHosts(201, 130)
+	hosts := append(append([]string{}, a...), b...)
+
+	probe := newRoutingProbe(map[string]bool{
+		// Octet 41 → 0-based index 40 → 40%8=0 → phase2ProbePorts[0]=80.
+		// / 八位组 41 → 0-based 下标 40 → 40%8=0 → phase2ProbePorts[0]=80。
+		"10.201.0.41|80": true,
+	})
+	pres := NewPrescreener(PrescreenOptions{
+		Enabled:     true,
+		Threshold:   PrescreenThreshold,
+		ProbePorts:  []int{22, 80, 443, 3389},
+		Timeout:     50 * time.Millisecond,
+		Concurrency: 32,
+		Phase2:      true,
+	}, probe)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got, summary := pres.FilterHostsSummary(ctx, hosts)
+
+	for _, h := range a {
+		if containsStr(got, h) {
+			t.Errorf("dead segment A host %s survived prescreen", h)
+		}
+	}
+	if !containsStr(got, "10.201.0.41") {
+		t.Errorf("rescued segment B is missing host 10.201.0.41; got %d hosts", len(got))
+	}
+	if len(got) != len(b) {
+		t.Errorf("got %d hosts, want %d (all of segment B)", len(got), len(b))
+	}
+	if summary.DeadSegments != 1 || summary.LiveSegments != 1 {
+		t.Errorf("summary dead=%d live=%d, want 1/1", summary.DeadSegments, summary.LiveSegments)
+	}
+	if summary.SkippedHosts != len(a) || summary.FilteredHosts != len(b) {
+		t.Errorf("summary skipped=%d filtered=%d, want %d/%d",
+			summary.SkippedHosts, summary.FilteredHosts, len(a), len(b))
+	}
+	if !summary.WasPrescreened {
+		t.Error("summary.WasPrescreened = false, want true")
+	}
+}
+
+// TestPrescreenPhase2DisabledDropsSilentSegment — with Phase2 off, the
+// gateway-silent-but-live segment is dropped and no per-host probes run.
+//
+// / TestPrescreenPhase2DisabledDropsSilentSegment — 关掉 Phase2 时，
+// 网关静默但存活的网段被丢弃且不产生逐主机探测。
+func TestPrescreenPhase2DisabledDropsSilentSegment(t *testing.T) {
+	a := segHosts(200, 130)
+	b := segHosts(201, 130)
+	hosts := append(append([]string{}, a...), b...)
+
+	probe := newRoutingProbe(map[string]bool{"10.201.0.41|80": true})
+	pres := NewPrescreener(PrescreenOptions{
+		Enabled:     true,
+		Threshold:   PrescreenThreshold,
+		ProbePorts:  []int{22, 80, 443, 3389},
+		Timeout:     50 * time.Millisecond,
+		Concurrency: 32,
+		Phase2:      false,
+	}, probe)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got, _ := pres.FilterHostsSummary(ctx, hosts)
+
+	if containsStr(got, "10.201.0.41") {
+		t.Error("phase2 disabled but gateway-silent segment B survived")
+	}
+	if n := probe.countHostProbes(); n != 0 {
+		t.Errorf("phase2 disabled but %d per-host probes ran", n)
+	}
+}
+
+// TestPrescreenPhase2SampleCap — the fallback must not probe more than
+// Phase2SampleCap hosts per missed segment, even when the segment has
+// more hosts and no host ever answers (worst-case cost bound).
+//
+// / TestPrescreenPhase2SampleCap — 兜底对每个未命中网段的探测不得超
+// 过 Phase2SampleCap 台主机，即使网段更大且无主机应答（最坏成本上界）。
+func TestPrescreenPhase2SampleCap(t *testing.T) {
+	a := segHosts(200, 130)
+	b := segHosts(201, 130)
+	hosts := append(append([]string{}, a...), b...)
+
+	probe := newRoutingProbe(nil) // nothing open / 全部静默
+	pres := NewPrescreener(PrescreenOptions{
+		Enabled:         true,
+		Threshold:       PrescreenThreshold,
+		ProbePorts:      []int{22, 80, 443, 3389},
+		Timeout:         50 * time.Millisecond,
+		Concurrency:     200,
+		Phase2:          true,
+		Phase2SampleCap: 16,
+	}, probe)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got, _ := pres.FilterHostsSummary(ctx, hosts)
+
+	if len(got) != 0 {
+		t.Errorf("fully silent input should filter to 0 hosts, got %d", len(got))
+	}
+	// Both segments are gateway-silent → each contributes ≤16 host
+	// probes (2 × 16). / 两个网段都网关静默，各贡献 ≤16 台（2 × 16）。
+	if n := probe.countHostProbes(); n > 32 {
+		t.Errorf("phase-2 probed %d hosts, want ≤ 32 (2 segments × cap 16)", n)
+	}
+}
+
+// TestPrescreenSingleSegmentGuard — a single-/24 input at threshold
+// must pass through untouched (mirrors fscan's len(subnets)<=1 guard):
+// with nothing to compare against, a gateway-silent /24 would otherwise
+// be wiped out wholesale. Uses duplicated hosts to exceed the threshold
+// within one segment (unique IPs cap at 254 per /24).
+//
+// / TestPrescreenSingleSegmentGuard — 达到阈值的单 /24 输入必须原样
+// 通过（对齐 fscan 的 len(subnets)<=1 守卫）：没有对照对象时，网关
+// 静默的 /24 否则会被一刀切掉。用重复主机使单网段超过阈值（唯一 IP
+// 在 /24 内上限 254）。
+func TestPrescreenSingleSegmentGuard(t *testing.T) {
+	base := segHosts(200, 130)
+	hosts := append(append([]string{}, base...), base...) // 260 hosts, 1 segment
+
+	probe := newRoutingProbe(nil)
+	pres := NewPrescreener(PrescreenOptions{
+		Enabled:     true,
+		Threshold:   PrescreenThreshold,
+		ProbePorts:  []int{22, 80, 443, 3389},
+		Timeout:     50 * time.Millisecond,
+		Concurrency: 32,
+		Phase2:      true,
+	}, probe)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got, summary := pres.FilterHostsSummary(ctx, hosts)
+
+	if len(got) != len(hosts) {
+		t.Errorf("single-segment input filtered: got %d hosts, want %d", len(got), len(hosts))
+	}
+	if n := probe.totalProbes(); n != 0 {
+		t.Errorf("single-segment guard must skip all probes, got %d", n)
+	}
+	if summary.WasPrescreened {
+		t.Error("single-segment guard should not mark summary as prescreened")
+	}
+}
+
+func containsStr(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // silence unused-import warnings on platforms / build configs that

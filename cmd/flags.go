@@ -43,6 +43,10 @@ var (
 	// 1. Target selection / 目标选择
 	flagHost      string
 	flagHostsFile string
+	// Borrowed from fscan's -eh/-ehf: hosts to exclude from probing.
+	// / 借鉴 fscan 的 -eh/-ehf：探测时要排除的主机。
+	flagExcludeHosts     string
+	flagExcludeHostsFile string
 
 	// 2. Workspace / 工作区
 	flagProject    string
@@ -116,6 +120,7 @@ var (
 	flagNoTUI         bool
 	flagNoICMP        bool
 	flagNoBatch       bool
+	flagNoPrescreen   bool
 	flagVerbose       bool
 	flagShowCleartext bool
 	flagInsecureTLS   bool
@@ -207,6 +212,12 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"target IP / CIDR / range / comma-list (e.g. 192.168.1.0/24)")
 	pf.StringVarP(&flagHostsFile, "hosts-file", "f", "",
 		"load targets from a file (one per line)")
+	// Borrowed from fscan's -eh/-ehf (long-form only per the short-flag
+	// policy). / 借鉴 fscan 的 -eh/-ehf（按短参设计原则只用长形式）。
+	pf.StringVar(&flagExcludeHosts, "exclude-hosts", "",
+		"hosts to exclude from all probing (comma list): exact IP, CIDR (10.0.0.0/8), range (192.168.1.1-192.168.1.9 or 192.168.1.1-9), hostname, or RFC1918 shortcuts 192/172/10")
+	pf.StringVar(&flagExcludeHostsFile, "exclude-hosts-file", "",
+		"load exclude entries from a file (one per line, #-comments allowed; same syntax as --exclude-hosts)")
 
 	// 2. Workspace / 工作区
 	// --project has no short flag. Use long form (`--project corp`)
@@ -359,6 +370,11 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"disable bbolt batched writes; fall back to per-write fsync")
 	pf.BoolVar(&flagNoICMP, "no-icmp", false,
 		"skip ICMP probe, use TCP-ping fallback only")
+	// Kill switch for the /24 segment pre-screen (borrowed from fscan's
+	// -no DisableSubnetProbe). / /24 网段预筛的 kill switch（对齐
+	// fscan 的 -no DisableSubnetProbe）。
+	pf.BoolVar(&flagNoPrescreen, "no-prescreen", false,
+		"disable the /24 segment pre-screen that skips gateway-silent segments before host discovery (large multi-/24 scans only; single-segment inputs are never filtered)")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false,
 		"verbose debug logging")
 	pf.StringVar(&flagPlugins, "plugins", "",
@@ -381,7 +397,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	//
 	// 分组标注（root.go 的 SetUsageTemplate 用 "group" 注解渲染）。
 	// 这是单一真源——flag 名列表要与上面的 StringVarP/Var 调用对齐。
-	annotate(pf, []string{"host", "hosts-file"}, groupTarget)
+	annotate(pf, []string{"host", "hosts-file", "exclude-hosts", "exclude-hosts-file"}, groupTarget)
 	annotate(pf, []string{"project", "project-key", "workspace", "mode", "resume", "no-state"}, groupWorkspace)
 	annotate(pf, []string{"ports", "exclude-ports", "alive-only"}, groupPorts)
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
@@ -389,7 +405,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "alive-format", "rotate-bytes", "rotate-files"}, groupOutput)
-	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "verbose", "plugins"}, groupBehavior)
+	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "no-prescreen", "verbose", "plugins"}, groupBehavior)
 	annotate(pf, []string{"at", "in", "cron", "tz", "daemon", "schedule-dry-run"}, groupSchedule)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

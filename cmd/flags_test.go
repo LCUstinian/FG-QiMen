@@ -29,8 +29,10 @@ import (
 // 但 map 仍引用它。
 var expectedFlagGroups = map[string]string{
 	// Target
-	"host":       "Target",
-	"hosts-file": "Target",
+	"host":               "Target",
+	"hosts-file":         "Target",
+	"exclude-hosts":      "Target",
+	"exclude-hosts-file": "Target",
 	// Workspace
 	"project":     "Workspace",
 	"project-key": "Workspace",
@@ -86,12 +88,13 @@ var expectedFlagGroups = map[string]string{
 	"daemon":           "Schedule",
 	"schedule-dry-run": "Schedule",
 	// Behavior
-	"silent":   "Behavior",
-	"no-tui":   "Behavior",
-	"no-batch": "Behavior",
-	"no-icmp":  "Behavior",
-	"verbose":  "Behavior",
-	"plugins":  "Behavior",
+	"silent":       "Behavior",
+	"no-tui":       "Behavior",
+	"no-batch":     "Behavior",
+	"no-icmp":      "Behavior",
+	"no-prescreen": "Behavior",
+	"verbose":      "Behavior",
+	"plugins":      "Behavior",
 	// Safety
 	"show-creds":   "Safety",
 	"insecure-tls": "Safety",

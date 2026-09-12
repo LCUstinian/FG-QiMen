@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **fscan-inspired scan intelligence** — host exclusion (`--exclude-hosts`
+  / `--exclude-hosts-file`: exact IP, CIDR, range, hostname, or the
+  RFC1918 shortcuts `192`/`172`/`10`, applied before any probe traffic),
+  network environment profiling (samples RTT/loss across the target set
+  before scanning and auto-tunes timeout and thread count — but only for
+  values the operator did NOT set explicitly), and /24 segment
+  pre-screening (two-phase gateway probe with a bounded per-host
+  fallback for firewalled gateways; single-segment inputs are never
+  filtered). Resource-exhaustion dial errors (EMFILE and friends) now
+  retry with exponential backoff, and a >20% retry-failure rate warns
+  that the scan is likely FD/socket-starved.
 - **Structured service identity on every result** — `Result` now carries
   `product`, `version`, and `confidence` fields. The nmap-style banner
   fingerprint parses its `p/product/ v/version/` template segments
