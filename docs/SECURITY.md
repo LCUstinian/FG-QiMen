@@ -99,7 +99,7 @@ FG-QiMen 只做前者。**
 ## Encryption at rest
 
 Project mode persists results to a bbolt DB at
-`runs/projects/<name>/fg.db`. By default the values are written
+`fgqm_workspace/projects/<name>/fgqm.db`. By default the values are written
 plaintext (the seen-set bucket is always plaintext — it stores only
 non-secret SHA-1 hashes).
 

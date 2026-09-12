@@ -138,8 +138,8 @@ rules: no post-auth action, no exploitation.
 ## Project workspace
 
 ```
-runs/projects/<name>/
-├── fg.db                  # bbolt state
+fgqm_workspace/projects/<name>/
+├── fgqm.db                # bbolt state
 ├── targets.txt            # hand-editable target list (no fgqm_ prefix — operators edit it directly)
 └── <YYYY-MM-DD>/
     ├── fgqm_result_HH-MM-SS.txt / .json / .csv / .sarif

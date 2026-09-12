@@ -123,8 +123,8 @@ cmd/                                Cobra 命令
 ## 项目 workspace
 
 ```
-runs/projects/<name>/
-├── fg.db                  # bbolt 状态
+fgqm_workspace/projects/<name>/
+├── fgqm.db                # bbolt 状态
 ├── targets.txt            # 手编目标列表（不加 fgqm_ 前缀——操作员
 │                          # 直接编辑）
 └── <YYYY-MM-DD>/

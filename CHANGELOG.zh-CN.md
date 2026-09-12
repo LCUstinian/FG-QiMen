@@ -4,6 +4,35 @@
 # Changelog
 ## [Unreleased]
 
+### BREAKING — 工作区目录改名
+
+on-disk 工作区布局从 `runs/` 改名为 `fgqm_workspace/`，与所有 fg-qimen
+结果文件（`fgqm_result.txt`、`fgqm_creds.txt`、`fgqm_alive.txt`、
+`fgqm_rdp.*`）的 `fgqm_` 前缀统一。bbolt 状态文件相应从 `fg.db`
+改名为 `fgqm.db`，理由相同。
+
+| 旧（≤ v0.6.0） | 新（v0.6.x） |
+|---|---|
+| `runs/default/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/default/<YYYY-MM-DD>/fgqm_*` |
+| `runs/projects/<name>/fg.db` | `fgqm_workspace/projects/<name>/fgqm.db` |
+| `runs/projects/<name>/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/projects/<name>/<YYYY-MM-DD>/fgqm_*` |
+
+**迁移：**
+
+```bash
+# 一次性重命名现有工作区树。安全——树内文件无需改，仅父目录名变。
+mv runs fgqm_workspace
+
+# 项目目录内 fg.db → fgqm.db（bbolt 允许重命名，只要内容不变）。
+find fgqm_workspace/projects -name 'fg.db' -exec mv {} {}.tmp \; -exec mv {}.tmp "$(dirname {})/fgqm.db" \;
+```
+
+迁移完成后，原 `fg-qimen resume --project <name>` 会从
+`fgqm_workspace/projects/<name>/fgqm.db` 恢复，无需重扫或重建状态。
+
+**不**提供 `--workspace-root` 兼容 flag——硬切。在单台主机上想保留
+旧路径可以建符号链接：`ln -s fgqm_workspace runs`（仅向下兼容）。
+
 ## [0.6.0] - 2026-09-10
 
 Fake-server 覆盖推进。35 个 adapted plugin 中的 35 个拿到了 in-process

@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING — workspace directory rename
+
+The on-disk workspace layout has been renamed from `runs/` to
+`fgqm_workspace/` to align with the `fgqm_` prefix used by every
+fg-qimen result file (`fgqm_result.txt`, `fgqm_creds.txt`,
+`fgqm_alive.txt`, `fgqm_rdp.*`). The bbolt state file is renamed
+from `fg.db` to `fgqm.db` for the same reason.
+
+| Before (≤ v0.6.0) | After (v0.6.x) |
+|---|---|
+| `runs/default/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/default/<YYYY-MM-DD>/fgqm_*` |
+| `runs/projects/<name>/fg.db` | `fgqm_workspace/projects/<name>/fgqm.db` |
+| `runs/projects/<name>/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/projects/<name>/<YYYY-MM-DD>/fgqm_*` |
+
+**Migration:**
+
+```bash
+# One-shot rename of an existing workspace tree. Safe — nothing
+# inside the tree needs to change, only its parent dir name.
+mv runs fgqm_workspace
+
+# Inside project dirs, rename fg.db → fgqm.db (bbolt tolerates the
+# rename as long as the file content is unchanged).
+find fgqm_workspace/projects -name 'fg.db' -exec mv {} {}.tmp \; -exec mv {}.tmp "$(dirname {})/fgqm.db" \;
+```
+
+After running the migration, existing `fg-qimen resume --project <name>`
+runs will resume from `fgqm_workspace/projects/<name>/fgqm.db` as
+before. No re-scan or state rebuild needed.
+
+There is **no** `--workspace-root` compatibility flag — the rename
+is a hard cut. Operators who want to keep the old path on a single
+host can symlink: `ln -s fgqm_workspace runs` (downward only).
+
 ## [0.6.0] - 2026-09-10
 
 Fake-server coverage push. 35 of 43 adapted plugins gained in-process

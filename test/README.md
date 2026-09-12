@@ -22,14 +22,14 @@ just build
 # 2. Start a local HTTP service in another terminal
 python -m http.server 8080 --bind 127.0.0.1
 
-# 3. Ephemeral scan (writes to ./runs/default/)
+# 3. Ephemeral scan (writes to ./fgqm_workspace/default/)
 ./release/fg-qimen -f test/targets.txt --ports 22,80,8080,3306 -t 5 --shutdown-timeout 2s --no-tui
 
 # 4. Inspect ephemeral output
-cat runs/default/result.txt
-cat runs/default/result.json
+cat fgqm_workspace/default/*/fgqm_result_*.txt | head
+cat fgqm_workspace/default/*/fgqm_result_*.json | head
 
-# 5. Project-mode scan (writes to ./runs/projects/<name>/)
+# 5. Project-mode scan (writes to ./fgqm_workspace/projects/<name>/)
 ./release/fg-qimen projects create smoke
 ./release/fg-qimen -p smoke -f test/targets.txt --ports 22,80,8080,3306 -t 5 --shutdown-timeout 2s --no-tui
 
