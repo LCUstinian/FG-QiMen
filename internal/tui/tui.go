@@ -158,118 +158,13 @@ const lingerTicks = 15
 type tickMsg time.Time
 
 // Model is the Bubbletea model for the dashboard.
-// Model 是 Bubbletea dashboard 的 model。
-type Model struct {
-	// Width / height are the terminal size; bubbletea auto-updates them
-	// via WindowSizeMsg.
-	// Width / height 是终端尺寸；bubbletea 通过 WindowSizeMsg 自动更新。
-	width  int
-	height int
-
-	// Stats snapshot / 统计快照
-	counters types.CountersView
-	elapsed  string
-	mode     string
-	project  string
-
-	// pending events appended by the dispatcher; flushed into
-	// events on the next tick. Keeps the dispatcher contract
-	// (append-only) intact while letting the model amortise the
-	// cost of re-sorting/trimming to one operation per render.
-	// pending 事件由 dispatcher 追加；在下一次 tick 时刷入 events。
-	// 保留 dispatcher 的追加契约，同时让模型在每次渲染时把排序
-	// /修剪的开销摊销成一次。
-	pending []liveEvent
-
-	// Live events (newest last) / 实时事件（最新在末尾）
-	events []liveEvent
-
-	// uiMode is the dashboard interaction state. / uiMode 是
-	// dashboard 的交互状态。
-	uiMode mode
-
-	// runState mirrors the pipeline lifecycle (idle/scanning/done)
-	// for the status bar chip + title bar. Independent of uiMode.
-	// runState 镜像 pipeline 生命周期（空闲/扫描/完成），供状态
-	// 条芯片 + 标题栏使用。独立于 uiMode。
-	runState runState
-
-	// frameIdx is the current frame in the spinner rotation. We
-	// keep it on the model (not in styles) so the rotation is
-	// driven by tickMsg, not a global counter.
-	// frameIdx 是 spinner 旋转的当前帧。放在 model 上（而非
-	// styles）让旋转由 tickMsg 驱动，而非全局计数器。
-	frameIdx int
-
-	// lingerLeft counts down the linger frames after runDone; the
-	// dashboard exits the bubbletea loop when it hits zero (unless
-	// the user pressed 'q', which exits immediately).
-	// lingerLeft 在 runDone 后递减；归零时 dashboard 退出
-	// bubbletea 循环（除非用户按了 'q'，那条路径立即退出）。
-	lingerLeft int
-
-	// Quit flag / 退出标志
-	quitting bool
-
-	// Final summary printed after bubbletea exits / bubbletea 退出
-	// 后打印的最终摘要。
-	finalSummary string
-
-	// ── v0.5.2: TUI v2 Spec A info-density panels ──
-	// v0.5.2：TUI v2 Spec A 信息密度面板
-
-	// state is the shared pipeline state (PluginHits /
-	// ErrorCategories views). Optional; nil-safe — when nil, the
-	// topPlugins / topErrors panels render placeholders.
-	// state 是共享的 pipeline 状态（PluginHits / ErrorCategories
-	// 视图）。可选；nil 安全——为 nil 时 topPlugins / topErrors 面
-	// 板渲染占位符。
-	state *types.State
-
-	// start is the wall-clock time the model began tracking ETA.
-	// Populated by the first statsMsg — that way computeETA has
-	// a stable "t0" even when the model is constructed before the
-	// pipeline starts.
-	// start 是 model 开始追踪 ETA 的墙钟时间。由第一条 statsMsg
-	// 填充——这样 computeETA 拥有稳定的 "t0"，即使 model 在
-	// pipeline 启动前就已构造。
-	start time.Time
-
-	// rate is the EWMA state for hits/s and ports/s; embedded so
-	// the helpers in render.go operate on the parent's fields.
-	// rate 是 hits/s 与 ports/s 的 EWMA 状态；内嵌让 render.go
-	// 的辅助函数能直接操作父结构体字段。
-	rate rateTracker
-
-	// rateHits / ratePorts are the latest smoothed rates cached
-	// from rate.update(); the View renders them directly without
-	// re-computing.
-	// rateHits / ratePorts 是 rate.update() 缓存的最新平滑速率；
-	// View 直接渲染，不再重算。
-	rateHits  float64
-	ratePorts float64
-
-	// eta is the per-stage ETA string (or "" when unavailable).
-	// eta 是按阶段的 ETA 字符串（不可用时为 ""）。
-	eta string
-
-	// topPlugins / topErrors are the top-5 (name, countString)
-	// tuples rendered in the right-hand panels. Recomputed on
-	// every statsMsg from the State views.
-	// topPlugins / topErrors 是右面板渲染的 top-5 (name,
-	// countString) 元组。每次 statsMsg 从 State 视图重算。
-	topPlugins [][2]string
-	topErrors  [][2]string
-
-	// flashUntil maps "host:port" → expiry wall-clock for the
-	// "recent critical event" highlight. Looked up by
-	// severityColor in styles.go so freshly-flashed rows paint
-	// red regardless of their underlying kind. / flashUntil 把
-	// "host:port" 映射到"最近关键事件"高亮的到期墙钟时间。
-	// styles.go 的 severityColor 会查它，让刚 flash 的行不管
-	// 底层 kind 是什么都画红。
-	flashUntil map[string]time.Time
-}
+//
+// v0.7.0: Model struct definition moved to model.go (alongside the
+// v0.7.0 ring-buffer / flash / spinner fields it owns). Methods
+// below reference the type by name within the same package.
+// v0.7.0：Model 结构体定义搬到了 model.go（与它拥有的 v0.7.0
+// ring buffer / flash / spinner 字段同处）。下面方法按类型名在
+// 同包内引用。
 
 // NewModel constructs a fresh dashboard model.
 // NewModel 构造一个新的 dashboard model。
