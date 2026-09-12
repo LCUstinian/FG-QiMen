@@ -33,18 +33,19 @@ var validProjectName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 //
 // The two workspace shapes (ephemeral vs persistent) are distinguished
 // by the empty Name: name == "" → ephemeral (no DB, results in cwd),
-// name != "" → persistent (bbolt in runs/projects/<name>). We don't
-// keep a separate Mode enum on the struct — it's redundant with the
-// Name check and the only consumer of the audit's v0.2-flagged Mode
-// was the Stats() helper, which now reads Name directly.
+// name != "" → persistent (bbolt in fgqm_workspace/projects/<name>).
+// We don't keep a separate Mode enum on the struct — it's redundant
+// with the Name check and the only consumer of the audit's v0.2-flagged
+// Mode was the Stats() helper, which now reads Name directly.
 //
 // Project 是当前激活的工作区。它持有文件句柄和 bbolt DB（如有）。
 // 调用方必须 defer proj.Close()。
 //
 // 两种工作区形态（即扫即走 vs 增量）通过空 Name 区分：name=="" → 即扫
-// 即走（无 DB，结果在 cwd）；name!="" → 增量（bbolt 在 runs/projects/
-// <name>）。不再在结构体上保留独立的 Mode enum——和 Name 检查重复，
-// v0.2 审计时 Mode 唯一消费者是 Stats()，现在 Stats() 直接读 Name。
+// 即走（无 DB，结果在 cwd）；name!="" → 增量（bbolt 在 fgqm_workspace/
+// projects/<name>）。不再在结构体上保留独立的 Mode enum——和 Name
+// 检查重复，v0.2 审计时 Mode 唯一消费者是 Stats()，现在 Stats() 直
+// 接读 Name。
 type Project struct {
 	Name string
 	Root string
@@ -73,16 +74,16 @@ type OpenOptions struct {
 	// code — the flag was wired through cfg.NoState but the
 	// production path unconditionally called proj.AsStore(), which
 	// forced a bbolt open via openPersistent. Now the operator's
-	// "don't create fg.db" intent is honoured at workspace-init
+	// "don't create fgqm.db" intent is honoured at workspace-init
 	// time: openPersistent returns a Project with DB=nil and does
-	// not call bolt.Open, so no fg.db file is created on disk.
+	// not call bolt.Open, so no fgqm.db file is created on disk.
 	//
 	// NoState 禁用 bbolt 持久化，即使对命名项目。第一批修复 Task 4：
 	// `--no-state` 以前是死代码——flag 通过 cfg.NoState 传递，但生产
 	// 路径无条件调 proj.AsStore()，迫使 openPersistent 打开 bbolt。
-	// 现在操作员"不创建 fg.db"的意图在 workspace 初始化阶段兑现：
+	// 现在操作员"不创建 fgqm.db"的意图在 workspace 初始化阶段兑现：
 	// openPersistent 返回 DB=nil 的 Project 且不调 bolt.Open，磁盘
-	// 上不创建 fg.db 文件。
+	// 上不创建 fgqm.db 文件。
 	NoState bool
 }
 
@@ -145,18 +146,19 @@ func openEphemeral() (*Project, error) {
 	}, nil
 }
 
-// openPersistent creates ./runs/projects/<name>/ if missing, opens bbolt
-// at ./runs/projects/<name>/fg.db, and returns the project.
-// openPersistent 创建 ./runs/projects/<name>/（如缺失），在
-// ./runs/projects/<name>/fg.db 打开 bbolt，并返回 project。
+// openPersistent creates ./fgqm_workspace/projects/<name>/ if missing,
+// opens bbolt at ./fgqm_workspace/projects/<name>/fgqm.db, and returns
+// the project.
+// openPersistent 创建 ./fgqm_workspace/projects/<name>/（如缺失），在
+// ./fgqm_workspace/projects/<name>/fgqm.db 打开 bbolt，并返回 project。
 //
 // Task 4 (first-batch fixes): when noState=true, neither the
-// directory nor fg.db are created. The Project is returned with
+// directory nor fgqm.db are created. The Project is returned with
 // DB=nil and DBPath="" so callers can detect the no-state mode
 // without consulting cfg.NoState themselves. close() is still
 // safe (the existing nil-DB guard makes it a no-op).
 //
-// 第一批修复 Task 4：当 noState=true 时，目录和 fg.db 都不创建。
+// 第一批修复 Task 4：当 noState=true 时，目录和 fgqm.db 都不创建。
 // 返回的 Project DB=nil、DBPath=""，让调用方无需查 cfg.NoState 就能
 // 识别 no-state 模式。close() 仍安全（现有 nil-DB 守卫把它变成 no-op）。
 func openPersistent(name string, noState bool) (*Project, error) {
@@ -175,7 +177,7 @@ func openPersistent(name string, noState bool) (*Project, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	dbPath := filepath.Join(dir, "fg.db")
+	dbPath := filepath.Join(dir, "fgqm.db")
 	db, err := bolt.Open(dbPath, 0o600, nil)
 	if err != nil {
 		// Map to a stable error code. The underlying bbolt error
@@ -296,10 +298,20 @@ func (p *Project) AsStoreWithPassphrase(passphrase string) *store.Store {
 // live. It is a single source of truth shared by Open / List / Delete
 // so that all three agree on the on-disk layout.
 //
+// v0.6: layout renamed from `./runs/projects/` to
+// `./fgqm_workspace/projects/`. The `fgqm_` prefix aligns with
+// the on-disk result files (`fgqm_result.txt`, `fgqm_creds.txt`,
+// etc.); the `_workspace` segment makes the directory's role
+// self-describing in a mixed cwd.
+//
 // ProjectsRoot 返回持久化项目所在的根目录。Open / List / Delete 共享
 // 该函数，保证三者对磁盘布局的认知一致。
+//
+// v0.6：布局从 `./runs/projects/` 改名为 `./fgqm_workspace/projects/`。
+// `fgqm_` 前缀与结果文件名（`fgqm_result.txt`、`fgqm_creds.txt` 等）
+// 对齐；`_workspace` 段让目录角色在混合 cwd 里自解释。
 func ProjectsRoot() string {
-	return filepath.Join("runs", "projects")
+	return filepath.Join("fgqm_workspace", "projects")
 }
 
 // List returns the names of all persistent project directories that

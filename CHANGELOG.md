@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING — workspace directory rename
+
+The on-disk workspace layout has been renamed from `runs/` to
+`fgqm_workspace/` to align with the `fgqm_` prefix used by every
+fg-qimen result file (`fgqm_result.txt`, `fgqm_creds.txt`,
+`fgqm_alive.txt`, `fgqm_rdp.*`). The bbolt state file is renamed
+from `fg.db` to `fgqm.db` for the same reason.
+
+| Before (≤ v0.6.0) | After (v0.6.x) |
+|---|---|
+| `runs/default/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/default/<YYYY-MM-DD>/fgqm_*` |
+| `runs/projects/<name>/fg.db` | `fgqm_workspace/projects/<name>/fgqm.db` |
+| `runs/projects/<name>/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/projects/<name>/<YYYY-MM-DD>/fgqm_*` |
+
+**Migration:**
+
+```bash
+# One-shot rename of an existing workspace tree. Safe — nothing
+# inside the tree needs to change, only its parent dir name.
+mv runs fgqm_workspace
+
+# Inside project dirs, rename fg.db → fgqm.db (bbolt tolerates the
+# rename as long as the file content is unchanged).
+find fgqm_workspace/projects -name 'fg.db' -exec mv {} {}.tmp \; -exec mv {}.tmp "$(dirname {})/fgqm.db" \;
+```
+
+After running the migration, existing `fg-qimen resume --project <name>`
+runs will resume from `fgqm_workspace/projects/<name>/fgqm.db` as
+before. No re-scan or state rebuild needed.
+
+There is **no** `--workspace-root` compatibility flag — the rename
+is a hard cut. Operators who want to keep the old path on a single
+host can symlink: `ln -s fgqm_workspace runs` (downward only).
+
 ### Changed
 
 - TUI v2 Spec B (panel layout) + Spec C (visual polish): 3-breakpoint responsive layout (narrow/medium/wide); LIVE EVENTS panel with severity-coloured ring buffer; rate sparkline in header; collapsible ERRORS panel (e/E); single dark theme with severity colours; progress bars for alive/ports; status symbols + 200ms hit flash. See docs/superpowers/specs/2026-09-12-tui-v2-spec-bc-design.md.

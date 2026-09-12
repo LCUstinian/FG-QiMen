@@ -328,12 +328,13 @@ func (s *Store) PutMany(ops []PutOp) error {
 // When encryption is configured, the marshaled JSON (which contains
 // cleartext credentials) is encrypted at rest. This is the strongest
 // reason to set FG_QIMEN_PROJECT_KEY — without it, an attacker who
-// copies runs/projects/<name>/fg.db can read every password with a
-// hex editor.
+// copies fgqm_workspace/projects/<name>/fgqm.db can read every password
+// with a hex editor.
 //
 // 当启用加密时,序列化 JSON(含明文凭据)在落盘前加密。这是设置
 // FG_QIMEN_PROJECT_KEY 的最强理由——不设则攻击者只需拷贝
-// runs/projects/<name>/fg.db 即可用十六进制编辑器读出所有密码。
+// fgqm_workspace/projects/<name>/fgqm.db 即可用十六进制编辑器读出
+// 所有密码。
 func (s *Store) PutCred(hash string, v any) error {
 	if s == nil || s.db == nil {
 		return nil

@@ -47,12 +47,12 @@ import (
 // flagged this as the projects subcommand's most important
 // "untested" function because it gates the file path used by
 // runProjectsCreate / Delete / Info — a permissive regex
-// would let `..` or `/` slip into `runs/projects/<name>/`.
+// would let `..` or `/` slip into `fgqm_workspace/projects/<name>/`.
 //
 // TestValidProjectName — 表驱动。审计（P2 / F08）把它标为
 // projects 子命令最重要的"未测"函数，因为它门控
 // runProjectsCreate / Delete / Info 用的文件路径——一个宽容
-// 的正则会让 `..` 或 `/` 溜进 `runs/projects/<name>/`。
+// 的正则会让 `..` 或 `/` 溜进 `fgqm_workspace/projects/<name>/`。
 func TestValidProjectName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -112,7 +112,7 @@ func TestValidProjectName(t *testing.T) {
 
 // TestRunProjectsDeleteSmoke — happy-path delete against a real
 // temp directory. The audit flagged runProjectsDelete as untested
-// (P2 / F08). It joins "runs/projects/<name>" — we can't run
+// (P2 / F08). It joins "fgqm_workspace/projects/<name>" — we can't run
 // the test from the repo root without littering the working tree,
 // so the test chdir's into a temp dir, builds a fake project
 // directory there, calls the function, and verifies removal.
@@ -125,17 +125,17 @@ func TestRunProjectsDeleteSmoke(t *testing.T) {
 	tmp := t.TempDir()
 	t.Chdir(tmp)
 
-	// Create a fake project dir at runs/projects/alpha. The
-	// function joins "runs/projects/<name>" relative to cwd,
+	// Create a fake project dir at fgqm_workspace/projects/alpha. The
+	// function joins "fgqm_workspace/projects/<name>" relative to cwd,
 	// so we materialise the parent and a child marker file.
-	// / 构造伪 project dir 在 runs/projects/alpha。函数相对
-	// cwd join "runs/projects/<name>"，所以物化父目录和子标
+	// / 构造伪 project dir 在 fgqm_workspace/projects/alpha。函数相对
+	// cwd join "fgqm_workspace/projects/<name>"，所以物化父目录和子标
 	// 记文件。
-	projDir := filepath.Join(tmp, "runs", "projects", "alpha")
+	projDir := filepath.Join(tmp, "fgqm_workspace", "projects", "alpha")
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
 		t.Fatalf("setup: MkdirAll: %v", err)
 	}
-	if err := writeFile(filepath.Join(projDir, "fg.db"), "fake"); err != nil {
+	if err := writeFile(filepath.Join(projDir, "fgqm.db"), "fake"); err != nil {
 		t.Fatalf("setup: writeFile: %v", err)
 	}
 
@@ -215,16 +215,16 @@ func TestRunProjectsCreate(t *testing.T) {
 		t.Fatalf("runProjectsCreate: %v", err)
 	}
 
-	// The function joins "runs/projects/<name>" relative to cwd
-	// and calls workspace.Open, which creates the directory + opens
-	// the bbolt DB at fg.db.
-	// / 函数相对 cwd join "runs/projects/<name>" 并调
-	// workspace.Open，后者创建目录 + 在 fg.db 打开 bbolt。
-	dir := filepath.Join(tmp, "runs", "projects", "alpha")
+	// The function joins "fgqm_workspace/projects/<name>" relative to
+	// cwd and calls workspace.Open, which creates the directory + opens
+	// the bbolt DB at fgqm.db.
+	// / 函数相对 cwd join "fgqm_workspace/projects/<name>" 并调
+	// workspace.Open，后者创建目录 + 在 fgqm.db 打开 bbolt。
+	dir := filepath.Join(tmp, "fgqm_workspace", "projects", "alpha")
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		t.Errorf("expected project dir at %s, got stat err %v", dir, err)
 	}
-	dbPath := filepath.Join(dir, "fg.db")
+	dbPath := filepath.Join(dir, "fgqm.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Errorf("expected bbolt DB at %s, got err %v", dbPath, err)
 	}
@@ -247,17 +247,17 @@ func TestRunProjectsCreate_InvalidName(t *testing.T) {
 
 	// And no project dir was created.
 	// / 并且没创建 project 目录。
-	dir := filepath.Join(tmp, "runs", "projects", "escape")
+	dir := filepath.Join(tmp, "fgqm_workspace", "projects", "escape")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("expected no project dir at %s, got stat err %v", dir, err)
 	}
 }
 
-// TestRunProjectsList_Empty — when ./runs/projects/ doesn't exist
-// (fresh checkout), the List subcommand prints the "no projects
+// TestRunProjectsList_Empty — when ./fgqm_workspace/projects/ doesn't
+// exist (fresh checkout), the List subcommand prints the "no projects
 // yet" hint instead of erroring.
 //
-// TestRunProjectsList_Empty — 当 ./runs/projects/ 不存在（全新
+// TestRunProjectsList_Empty — 当 ./fgqm_workspace/projects/ 不存在（全新
 // checkout）时，List 子命令打印"no projects yet"提示而不是报错。
 func TestRunProjectsList_Empty(t *testing.T) {
 	tmp := t.TempDir()
@@ -338,7 +338,7 @@ func TestRunProjectsInfo(t *testing.T) {
 	// something other than "(missing)".
 	// / 放一个 targets.txt 和 result.txt，让文件列表显示非
 	// "(missing)"。
-	dir := filepath.Join(tmp, "runs", "projects", "alpha")
+	dir := filepath.Join(tmp, "fgqm_workspace", "projects", "alpha")
 	for _, fn := range []string{"targets.txt", "fgqm_result.txt"} {
 		if err := writeFile(filepath.Join(dir, fn), "stub"); err != nil {
 			t.Fatalf("setup write %s: %v", fn, err)
@@ -354,7 +354,7 @@ func TestRunProjectsInfo(t *testing.T) {
 	for _, must := range []string{
 		"Project: alpha",
 		"Root:",
-		"runs/projects/alpha",
+		"fgqm_workspace/projects/alpha",
 		"DB:",
 		"targets.txt",
 		"fgqm_result.txt",
@@ -377,12 +377,12 @@ func TestRunProjectsInfo(t *testing.T) {
 // "create-or-open", so Info on a never-seen-before project name
 // silently creates it. This test pins that behavior so a future
 // change to Open (e.g., one that refuses to auto-create) doesn't
-// regress Info. After the call, the project dir + fg.db exist.
+// regress Info. After the call, the project dir + fgqm.db exist.
 //
 // TestRunProjectsInfo_CreatesIfMissing — workspace.Open 是
 // "create-or-open"，所以对从未见过的 project 名调 Info 会
 // 静默创建。本测试锁定该行为，以防 Open 未来的修改（如拒绝
-// 自动创建）让 Info 倒退。调用后，project dir + fg.db 存在。
+// 自动创建）让 Info 倒退。调用后，project dir + fgqm.db 存在。
 func TestRunProjectsInfo_CreatesIfMissing(t *testing.T) {
 	tmp := t.TempDir()
 	t.Chdir(tmp)
@@ -398,12 +398,12 @@ func TestRunProjectsInfo_CreatesIfMissing(t *testing.T) {
 	}
 
 	// And the dir + DB should now exist. / dir + DB 现在应存在。
-	dir := filepath.Join(tmp, "runs", "projects", "ghost")
+	dir := filepath.Join(tmp, "fgqm_workspace", "projects", "ghost")
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("expected project dir at %s after Info, got err %v", dir, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "fg.db")); err != nil {
-		t.Errorf("expected fg.db after Info, got err %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "fgqm.db")); err != nil {
+		t.Errorf("expected fgqm.db after Info, got err %v", err)
 	}
 }
 
@@ -459,7 +459,7 @@ func TestRunProjectsExportImport(t *testing.T) {
 	}
 
 	// The new project should exist. / 新项目应存在。
-	if _, err := os.Stat(filepath.Join(tmp, "runs", "projects", "beta")); err != nil {
+	if _, err := os.Stat(filepath.Join(tmp, "fgqm_workspace", "projects", "beta")); err != nil {
 		t.Errorf("imported project not present: %v", err)
 	}
 }

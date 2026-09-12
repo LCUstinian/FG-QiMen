@@ -47,7 +47,7 @@ var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Run a scan (default action of fg-qimen)",
 	Long: `Run a scan. By default this is ephemeral (oneshot) mode, writing
-results to ./runs/default/<YYYY-MM-DD>/fgqm_result.txt and the corresponding
+results to ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt and the corresponding
 .json in the current directory. Pass --project <name> to switch into
 persistent project mode.`,
 	// Reuse the root RunE so flags and behavior are identical.
@@ -459,7 +459,7 @@ func loadResumeState(sess *session.Session, cfg *types.Config) error {
 	hashes, err := sess.Store.LoadSeenHashes()
 	if err != nil {
 		sess.Log.Warn("resume: bbolt read failed (%v); continuing with empty seen-set. "+
-			"Delete the corrupt fg.db to silence this warning.", err)
+			"Delete the corrupt fgqm.db to silence this warning.", err)
 		return nil
 	}
 	for _, h := range hashes {
@@ -646,7 +646,7 @@ func buildConfig() (*types.Config, error) {
 // openProject opens a project workspace (ephemeral or persistent).
 // Task 4 (first-batch fixes): honours cfg.NoState by passing it
 // through to workspace.OpenWithOptions, so a `--no-state` invocation
-// on a named project skips the bbolt open and the runs/projects/<name>/
+// on a named project skips the bbolt open and the fgqm_workspace/projects/<name>/
 // directory creation entirely. Without this, `--no-state` was dead
 // code: the flag was wired through cfg.NoState but the production
 // path unconditionally called proj.AsStore(), which forced a bbolt
@@ -655,15 +655,15 @@ func buildConfig() (*types.Config, error) {
 // openProject 打开项目工作区（即扫即走 / 增量扫描）。
 // 第一批修复 Task 4：通过 workspace.OpenWithOptions 兑现 cfg.NoState，
 // 让对命名项目的 `--no-state` 调用完全跳过 bbolt 打开和
-// runs/projects/<name>/ 目录创建。否则 `--no-state` 是死代码：flag
-// 通过 cfg.NoState 传递，但生产路径无条件调 proj.AsStore()，迫使
-// workspace.Open 打开 bbolt。
+// fgqm_workspace/projects/<name>/ 目录创建。否则 `--no-state` 是
+// 死代码：flag 通过 cfg.NoState 传递，但生产路径无条件调 proj.AsStore()，
+// 迫使 workspace.Open 打开 bbolt。
 func openProject(cfg *types.Config) (*workspace.Project, error) {
 	return workspace.OpenWithOptions(cfg.Project, workspace.OpenOptions{NoState: cfg.NoState})
 }
 
 // resolveOutputPath resolves a possibly-empty output path to a default
-// inside the project root (project mode) or the ./runs/default/
+// inside the project root (project mode) or the ./fgqm_workspace/default/
 // directory (ephemeral mode), bucketed by the local-date `now`
 // (YYYY-MM-DD) and stamped on the filename with HH-MM-SS so
 // multiple runs on the same day don't overwrite each other.
@@ -673,8 +673,8 @@ func openProject(cfg *types.Config) (*workspace.Project, error) {
 //
 // resolveOutputPath 把可能为空的输出路径解析为默认值，按 `now`
 // 的本地日期（YYYY-MM-DD）分桶，文件名再加 HH-MM-SS 时间戳：
-//   - 项目模式：./runs/projects/<name>/<YYYY-MM-DD>/<file>_<HH-MM-SS>
-//   - 即扫即走：./runs/default/<YYYY-MM-DD>/<file>_<HH-MM-SS>
+//   - 项目模式：./fgqm_workspace/projects/<name>/<YYYY-MM-DD>/<file>_<HH-MM-SS>
+//   - 即扫即走：./fgqm_workspace/default/<YYYY-MM-DD>/<file>_<HH-MM-SS>
 //   - 显式 -o / -j：原样返回（不分桶 + 不加时间戳）
 //
 // Why bucket by date + stamp by time: an operator who runs
@@ -684,12 +684,12 @@ func openProject(cfg *types.Config) (*workspace.Project, error) {
 // other (timestamp suffix fixes that). Bucketing by local-date
 // gives the operator a per-day audit trail in the same project
 // root, the HH-MM-SS stamp gives per-run isolation within a day,
-// while fg.db (the persistent state / dedup DB) stays at the
+// while fgqm.db (the persistent state / dedup DB) stays at the
 // project root and is shared across all runs. / 为什么按日分桶
 // + 文件加时间戳：操作员每天对同一项目跑 fg-qimen 时，结果文件
 // 会互相覆盖（日桶解决这个），同一天多次跑也会互相覆盖（时
 // 间戳后缀解决这个）。按本地日分桶给同项目根保留每日审计轨迹，
-// HH-MM-SS 给同日内每次 run 隔离，fg.db 保持在项目根跨所有
+// HH-MM-SS 给同日内每次 run 隔离，fgqm.db 保持在项目根跨所有
 // run 共享。
 func resolveOutputPath(cfg *types.Config, flagValue, defaultName string, now time.Time) (string, error) {
 	if flagValue != "" {
@@ -698,9 +698,9 @@ func resolveOutputPath(cfg *types.Config, flagValue, defaultName string, now tim
 	day := dailyRunSubdir(now)
 	stamped := stampFileName(defaultName, now)
 	if cfg.Project != "" {
-		return filepath.Join("runs", "projects", cfg.Project, day, stamped), nil
+		return filepath.Join("fgqm_workspace", "projects", cfg.Project, day, stamped), nil
 	}
-	return filepath.Join("runs", "default", day, stamped), nil
+	return filepath.Join("fgqm_workspace", "default", day, stamped), nil
 }
 
 // dailyRunSubdir formats `t` as the YYYY-MM-DD bucket name used

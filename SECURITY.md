@@ -59,7 +59,7 @@ that greps for `ssh.NewSession` / `.Shell(` / `os/exec` in credential
 
 ## Encryption (TL;DR)
 
-Project DBs (`runs/projects/<name>/fg.db`) are AES-256-GCM at rest
+Project DBs (`fgqm_workspace/projects/<name>/fgqm.db`) are AES-256-GCM at rest
 when `FG_QIMEN_PROJECT_KEY` is set. Key derivation: v0.3.x used
 SHA-256 (legacy, still readable); v0.4+ uses Argon2id with
 OWASP-2024 parameters. Magic-byte AAD binding prevents bit-flip

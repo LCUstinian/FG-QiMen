@@ -93,11 +93,11 @@ fg-qimen -H 10.0.0.5 -o myscan.txt -j myscan.json
 fg-qimen projects create corp-intranet
 
 # 录入目标
-echo "10.0.0.0/24"   >  runs/projects/corp-intranet/targets.txt
-echo "10.0.1.0/24"   >> runs/projects/corp-intranet/targets.txt
+echo "10.0.0.0/24"   >  fgqm_workspace/projects/corp-intranet/targets.txt
+echo "10.0.1.0/24"   >> fgqm_workspace/projects/corp-intranet/targets.txt
 
 # linked 模式（扫描 + 凭据测试 一把过）
-fg-qimen --project corp-intranet -f runs/projects/corp-intranet/targets.txt --mode linked \
+fg-qimen --project corp-intranet -f fgqm_workspace/projects/corp-intranet/targets.txt --mode linked \
     -u root,admin -p 123456,admin P@ssw0rd
 
 # 续传 / 查看信息
