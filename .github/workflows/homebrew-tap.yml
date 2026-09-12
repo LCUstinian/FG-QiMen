@@ -19,10 +19,24 @@
 #      `contents: write` 权限。存为 HOMEBREW_TAP_TOKEN 仓库 secret。
 name: homebrew-tap
 
+# Trigger AFTER the release workflow completes, not on tag push:
+# both were racing before — this workflow tried to fetch SHA256SUMS
+# while the 11-platform release build was still uploading assets.
+# The v0.6.1-era fix applied workflow_run to scoop-bucket.yml (later
+# deleted); homebrew-tap.yml kept the tag trigger and hit the same
+# race on v0.7.1 (run: fetch SHA256SUMS -> 404). On workflow_run the
+# version comes from the triggering run's head_branch (the tag).
+#
+# 在 release workflow 完成后再触发，而不是 tag push：此前两者赛跑
+# —— 本 workflow 去 fetch SHA256SUMS 时，11 平台的 release 构建
+# 还在传产物。v0.6.1 时代把 workflow_run 修法用在 scoop-bucket.yml
+#（后来删除）上；homebrew-tap.yml 保留 tag 触发，v0.7.1 撞上同
+# 样竞态（run: fetch SHA256SUMS -> 404）。workflow_run 触发时版本
+# 取自触发 run 的 head_branch（即 tag 名）。
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -36,25 +50,46 @@ jobs:
   homebrew-pr:
     name: open Homebrew tap PR
     runs-on: ubuntu-latest
+    # workflow_dispatch always runs (manual re-run for a past release);
+    # workflow_run only continues when the release actually succeeded.
+    # / workflow_dispatch 总是运行（手动补跑历史版本）；workflow_run
+    # 仅在 release 成功时继续。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: derive version
         id: ver
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-          else
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.event.workflow_run.head_branch }}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: fetch SHA256SUMS
         run: |
-          curl -fsSL \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" \
-            -o SHA256SUMS
+          # Retry: the release run has completed by the time workflow_run
+          # fires, but GitHub's asset propagation can lag a few seconds.
+          # / 重试：workflow_run 触发时 release run 已完成，但 GitHub
+          # 的产物传播可能滞后几秒。
+          ok=0
+          for i in 1 2 3 4 5; do
+            if curl -fsSL \
+              "https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" \
+              -o SHA256SUMS; then
+              ok=1
+              break
+            fi
+            echo "attempt $i: SHA256SUMS not available yet; retrying in 30s"
+            sleep 30
+          done
+          if [[ "${ok}" != "1" ]]; then
+            echo "::error::SHA256SUMS for ${VERSION} not available after 5 attempts"
+            exit 1
+          fi
           # linux-amd64 binary is what we publish to Homebrew.
           # / linux-amd64 binary 是我们发到 Homebrew 的目标。
           SHA256=$(grep '^fg-qimen-linux-amd64 ' SHA256SUMS | awk '{print $1}')
