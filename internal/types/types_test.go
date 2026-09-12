@@ -467,17 +467,21 @@ func TestExpandTargetsSingleIP(t *testing.T) {
 	}
 }
 
-// TestExpandTargetsCIDR: a /30 expands to 4 addresses.
+// TestExpandTargetsCIDR: a /30 expands to the 2 usable host
+// addresses — network (10.0.0.0) and broadcast (10.0.0.3) are
+// excluded on IPv4 subnets larger than /31.
+// / TestExpandTargetsCIDR：/30 展开为 2 个可用主机地址——大于 /31
+// 的 IPv4 网段排除网络地址（10.0.0.0）与广播地址（10.0.0.3）。
 func TestExpandTargetsCIDR(t *testing.T) {
 	got, err := ExpandTargets("10.0.0.0/30", "")
 	if err != nil {
 		t.Fatalf("ExpandTargets: %v", err)
 	}
-	if len(got) != 4 {
-		t.Errorf("got %d targets, want 4 (/30 = 4 addrs)", len(got))
+	if len(got) != 2 {
+		t.Errorf("got %d targets, want 2 (/30 = 2 usable hosts)", len(got))
 	}
-	if got[0].Addr != "10.0.0.0" || got[3].Addr != "10.0.0.3" {
-		t.Errorf("got %v, want first=10.0.0.0 last=10.0.0.3", got)
+	if got[0].Addr != "10.0.0.1" || got[1].Addr != "10.0.0.2" {
+		t.Errorf("got %v, want first=10.0.0.1 last=10.0.0.2", got)
 	}
 }
 
@@ -737,8 +741,9 @@ func TestExpandTargetsStreamSingleIP(t *testing.T) {
 	}
 }
 
-// TestExpandTargetsStreamCIDR: a /30 expands to 4 addrs streamed.
-// / 流式 /30 展开为 4 个地址。
+// TestExpandTargetsStreamCIDR: a /30 streams the 2 usable host
+// addrs (network/broadcast excluded).
+// / 流式 /30 展开为 2 个可用主机地址（排除网络/广播地址）。
 func TestExpandTargetsStreamCIDR(t *testing.T) {
 	it, err := ExpandTargetsStream("10.0.0.0/30", "")
 	if err != nil {
@@ -753,11 +758,11 @@ func TestExpandTargetsStreamCIDR(t *testing.T) {
 		last = t
 		count++
 	}
-	if count != 4 {
-		t.Errorf("got %d, want 4", count)
+	if count != 2 {
+		t.Errorf("got %d, want 2", count)
 	}
-	if first.Addr != "10.0.0.0" || last.Addr != "10.0.0.3" {
-		t.Errorf("got first=%v last=%v, want first=10.0.0.0 last=10.0.0.3", first, last)
+	if first.Addr != "10.0.0.1" || last.Addr != "10.0.0.2" {
+		t.Errorf("got first=%v last=%v, want first=10.0.0.1 last=10.0.0.2", first, last)
 	}
 }
 
@@ -768,8 +773,8 @@ func TestExpandTargetsStreamEstimatedCIDR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpandTargetsStream: %v", err)
 	}
-	if e := it.Estimated(); e != 4 {
-		t.Errorf("Estimated() = %d, want 4", e)
+	if e := it.Estimated(); e != 2 {
+		t.Errorf("Estimated() = %d, want 2", e)
 	}
 }
 
@@ -833,7 +838,7 @@ func TestExpandTargetsStreamBackCompat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpandTargets: %v", err)
 	}
-	if len(got) != 4 {
-		t.Errorf("got %d, want 4", len(got))
+	if len(got) != 2 {
+		t.Errorf("got %d, want 2", len(got))
 	}
 }

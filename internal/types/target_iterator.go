@@ -197,6 +197,7 @@ func (t *targetIter) initOne(s string) error {
 		// Stateful CIDR step: cur advances by incIP on each call. /
 		// 状态化 CIDR step：cur 每次调用自增。
 		var cur net.IP
+		var skipFirst, skipLast bool
 		t.step = func(emit emitFunc) (bool, error) {
 			if cur == nil {
 				ip, ipnet2, _ := net.ParseCIDR(s)
@@ -208,9 +209,25 @@ func (t *targetIter) initOne(s string) error {
 				}
 				cur = make(net.IP, len(ipnet2.IP))
 				copy(cur, ip.Mask(ipnet2.Mask))
+				// Mirror cidrCount: skip network/broadcast on IPv4
+				// subnets larger than /31. / 与 cidrCount 对齐：
+				// 大于 /31 的 IPv4 网段跳过网络地址与广播地址。
+				ones, bits := ipnet.Mask.Size()
+				skipFirst = bits == 32 && ones <= 30
+				skipLast = skipFirst
 			}
 			if !ipnet.Contains(cur) {
 				return false, nil
+			}
+			if skipFirst {
+				skipFirst = false
+				incIP(cur)
+				return ipnet.Contains(cur), nil
+			}
+			if skipLast && cur.Equal(lastAddr(ipnet)) {
+				skipLast = false
+				incIP(cur)
+				return ipnet.Contains(cur), nil
 			}
 			if err := t.tryEmit(Target{Addr: cur.String()}, emit); err != nil {
 				return false, err
@@ -441,6 +458,22 @@ func (t *targetIter) Estimated() int { return t.estimate }
 // Err implements TargetIterator. / Err 实现 TargetIterator。
 func (t *targetIter) Err() error { return t.lastErr }
 
+// lastAddr returns the broadcast (last) address of an IPv4 ipnet.
+// Returns nil for IPv6 — callers skip the check in that case.
+// / lastAddr 返回 IPv4 ipnet 的广播（最后一个）地址。IPv6 返回
+// nil——调用方据此跳过判断。
+func lastAddr(ipnet *net.IPNet) net.IP {
+	v4 := ipnet.IP.To4()
+	if v4 == nil {
+		return nil
+	}
+	last := make(net.IP, 4)
+	for i := 0; i < 4; i++ {
+		last[i] = v4[i] | ^ipnet.Mask[i]
+	}
+	return last
+}
+
 // cidrCount returns the exact number of IPs in a CIDR (handles both
 // v4 and v6). / cidrCount 返回 CIDR 内 IP 准确数。
 func cidrCount(ipnet *net.IPNet) (int, error) {
@@ -449,5 +482,17 @@ func cidrCount(ipnet *net.IPNet) (int, error) {
 	if hostBits > 62 {
 		return 0, fmt.Errorf("CIDR %s too large: %d host bits (max 62)", ipnet.String(), hostBits)
 	}
-	return 1 << uint(hostBits), nil
+	count := uint64(1) << uint(hostBits)
+	// IPv4 subnets larger than /31 exclude the network and broadcast
+	// addresses (they responded to system-ping in field tests and
+	// polluted the alive list with e.g. 192.168.204.0). /31 point-to-
+	// point links keep both addresses per RFC 3021; IPv6 has no
+	// broadcast and is untouched. / 大于 /31 的 IPv4 网段排除网络地
+	// 址与广播地址（实测它们会响应 system-ping，把 192.168.204.0 这
+	// 类地址混进 alive 名单）。/31 点对点链路按 RFC 3021 保留两地址；
+	// IPv6 无广播，不动。
+	if bits == 32 && hostBits >= 2 {
+		count -= 2
+	}
+	return int(count), nil
 }
