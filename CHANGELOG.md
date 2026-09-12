@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-run log file** — every scan now archives its log lines to
+  `fgqm_log_HH-MM-SS.txt` next to the result files (same daily
+  bucket + timestamp stamp). Text mode (`--no-tui`) tees to console
+  and file; TUI mode and `--silent` write file-only, so the TUI
+  dashboard stays clean while logs are no longer discarded. The
+  file is unbuffered (every line survives a hard exit) and opened
+  `0600` because credential-hit lines carry cleartext passwords.
+  A failure to open the log file degrades to the previous behavior
+  with a stderr warning — it never aborts a scan.
+
 ### Removed
 
 - **container.yml + Dockerfile** — the OCI image channel is deleted.

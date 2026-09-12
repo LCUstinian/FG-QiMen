@@ -27,6 +27,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -135,6 +136,27 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = proj.Close() }()
 
+	// Per-run log file: open AFTER applySchedule (which may wait for
+	// the scheduled moment) so the HH-MM-SS stamp reflects the actual
+	// scan start, and captured ONCE so the log file and every result
+	// sink land in the same daily bucket. Opened before buildSession
+	// so even the earliest log lines (resume warnings) land in the
+	// file. Failure degrades to the pre-file behaviour with a stderr
+	// warning — a log sink must never abort a scan.
+	//
+	// 本次 run 的日志文件：在 applySchedule（可能等待定时时刻）之后
+	// 打开，让 HH-MM-SS 时间戳反映真实扫描起点；只捕获一次，让日志
+	// 文件与所有结果 sink 落进同一日桶。在 buildSession 之前打开，
+	// 最早的日志行（resume 警告）也能进文件。打开失败降级为无文件
+	// 的原行为并 stderr 警告——日志 sink 绝不能让扫描中止。
+	runNow := time.Now()
+	logF, _, logErr := openRunLogFile(cfg, runNow)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: log file: %v (continuing without file log)\n", logErr)
+	} else {
+		defer func() { _ = logF.Close() }()
+	}
+
 	// preHardExit is a lazy closure: it dereferences prog/runDone at
 	// call time, not at creation time. The signal goroutine can only
 	// reach preHardExit via a second SIGINT or drain timeout — both
@@ -212,7 +234,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// 用 signal handler 拥有的 ctx 构造 session。buildSession 装配
 	// logger / store / UI；TUI 模式下还会赋值 prog 和 runDone 让
 	// preHardExit 能完成清理。
-	sess, cleanup, err := buildSession(ctx, cfg, proj, drainCh, &prog, &runDone)
+	sess, cleanup, err := buildSession(ctx, cfg, proj, drainCh, logF, &prog, &runDone)
 	if err != nil {
 		return err
 	}
@@ -222,7 +244,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if err := loadResumeState(sess, cfg); err != nil {
 		return err
 	}
-	if err := openOutputSinks(sess, cfg); err != nil {
+	if err := openOutputSinks(sess, cfg, runNow); err != nil {
 		return err
 	}
 	// Hand the result sink back to preHardExit so the hard-exit

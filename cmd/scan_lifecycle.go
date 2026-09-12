@@ -9,6 +9,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -27,6 +28,11 @@ import (
 // idempotent — calling it twice (e.g. once via defer and once via the
 // signal-handler preHardExit) is harmless.
 //
+// logF is the per-run log file opened by runScan (may be nil when the
+// open failed — see openRunLogFile); ownership stays with runScan,
+// which defers the Close. buildSession only decides who writes to it
+// via wireRunLogger.
+//
 // In TUI mode buildSession also writes the *tui.Program and the
 // bubbletea-Run-done channel back through the prog / runDone out
 // parameters so runScan's preHardExit closure can do its job. The
@@ -36,43 +42,33 @@ import (
 // 函数在启用了 TUI 时调用 prog.Quit()，纯文本模式下是空操作。多次
 // 调用（defer + signal-handler preHardExit）是幂等的。
 //
+// logF 是 runScan 打开的本次 run 日志文件（打开失败时为 nil——见
+// openRunLogFile）；所有权归 runScan（defer Close）。buildSession 只
+// 通过 wireRunLogger 决定谁往里写。
+//
 // TUI 模式下 buildSession 还会通过 prog / runDone 出参回写 *tui.Program
 // 和 bubbletea-Run-done channel，让 runScan 的 preHardExit 闭包能正常
 // 工作。TUI Run goroutine 和 drainCh watcher 也在这里启动。
-func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Project, drainCh chan struct{}, prog **tui.Program, runDone *chan struct{}) (*session.Session, func(), error) {
+func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Project, drainCh chan struct{}, logF *os.File, prog **tui.Program, runDone *chan struct{}) (*session.Session, func(), error) {
 	sess, err := session.NewSession(ctx, cfg, cfg.Project)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session error: %w", err)
 	}
 
-	// Wire logger (silent flag suppresses to file-only; -v adds debug).
+	// Wire logger. In TUI mode the dashboard is the sole event
+	// surface on screen — stderr stays silent so log lines don't
+	// smear across the alt screen — but the per-run log file still
+	// receives everything, so TUI runs are no longer log-less. The
+	// TUI user opts into "no file log" only by the file failing to
+	// open; "see logs live" remains --no-tui. See wireRunLogger for
+	// the full decision table.
 	//
-	// 装配 logger（silent 抑制控制台；-v 开启 debug）。
-	//
-	// In TUI mode we ALWAYS use the discard logger, regardless of
-	// cfg.Silent: the dashboard is the sole event surface and any
-	// log line written to stderr will smear across the alt screen
-	// and visually duplicate information already shown by the
-	// dashboard (status bar counters, LIVE EVENTS column). The
-	// TUI user opts into "no log" by running fg-qimen without
-	// flags, and into "see logs" by passing --no-tui.
-	// TUI 模式下**始终**用 discard logger，与 cfg.Silent 无关：
-	// dashboard 是唯一事件面，任何写到 stderr 的日志都会糊在
-	// alt screen 上，与 dashboard 已展示的信息（状态条计数、
-	// LIVE EVENTS 列）视觉重复。TUI 用户用"不传 flag"表示
-	// "不要日志"，用 --no-tui 表示"我要看日志"。
-	//
-	// The TUI is unaffected by Silent — the dashboard is the live event
-	// surface, the logger is the secondary channel; both can be quiet
-	// or noisy independently.
-	//
-	// TUI 不受 Silent 影响——dashboard 是实时事件展示，logger 是次要
-	// 通道；两者可以独立地安静或嘈杂。
-	if cfg.NoTUI && !cfg.Silent {
-		sess.Log = types.NewStderrLogger()
-	} else {
-		sess.Log = types.DiscardLogger{}
-	}
+	// 装配 logger。TUI 模式下 dashboard 是屏幕上唯一的事件面——
+	// stderr 保持安静，日志行不会糊在 alt screen 上——但本次 run
+	// 的日志文件仍然收下全部内容，TUI 扫描不再没有日志。"不要文
+	// 件日志"只有日志文件打开失败一种情况；"实时看日志"仍然是
+	// --no-tui。完整决策表见 wireRunLogger。
+	sess.Log = wireRunLogger(cfg, logF)
 
 	// Wire bbolt store from project (nil in ephemeral mode). Done
 	// BEFORE the UI choice so the TUI path also gets persistence
@@ -205,6 +201,45 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	}()
 
 	return sess, cleanup, nil
+}
+
+// wireRunLogger selects the logger implementation for the run.
+// Decision table (NoTUI × Silent × logF availability):
+//
+//	NoTUI && !Silent → stderr + file tee (console is the primary
+//	                   surface; the file is the archive)
+//	NoTUI &&  Silent → file only (console fully suppressed — makes
+//	                   the long-standing "silent suppresses to
+//	                   file-only" comment true at last)
+//	TUI              → file only (any stderr write smears the alt
+//	                   screen; the dashboard is the screen surface)
+//	no logF          → previous behaviour: StderrLogger in text
+//	                   mode, DiscardLogger otherwise (degraded but
+//	                   never fatal)
+//
+// wireRunLogger 为本次 run 选择 logger 实现。决策表（NoTUI ×
+// Silent × logF 可用性）：
+//
+//	NoTUI && !Silent → stderr + 文件 tee（控制台是主面，文件是归档）
+//	NoTUI &&  Silent → 仅文件（控制台完全静音——"silent 抑制到
+//	                   仅文件"这条陈年注释终于成真）
+//	TUI              → 仅文件（任何 stderr 写入都会糊 alt screen；
+//	                   dashboard 是屏幕面）
+//	无 logF          → 原行为：文本模式 StderrLogger，否则
+//	                   DiscardLogger（降级但不致命）
+func wireRunLogger(cfg *types.Config, logF *os.File) types.Logger {
+	switch {
+	case cfg.NoTUI && !cfg.Silent:
+		if logF != nil {
+			return types.NewLoggerTo(io.MultiWriter(os.Stderr, logF))
+		}
+		return types.NewStderrLogger()
+	default: // TUI mode, or --silent in text mode
+		if logF != nil {
+			return types.NewLoggerTo(logF)
+		}
+		return types.DiscardLogger{}
+	}
 }
 
 // loadResumeState loads the persisted seen-set from bbolt into the

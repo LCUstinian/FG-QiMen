@@ -4,6 +4,16 @@
 # Changelog
 ## [Unreleased]
 
+### Added
+
+- **每次扫描的日志归档** —— 每次扫描现在会把日志行写入结果文件
+  旁的 `fgqm_log_HH-MM-SS.txt`（同日分桶 + 同时间戳）。文本模式
+  （`--no-tui`）控制台与文件同步输出（tee）；TUI 模式与 `--silent`
+  仅写文件——dashboard 保持干净，日志不再被丢弃。文件无缓冲
+  （每条日志都能在硬退出下存活），并以 `0600` 权限创建（凭据
+  命中行含明文口令）。日志文件打开失败降级为原行为并 stderr
+  警告——绝不因此中止扫描。
+
 ### Removed
 
 - **container.yml + Dockerfile** —— OCI 镜像通道删除。该工作流自

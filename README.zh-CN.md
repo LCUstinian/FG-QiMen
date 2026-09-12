@@ -196,6 +196,7 @@ fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project c
 - `fgqm_creds.txt` — 凭据命中（明文；操作员的工作文件）
 - `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP 深度指纹（hostname、build、NLA 标志、OS）
 - `fgqm_alive_HH-MM-SS.txt` — 每行一个 IP（去重后的存活主机列表，供 `nmap -iL` / `masscan --targets` / `curl` 循环使用）。与其他带时间戳的 sink（`fgqm_result_*`、`fgqm_rdp_*`）使用相同的日分桶（`YYYY-MM-DD/`）+ `HH-MM-SS` 文件名时间戳。
+- `fgqm_log_HH-MM-SS.txt` — 本次扫描的运行日志（与控制台相同的 `[*]`/`[+]`/`[!]` 行，格式 `HH:MM:SS [级别] 消息`）。与结果文件同日分桶 + 同时间戳，每次扫描自动归档一份。文本模式（`--no-tui`）下控制台与文件同步输出（tee）；TUI 模式与 `--silent` 下仅写文件——屏幕不打印日志，但日志不再丢失。因凭据命中行含明文口令，文件以 `0600` 权限创建（与 `fgqm_creds.txt` 同策略）。
 
 ### 插件（44 个插件 / 认证器）
 

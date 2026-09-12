@@ -23,11 +23,15 @@ import (
 
 // openOutputSinks opens the multi-format result sink and attaches it
 // to sess. Defaults are project-relative for project mode, or current
-// directory for ephemeral.
+// directory for ephemeral. `now` is the run-start time captured once
+// by runScan so every per-run file (log + result sinks) lands in the
+// same daily bucket even across a midnight boundary.
 //
 // openOutputSinks 打开多格式结果汇并挂到 sess。默认在项目目录下
-// （项目模式）或当前目录（即扫即走）。
-func openOutputSinks(sess *session.Session, cfg *types.Config) error {
+// （项目模式）或当前目录（即扫即走）。`now` 是 runScan 一次性捕获
+// 的 run 起始时间，让本次 run 的所有落盘文件（日志 + 结果 sink）
+// 跨午夜时也进同一日桶。
+func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) error {
 	// v0.6.1: validate --alive-format. Empty / unknown values
 	// fall back to "txt" (the v0.5.1 default); the help string
 	// already lists the three valid choices. / v0.6.1：校验
@@ -43,12 +47,9 @@ func openOutputSinks(sess *session.Session, cfg *types.Config) error {
 		cfg.AliveFormat = "txt"
 	}
 
-	// Capture the local-time once so all sinks for this run land
-	// in the same daily bucket (a scan that crosses midnight
-	// doesn't split its results across two folders). / 一次性
-	// 抓本地时间，让本次 run 的所有 sink 都进同一日桶（跨午夜
-	// 的扫描不会把结果拆到两个目录）。
-	now := time.Now()
+	// `now` comes from runScan (captured once per run) — see the
+	// doc comment above. / `now` 来自 runScan（每次 run 捕获一次）
+	// —— 见上方 doc 注释。
 	// resolveOutputPath may reject user-supplied paths that
 	// escape the cwd (Stage 18 / P1#18 / F-05 fix). Fail fast
 	// here so we don't half-open some sinks before discovering
@@ -251,4 +252,31 @@ func safeOutputPath(p string) (string, error) {
 			p, abs, cwd)
 	}
 	return abs, nil
+}
+
+// openRunLogFile opens the per-run log sink: fgqm_log.txt under the
+// same daily bucket + HH-MM-SS stamp as the result sinks, so a scan's
+// log line archive sits next to its results and same-day runs don't
+// clobber each other. Written unbuffered (every log line survives a
+// hard os.Exit) and opened 0o600 — CredFound lines carry cleartext
+// credentials, so the file gets the same treatment as fgqm_creds.txt.
+//
+// openRunLogFile 打开本次 run 的日志 sink：fgqm_log.txt 与结果 sink
+// 同日桶 + 同 HH-MM-SS 时间戳，让一次扫描的日志归档与其结果放在
+// 一起，且同日多次 run 互不覆盖。无缓冲写入（每条日志都能在硬
+// os.Exit 下存活），0o600 打开——CredFound 行带明文凭据，与
+// fgqm_creds.txt 同等待遇。
+func openRunLogFile(cfg *types.Config, now time.Time) (*os.File, string, error) {
+	path, err := resolveOutputPath(cfg, "", "fgqm_log.txt", now)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, "", err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, "", err
+	}
+	return f, path, nil
 }

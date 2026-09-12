@@ -222,6 +222,7 @@ the dedup is on the in-memory `State`).
 - `fgqm_creds.txt` — credential hits (cleartext; operator's working file)
 - `fgqm_rdp_HH-MM-SS.json` / `fgqm_rdp_HH-MM-SS.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
 - `fgqm_alive_HH-MM-SS.txt` — one IP per line (dedup'd host list for `nmap -iL` / `masscan --targets` / `curl` loops). Same daily bucket (`YYYY-MM-DD/`) + `HH-MM-SS` filename stamp as the other timestamped sinks (`fgqm_result_*`, `fgqm_rdp_*`).
+- `fgqm_log_HH-MM-SS.txt` — the run's log archive (same `[*]`/`[+]`/`[!]` lines as the console stream, format `HH:MM:SS [level] message`). Same daily bucket + stamp as the result files; one is written per scan automatically. Text mode (`--no-tui`) tees to both console and file; TUI mode and `--silent` write file-only — the screen stays clean but logs are no longer lost. Since credential-hit lines carry cleartext passwords, the file is created `0600` (same policy as `fgqm_creds.txt`).
 
 Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
 and the stamp.

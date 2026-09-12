@@ -444,7 +444,7 @@ func TestOpenOutputSinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if err := openOutputSinks(sess, cfg); err != nil {
+	if err := openOutputSinks(sess, cfg, time.Now()); err != nil {
 		t.Fatalf("openOutputSinks: %v", err)
 	}
 	if sess.Out == nil {
@@ -460,6 +460,149 @@ func TestOpenOutputSinks(t *testing.T) {
 	}
 	if err := sess.Out.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+// --- openRunLogFile / wireRunLogger ---
+
+// TestOpenRunLogFile: the log sink lands in the same daily bucket +
+// HH-MM-SS stamp scheme as the result sinks, the parent directory is
+// created on demand, and lines written through the real logger
+// (timestamped, level-prefixed) round-trip to disk.
+func TestOpenRunLogFile(t *testing.T) {
+	dir := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldwd) }()
+
+	cfg := &types.Config{Project: ""}
+	now := time.Date(2026, 9, 12, 14, 30, 22, 0, time.Local)
+	f, path, err := openRunLogFile(cfg, now)
+	if err != nil {
+		t.Fatalf("openRunLogFile: %v", err)
+	}
+	want := filepath.Join("fgqm_workspace", "default", "2026-09-12", "fgqm_log_14-30-22.txt")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+
+	// Write through the real logger to prove the file accepts the
+	// production write path (unbuffered os.File under StderrLogger).
+	lg := types.NewLoggerTo(f)
+	lg.Info("alive %d/%d hosts", 3, 10)
+	lg.Warn("cred auth error: host down")
+	if err := f.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(data)
+	// The logger stamps its own time.Now() at write time — assert the
+	// level prefix + payload, not the injected `now` (which only
+	// shapes the filename).
+	if !strings.Contains(got, "[*] alive 3/10 hosts") {
+		t.Errorf("log file missing info line; got %q", got)
+	}
+	if !strings.Contains(got, "[!] cred auth error: host down") {
+		t.Errorf("log file missing warn line; got %q", got)
+	}
+}
+
+// TestOpenRunLogFileProjectMode: a named project routes the log file
+// under projects/<name>/ instead of default/.
+func TestOpenRunLogFileProjectMode(t *testing.T) {
+	dir := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldwd) }()
+
+	cfg := &types.Config{Project: "corp"}
+	now := time.Date(2026, 9, 12, 8, 5, 9, 0, time.Local)
+	f, path, err := openRunLogFile(cfg, now)
+	if err != nil {
+		t.Fatalf("openRunLogFile: %v", err)
+	}
+	// Close before returning — Windows holds the file lock otherwise
+	// and TempDir cleanup fails.
+	if err := f.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	want := filepath.Join("fgqm_workspace", "projects", "corp", "2026-09-12", "fgqm_log_08-05-09.txt")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+// TestWireRunLogger: the full decision table over (NoTUI × Silent ×
+// logF availability). Non-discard cases must produce a logger that
+// actually writes into the file when one is provided; discard cases
+// must stay silent even if a file exists (that combination is never
+// reachable from runScan — a missing file in TUI/silent mode — but
+// the fallback is pinned so a future refactor can't silently change
+// degradation behaviour).
+func TestWireRunLogger(t *testing.T) {
+	dir := t.TempDir()
+
+	cases := []struct {
+		name        string
+		noTUI       bool
+		silent      bool
+		withFile    bool
+		wantDiscard bool
+	}{
+		{"text mode: console+file tee", true, false, true, false},
+		{"text mode, file open failed: stderr only", true, false, false, false},
+		{"silent: file only", true, true, true, false},
+		{"silent, file open failed: discard", true, true, false, true},
+		{"TUI: file only", false, false, true, false},
+		{"TUI, file open failed: discard", false, false, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := &types.Config{NoTUI: c.noTUI, Silent: c.silent}
+			var f *os.File
+			if c.withFile {
+				var err error
+				f, err = os.Create(filepath.Join(dir, "case.log"))
+				if err != nil {
+					t.Fatalf("Create: %v", err)
+				}
+				defer func() { _ = f.Close() }()
+			}
+
+			lg := wireRunLogger(cfg, f)
+			if c.wantDiscard {
+				if _, ok := lg.(types.DiscardLogger); !ok {
+					t.Fatalf("got %T, want DiscardLogger", lg)
+				}
+				return
+			}
+			if _, ok := lg.(types.DiscardLogger); ok {
+				t.Fatalf("got DiscardLogger, want a file/stderr-backed logger")
+			}
+			if !c.withFile {
+				return // stderr-only case: nothing file-shaped to assert
+			}
+			// The logger must route lines into the file.
+			lg.Info("probe-%s", c.name)
+			if err := f.Sync(); err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			data, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if !strings.Contains(string(data), "probe-"+c.name) {
+				t.Errorf("file missing log line; got %q", string(data))
+			}
+		})
 	}
 }
 
