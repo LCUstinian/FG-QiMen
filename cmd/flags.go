@@ -45,12 +45,12 @@ var (
 	flagHostsFile string
 
 	// 2. Workspace / 工作区
-	flagProject     string
-	flagProjectKey  string
-	flagWorkspace   string
-	flagMode        string
-	flagResume      bool
-	flagNoState     bool
+	flagProject    string
+	flagProjectKey string
+	flagWorkspace  string
+	flagMode       string
+	flagResume     bool
+	flagNoState    bool
 
 	// 3. Port selection / 端口选择
 	flagPorts        string

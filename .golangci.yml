@@ -133,6 +133,18 @@ issues:
     - path: docs/
       linters:
         - misspell
+    # SA5011 false-positives in tests: staticcheck cannot model
+    # t.Fatal's runtime.Goexit termination, so the canonical Go
+    # testing idiom (`if x == nil { t.Fatal(...) }` followed by a
+    # dereference) is flagged. Suppress ONLY this check in test
+    # files — it stays active for production code. / SA5011 在测试
+    # 中误报：staticcheck 无法建模 t.Fatal 的 Goexit 终止语义，规范
+    # 写法（`if x == nil { t.Fatal(...) }` 后解引用）被标记。仅在
+    # 测试文件屏蔽此检查，生产代码保留。
+    - path: _test\.go
+      linters:
+        - staticcheck
+      text: "SA5011"
     # revive's 'exported' rule fires stutter-naming warnings on
     # the public API (OutputConfig → Config, etc.) that we
     # intentionally don't want to break across the v0.x line.

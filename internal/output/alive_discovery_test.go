@@ -26,6 +26,7 @@ import (
 //  3. duplicate discovery entries collapse
 //  4. an empty host is a no-op (no blank line that would break
 //     `nmap -iL`)
+//
 // / TestWriteAliveDiscovery_RecordsHostsAndSharesDedup 验证：发现阶
 // 段主机进入 alive sink（json + txt）；去重与 WriteResult 路径共享
 // ——发现先写、open 结果后确认的同一主机只写一次；重复发现条目折

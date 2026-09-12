@@ -17,12 +17,13 @@
 #
 # CI workflow (ci.yml) is the green-or-red gate; release.yml only
 # runs on version tags (`v*`). workflow_dispatch is also supported
-# for dry-runs.
-#
-# 编译 11 个平台目标（Linux x5、macOS x2、Windows x2、BSD x2），
-# 生成 SHA256SUMS，用 cosign 签名（keyless、OIDC），生成
-# CycloneDX SBOM，附 SLSA Build Level 2 provenance，并发布
-# GitHub Release。
+# for dry-runs. As a belt-and-braces measure the release workflow
+# runs golangci-lint itself before the build matrix (v0.7.1 shipped
+# with red lint found only after the tag was pushed).
+# / CI 工作流（ci.yml）是绿/红门禁；release 工作流只在版本 tag
+# （`v*`）触发，也支持 workflow_dispatch 试运行。另外 release 在
+# 构建矩阵前自跑 golangci-lint 兜底——v0.7.1 曾带红 lint 发布，
+# tag 推送后才暴露。
 name: release
 
 on:
@@ -48,15 +49,42 @@ env:
   SOURCE_DATE_EPOCH: '1700000000'  # 2023-11-14T22:13:20Z (stable)
 
 jobs:
+  # ---- Pre-release lint gate -------------------------------------------
+  # v0.7.1 shipped with red lint (5 gofmt + 1 errorlint) found only
+  # after the tag was pushed. This job fails the release BEFORE any
+  # of the 13 matrix jobs spin up, closing that gap. Uses the same
+  # pinned golangci-lint version and direct-binary invocation as
+  # ci.yml. / v0.7.1 曾带红 lint（5 个 gofmt + 1 个 errorlint）发布
+  # ——tag 推送后才暴露。此 job 在 13 个矩阵 job 启动前拦截，堵住
+  # 缺口。golangci-lint 版本与调用方式与 ci.yml 一致。
+  lint:
+    name: golangci-lint (release gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.8'
+          cache: true
+
+      - name: Run golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          ~/go/bin/golangci-lint run --timeout 5m
+
   # ---- Build, sign, and publish artifacts -----------------------------
   # 13-entry matrix: 11 standard targets + 2 hardened editions
   # (linux-amd64, windows-amd64). Linux non-amd64/arm64 targets use
-  # QEMU emulation on ubuntu-latest. / 13 条矩阵：11 个标准目标 +
-  # 2 个加固版（linux-amd64、windows-amd64）。Linux 非 amd64/arm64
-  # 目标在 ubuntu-latest 上用 QEMU 模拟。
+  # QEMU emulation on ubuntu-latest. Gated on the lint job above.
+  # / 13 条矩阵：11 个标准目标 + 2 个加固版（linux-amd64、
+  # windows-amd64）。Linux 非 amd64/arm64 目标在 ubuntu-latest 上用
+  # QEMU 模拟。受上方 lint job 门禁约束。
   release:
     name: build + sign (${{ matrix.target }}${{ matrix.hardened && ' (hardened)' || '' }})
     runs-on: ${{ matrix.runner }}
+    needs: [lint]
     strategy:
       fail-fast: false
       matrix:
