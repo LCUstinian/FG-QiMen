@@ -497,6 +497,25 @@ func (o *Output) WriteCred(r *types.Result) error {
 	return nil
 }
 
+// WriteAliveDiscovery records a host confirmed alive by the
+// discovery stage (before any port scan). Previously the alive sink
+// was only fed by WriteResult, so on firewalled networks — where most
+// alive hosts yield no open port — fgqm_alive stayed empty even
+// though 150+ hosts had responded. Dedup is shared with the
+// WriteResult path (o.aliveSeen), so a host later confirmed by an
+// open-port result is written once, with the discovery entry winning
+// (first write) and port/service fields coming from the open result
+// only when it arrives first.
+//
+// WriteAliveDiscovery 记录存活发现阶段（端口扫描之前）确认存活的主
+// 机。此前 alive sink 只由 WriteResult 喂数据，在防火墙网络——多数
+// 存活主机没有开放端口——fgqm_alive 始终为空，即使 150+ 台主机已经
+// 响应。去重与 WriteResult 路径共享（o.aliveSeen），后续被 open 端
+// 口结果确认的同一主机不会重复写入（发现条目先写先占位）。
+func (o *Output) WriteAliveDiscovery(host, method string, at time.Time) {
+	o.writeAlive(&types.Result{Host: host, Port: 0, Service: method, Time: at})
+}
+
 // writeAlive appends r to the alive-host sink in the configured
 // wire format. No-op when no sink is configured or when r.Host is
 // empty (defensive — would otherwise produce a stray blank line

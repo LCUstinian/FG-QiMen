@@ -18,6 +18,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -164,6 +165,27 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	sess.State.Counters.Alive.Store(int64(len(aliveRes.Hits)))
 	if len(aliveRes.Hits) > 0 && len(aliveRes.Hits) < len(targets) {
 		sess.Log.Info("[*] alive: %d/%d hosts responded", len(aliveRes.Hits), len(targets))
+	}
+
+	// Persist the discovery-stage alive list before any port scan.
+	// Previously the alive sink was only fed by WriteResult (open-port
+	// results), so on firewalled networks — where most alive hosts
+	// yield no open port — fgqm_alive stayed empty even though every
+	// host in this map had responded. Sorted for stable output.
+	// / 在端口扫描之前持久化发现阶段的存活名单。此前 alive sink 只由
+	// WriteResult（open 端口结果）喂数据，在防火墙网络——多数存活主机
+	// 没有开放端口——fgqm_alive 始终为空，尽管这里的每台主机都已经响
+	// 应。排序保证输出稳定。
+	if sess.Out != nil && len(aliveRes.Hits) > 0 {
+		aliveHosts := make([]string, 0, len(aliveRes.Hits))
+		for h := range aliveRes.Hits {
+			aliveHosts = append(aliveHosts, h)
+		}
+		sort.Strings(aliveHosts)
+		for _, h := range aliveHosts {
+			hit := aliveRes.Hits[h]
+			sess.Out.WriteAliveDiscovery(h, string(hit.Method), hit.Time)
+		}
 	}
 
 	// Wire the bbolt batched writer when persistence is enabled and

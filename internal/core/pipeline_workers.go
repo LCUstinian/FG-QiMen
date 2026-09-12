@@ -89,33 +89,46 @@ func runPluginWorker(
 			if !ok {
 				return
 			}
-			// Stage 0: fingerprint banner match (always on).
-			// Stage 0：fingerprint banner 匹配（始终跑）。
+			// Stage 0: port-level result for EVERY open port, enriched
+			// by banner fingerprinting when a banner is present.
+			// Previously a Result was only produced when the banner
+			// matched a known signature, so on hardened networks —
+			// where open ports expose no banner — detected open ports
+			// never reached any output file (JSON stayed empty while
+			// the TUI counted ports). The port itself is the finding;
+			// svc/banner fields stay empty when unknown.
+			// Stage 0：每个开放端口产出一条端口级 Result，有 banner 时
+			// 用指纹信息充实。此前只在 banner 匹配已知签名时才产出
+			// Result，加固网络——开放端口不吐 banner——探测到的端口永远
+			// 不会进入任何输出文件（TUI 计数有端口，JSON 始终为空）。
+			// 端口本身就是发现；svc/banner 未知时留空。
+			svc, ver := "", ""
 			if item.Banner != "" {
 				vscanOnce.Do(func() { vscan = fingerprint.NewVScan() })
 				if vscan != nil {
-					if svc, ver, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
-						r := &types.Result{
-							Host:    item.Host,
-							Port:    item.Port,
-							Service: svc,
-							Banner:  formatPortfinger(svc, ver, item.Banner),
-							Time:    time.Now(),
-						}
-						sess.State.Counters.Results.Add(1)
-						sess.UI.Event(r)
-						// M2 audit fix: on ctx.Done(), persist the already-
-						// constructed result synchronously instead of
-						// dropping it. / M2 审计修法：ctx.Done() 时同步
-						// 持久化已构造的结果，而非丢弃。
-						select {
-						case out <- r:
-						case <-ctx.Done():
-							persistResultInline(sess, r)
-							return
-						}
+					if s, v, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
+						svc, ver = s, v
 					}
 				}
+			}
+			r := &types.Result{
+				Host:    item.Host,
+				Port:    item.Port,
+				Service: svc,
+				Banner:  formatPortfinger(svc, ver, item.Banner),
+				Time:    time.Now(),
+			}
+			sess.State.Counters.Results.Add(1)
+			sess.UI.Event(r)
+			// M2 audit fix: on ctx.Done(), persist the already-
+			// constructed result synchronously instead of
+			// dropping it. / M2 审计修法：ctx.Done() 时同步
+			// 持久化已构造的结果，而非丢弃。
+			select {
+			case out <- r:
+			case <-ctx.Done():
+				persistResultInline(sess, r)
+				return
 			}
 			// Use port index for O(1) lookup instead of iterating all plugins
 			// 使用端口索引实现 O(1) 查找，而非遍历所有插件
