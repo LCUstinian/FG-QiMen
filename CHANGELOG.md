@@ -7,7 +7,7 @@ All notable changes to FG-QiMen are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-09-12
 
 ### BREAKING — workspace directory rename
 
@@ -17,7 +17,7 @@ fg-qimen result file (`fgqm_result.txt`, `fgqm_creds.txt`,
 `fgqm_alive.txt`, `fgqm_rdp.*`). The bbolt state file is renamed
 from `fg.db` to `fgqm.db` for the same reason.
 
-| Before (≤ v0.6.0) | After (v0.6.x) |
+| Before (≤ v0.6.0) | After (v0.7.0) |
 |---|---|
 | `runs/default/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/default/<YYYY-MM-DD>/fgqm_*` |
 | `runs/projects/<name>/fg.db` | `fgqm_workspace/projects/<name>/fgqm.db` |

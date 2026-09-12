@@ -2,7 +2,7 @@
 
 
 # Changelog
-## [Unreleased]
+## [0.7.0] - 2026-09-12
 
 ### BREAKING — 工作区目录改名
 
@@ -11,7 +11,7 @@ on-disk 工作区布局从 `runs/` 改名为 `fgqm_workspace/`，与所有 fg-qi
 `fgqm_rdp.*`）的 `fgqm_` 前缀统一。bbolt 状态文件相应从 `fg.db`
 改名为 `fgqm.db`，理由相同。
 
-| 旧（≤ v0.6.0） | 新（v0.6.x） |
+| 旧（≤ v0.6.0） | 新（v0.7.0） |
 |---|---|
 | `runs/default/<YYYY-MM-DD>/fgqm_*` | `fgqm_workspace/default/<YYYY-MM-DD>/fgqm_*` |
 | `runs/projects/<name>/fg.db` | `fgqm_workspace/projects/<name>/fgqm.db` |
