@@ -47,7 +47,7 @@ func TestValueIsVar(t *testing.T) {
 // 模式："<上次发版 tag>-dev"。每次 release 打 tag 时与
 // version.go 默认值同步 bump。
 func TestValueDefault(t *testing.T) {
-	const want = "0.7.0"
+	const want = "0.7.1"
 	if Value != want {
 		t.Errorf("Value default changed: got %q, want %q (update this test if intentional)", Value, want)
 	}

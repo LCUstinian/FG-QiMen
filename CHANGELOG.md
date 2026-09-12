@@ -7,6 +7,69 @@ All notable changes to FG-QiMen are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-12
+
+Security-hardening and audit-closure release. Every finding from the
+full project audit (P0/P1/P2) is addressed here; nothing was deferred
+except the plugin-interface evolution items (A-1/A-4, deferred by
+design until the interface next changes).
+
+### Security
+
+- **webtitle: bound remote body reads** — the web fingerprint path now
+  caps response bodies at 1 MB (`io.LimitReader`) on both the main
+  identify pass and the redirect pass. A hostile server streaming an
+  unbounded response could previously OOM the scanner across hundreds
+  of concurrent probes.
+- **output: CSV formula injection neutralized** — banner cells
+  starting with `=` `+` `-` `@` `\t` `\r` are prefixed with `'`
+  (OWASP CSV Injection). `user`/`pass` columns stay verbatim so
+  operators can copy credentials unchanged.
+- **CI: all third-party actions pinned to full commit SHAs** — 32
+  `uses:` references resolved via the GitHub API (the mutable
+  `ludeeus/action-shellcheck@master` included). Tag hijacking can no
+  longer reach the release workflow's secrets.
+- **CI: ci.yml now declares `permissions: {contents: read}`** — the
+  only workflow without a least-privilege block; the checkout token no
+  longer defaults to write-enabled.
+- **fingerprint: custom ruleset load guards** — 16 MiB byte cap now
+  also applies to local files, plus a 10 000-rule count cap on both
+  formats. (Note: Go's RE2-style regexp makes catastrophic-backtracking
+  ReDoS impossible; the guards target O(rules × body) matching cost.)
+
+### Added
+
+- **`fg-qimen projects prune <name> --before <date> [--compact] [--yes]`**
+  — retention for long-lived projects: deletes seen-hash entries older
+  than the cutoff (results/creds are never touched), previews the
+  count, refuses non-interactive runs without `--yes`, and
+  `--compact` rewrites `fgqm.db` via a temp-file swap to reclaim disk.
+
+### Removed
+
+- **`credential.Scheduler`** — the parallel credential dispatch
+  implementation (throttle + HitSink) had zero production callers;
+  `core.dispatchCred` is the only dispatch path. Its absence also
+  closes the audit's timeout-coupling finding (M-4), which lived only
+  in the dead code.
+
+### Changed
+
+- **cmd: `scan.go` split** into `scan_lifecycle.go` (session assembly,
+  TUI teardown, hard-exit sink flush) and `scan_outputs.go` (date
+  bucketing, timestamp stamping, cwd sandbox). Pure code motion.
+- **perf: NDJSON `json.Encoder` hoisted** to a field, mirroring the
+  existing `csvWriter` pattern — one less allocation per result row.
+- **docs: `main.go` package comment** now points at the actual
+  bilingual `docs/ARCHITECTURE.md` (it previously claimed the
+  architecture lived in THIRD_PARTY_LICENSES.md, which never did).
+
+### Fixed
+
+- **tui: title bar truncation and smoke-test probe fixes** (Spec B+C
+  /24 smoke follow-ups).
+- **version test** expectation synced to the released version.
+
 ## [0.7.0] - 2026-09-12
 
 ### BREAKING — workspace directory rename

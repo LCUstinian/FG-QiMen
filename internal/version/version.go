@@ -38,4 +38,4 @@ package version
 // 这个 bug 在 lint 阶段没被抓住——Go 的编译期内联掩盖了断
 // 开的接线。release.yml 的 smoke-test 步骤（用 tag 名 grep
 // version 输出）才暴露了这个静默失败。
-var Value = "0.7.0"
+var Value = "0.7.1"

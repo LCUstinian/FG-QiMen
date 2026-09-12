@@ -2,6 +2,58 @@
 
 
 # Changelog
+## [0.7.1] - 2026-09-12
+
+安全加固与审计闭环版本。全项目审计（P0/P1/P2）的所有发现在本版全部
+处理；唯一延期项是插件接口演进（A-1/A-4，按设计留待接口下次变更时
+一并处理）。
+
+### Security
+
+- **webtitle：远程响应体限界读取** —— web 指纹路径对响应体加 1 MB
+  上限（`io.LimitReader`），主识别与重定向两条路径均覆盖。此前恶意
+  服务器流式返回无限大响应，可在数百并发探测下把扫描器 OOM。
+- **output：CSV 公式注入中和** —— 以 `=` `+` `-` `@` `\t` `\r` 开头
+  的 banner 单元格加 `'` 前缀（OWASP CSV Injection）。`user`/`pass`
+  列保持原样，操作员可直接复制凭据。
+- **CI：全部第三方 action pin 到完整 commit SHA** —— 32 处 `uses:`
+  经 GitHub API 解析（含可变 ref `ludeeus/action-shellcheck@master`）。
+  tag 劫持不再能触及 release workflow 的 secrets。
+- **CI：ci.yml 补 `permissions: {contents: read}`** —— 此前唯一缺
+  最小权限块的 workflow；checkout token 不再默认带写权限。
+- **fingerprint：自定义规则集加载护栏** —— 16 MiB 字节上限现同样
+  适用于本地文件，另加 1 万条规则数上限（两种格式均生效）。（说明：
+  Go 的 RE2 语义正则不存在灾难性回溯，护栏针对的是 O(规则数 × body)
+  的匹配开销。）
+
+### Added
+
+- **`fg-qimen projects prune <name> --before <date> [--compact] [--yes]`**
+  —— 长期项目的保留策略：删除早于截止时间的 seen-hash 条目（results/
+  creds 永不触碰），先预览条数，非交互无 `--yes` 拒绝执行，
+  `--compact` 经临时文件换盘重写 `fgqm.db` 回收磁盘。
+
+### Removed
+
+- **`credential.Scheduler`** —— 并行凭据派发实现（节流 + HitSink）
+  生产零调用；`core.dispatchCred` 是唯一派发路径。删除同时关闭审计
+  中的超时耦合发现（M-4）——它只存在于死代码中。
+
+### Changed
+
+- **cmd：`scan.go` 拆分** 为 `scan_lifecycle.go`（session 装配、TUI
+  拆除、硬退出 sink flush）与 `scan_outputs.go`（日桶、时间戳、cwd
+  沙箱）。纯代码移动。
+- **perf：NDJSON `json.Encoder` 提升为字段**，与既有 `csvWriter`
+  模式一致——每结果行少一次分配。
+- **docs：`main.go` 包注释** 现指向真正的双语 `docs/ARCHITECTURE.md`
+  （此前声称架构文档在 THIRD_PARTY_LICENSES.md，该文件从未有过）。
+
+### Fixed
+
+- **tui：标题栏裁剪与冒烟探测修复**（Spec B+C /24 冒烟后续）。
+- **version 测试** 期望值与发版版本同步。
+
 ## [0.7.0] - 2026-09-12
 
 ### BREAKING — 工作区目录改名
