@@ -12,21 +12,26 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 [English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
-┌─ FG-QIMEN 0.5.1-dev ── project: corp-intranet ── mode: linked ─┐
-│  [ ▶ IDENTIFY ]                  ETA ~12s                      │
-│  alive 18/24  ports 142/8000  rate 142 pps · 28 hits/s         │
-├─────────────────────────┬───────────────────────────────────────┤
-│ STAGE                   │ TOP PLUGINS                           │
-│   alive       18/24     │   [ssh   12] ███████████░░░░░░░       │
-│   ports     142/8000    │   [http   9] █████████░░░░░░░░░       │
-│   results       42      │   [rdp    4] ████░░░░░░░░░░░░░░       │
-│   creds          3      │   [mysql  2] ██░░░░░░░░░░░░░░░░       │
-│   errors         7      │   [ftp    1] █░░░░░░░░░░░░░░░░░       │
-│                         │   [smb    0] ░░░░░░░░░░░░░░░░░░       │
-├─────────────────────────┴───────────────────────────────────────┤
-│ ERRORS: timeout 42  refused 15  dns 7  reset 3                  │
+┌─ FG-QIMEN 0.7.0-dev ── project: corp-intranet ── mode: linked ─┐
+│  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 18/24  ports ▓▓░░░░░░░░░░░░░░░░░░░░ 142/8000  rate 142 pps · 28 hits/s  ▁▂▃▅▇▅▃▂▁
 ├────────────────────────────────────────────────────────────────┤
-│ [q] quit  [space] pause  [l] log                                 │
+│ LIVE EVENTS                                                     │
+│   [14:23:01] ✓ 10.0.0.5:22      ssh                            │
+│   [14:23:02] ✓ 10.0.0.7:80      http                           │
+│   [14:23:04] ✓✓ 10.0.0.12:3306  mysql     [admin/admin OK!]    │
+│   [14:23:07] ⚠ 10.0.0.18:443    https     [TLS handshake fail]│
+│   [14:23:09] ✗ 10.0.0.22:23     telnet                         │
+├──────────────────────┬─────────────────────────────────────────┤
+│ STAGE                │ TOP PLUGINS                             │
+│   alive       18/24  │   [ssh     12] ███████████░░░░░░░       │
+│   ports    142/8000  │   [http      7] ███████░░░░░░░░░░░       │
+│   results      23    │   [mysql     2] ██░░░░░░░░░░░░░░░░       │
+│   creds        2     │   [redis     1] █░░░░░░░░░░░░░░░░░       │
+│   errors      7     │   [https     1] █░░░░░░░░░░░░░░░░░       │
+├──────────────────────┴─────────────────────────────────────────┤
+│ ERRORS: timeout 42  refused 15  dns 7  reset 3  [e] expand     │
+├────────────────────────────────────────────────────────────────┤
+│ [q] quit  [p] pause  [e] toggle errors  [L] live overlay  [?] help │
 └────────────────────────────────────────────────────────────────┘
 ```
 
