@@ -318,3 +318,36 @@ func (m Model) viewHeader(height int, bp Breakpoint) string {
 
 	return sb.String()
 }
+
+// viewLiveEvents renders the last N events with severity colors and
+// status symbols. height=0 hides the panel (narrow mode).
+// / viewLiveEvents 渲染最近 N 个事件，带 severity 颜色和状态符号。
+// height=0 隐藏面板（narrow 模式）。
+func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
+	if height == 0 {
+		return ""
+	}
+	events := m.eventsOrdered()
+	if len(events) == 0 {
+		return lipgloss.NewStyle().
+			Foreground(colorFgDim).
+			Render("  (no events yet)")
+	}
+	// Take last `height` events, newest at bottom.
+	n := len(events)
+	start := 0
+	if n > height {
+		start = n - height
+	}
+	rows := make([]string, 0, len(events[start:]))
+	for _, e := range events[start:] {
+		c := m.severityColor(e)
+		sym := symFor(e.Kind)
+		ts := e.At.Format("15:04:05")
+		hostPort := truncate(fmt.Sprintf("%s:%d", e.Host, e.Port), 21)
+		svc := truncate(e.Service, 12)
+		rows = append(rows, lipgloss.NewStyle().Foreground(c).Render(
+			fmt.Sprintf("  [%s] %s %s %s", ts, sym, hostPort, svc)))
+	}
+	return strings.Join(rows, "\n")
+}

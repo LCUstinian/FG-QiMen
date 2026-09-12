@@ -6,6 +6,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -337,5 +338,60 @@ func TestUptimeLine(t *testing.T) {
 		// The exact prefix is implementation choice; just check it
 		// contains a time-like suffix.
 		t.Errorf("uptimeLine() = %q, want non-empty with 'up' prefix", got)
+	}
+}
+
+// TestViewLiveEvents_Empty verifies the empty-state placeholder.
+// / 验证空状态的占位。
+func TestViewLiveEvents_Empty(t *testing.T) {
+	m := newTestModel()
+	got := m.viewLiveEvents(8, BreakMedium)
+	if !strings.Contains(got, "no events") {
+		t.Errorf("empty viewLiveEvents missing placeholder: %q", got)
+	}
+}
+
+// TestViewLiveEvents_RendersRecentEvents verifies the most-recent N
+// events render in chronological order with severity symbols.
+// / 验证最近 N 个事件按时间顺序渲染，带 severity 符号。
+func TestViewLiveEvents_RendersRecentEvents(t *testing.T) {
+	m := newTestModel()
+	m.flashUntil = map[string]time.Time{} // no flash for predictability
+	for i := 0; i < 5; i++ {
+		m.pushEvent(eventEntry{
+			Host:    fmt.Sprintf("10.0.0.%d", i),
+			Port:    22,
+			Service: "ssh",
+			Kind:    "hit",
+			At:      time.Unix(int64(1700000000+i), 0),
+		})
+	}
+	got := m.viewLiveEvents(3, BreakMedium)
+	// 3 rows visible → should show 10.0.0.2, 10.0.0.3, 10.0.0.4 (last 3).
+	for _, want := range []string{"10.0.0.2", "10.0.0.3", "10.0.0.4"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("viewLiveEvents missing %q: %q", want, got)
+		}
+	}
+	// 10.0.0.0, 10.0.0.1 should NOT appear (cut off).
+	for _, notWant := range []string{"10.0.0.0", "10.0.0.1"} {
+		if strings.Contains(got, notWant) {
+			t.Errorf("viewLiveEvents contains old event %q: %q", notWant, got)
+		}
+	}
+	// Each row should have the hit symbol.
+	if !strings.Contains(got, symInfoHit) {
+		t.Errorf("viewLiveEvents missing info-hit symbol: %q", got)
+	}
+}
+
+// TestViewLiveEvents_NarrowHides verifies height=0 returns empty.
+// / 验证 height=0 时返回空（narrow 隐藏面板）。
+func TestViewLiveEvents_NarrowHides(t *testing.T) {
+	m := newTestModel()
+	m.pushEvent(eventEntry{Host: "1.1.1.1", Port: 80, Kind: "hit"})
+	got := m.viewLiveEvents(0, BreakNarrow)
+	if got != "" {
+		t.Errorf("narrow viewLiveEvents = %q, want empty", got)
 	}
 }
