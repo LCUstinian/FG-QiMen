@@ -580,9 +580,20 @@ func TestViewFrameFitsTerminal(t *testing.T) {
 			m.rateHits, m.ratePorts = 28.5, 142.0
 
 			view := m.View()
-			lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+			// Count lines the way bubbletea's standard renderer does
+			// (strings.Split(view, "\n"), NO TrimRight): a trailing
+			// newline produces an extra element, and when the count
+			// exceeds the terminal height the renderer drops the TOP
+			// rows — which is how the title bar vanished from every
+			// frame in the live smoke probe. The reconciled frame must
+			// have exactly c.h elements.
+			// 与 bubbletea 标准 renderer 相同的数行口径（strings.Split，
+			// 不做 TrimRight）：尾随换行会产生一个额外元素，总数超终端
+			// 高度时 renderer 丢**顶部**行——实机冒烟探针里标题栏每帧
+			// 消失就是这个原因。对账后的帧必须恰好 c.h 个元素。
+			lines := strings.Split(view, "\n")
 			if len(lines) > c.h {
-				t.Errorf("[%dx%d paused=%v]: %d content lines > terminal %d",
+				t.Errorf("[%dx%d paused=%v]: %d frame lines > terminal %d (bubbletea would clip the top)",
 					c.w, c.h, paused, len(lines), c.h)
 			}
 			for i, ln := range lines {
@@ -592,11 +603,22 @@ func TestViewFrameFitsTerminal(t *testing.T) {
 					break
 				}
 			}
-			// Footer must survive the frame on normal terminals.
-			// / 常规终端上 footer 必须存活。
-			if c.h >= 16 && !strings.Contains(lines[len(lines)-1], "[q] quit") {
-				t.Errorf("[%dx%d paused=%v]: footer not the last content line: %q",
-					c.w, c.h, paused, lines[len(lines)-1])
+			// Footer must survive the frame on normal terminals. The
+			// frame may end in pad rows, so check the last non-blank
+			// line. / 常规终端上 footer 必须存活。帧末尾可能是补行，
+			// 检查最后一个非空行。
+			if c.h >= 16 {
+				last := ""
+				for i := len(lines) - 1; i >= 0; i-- {
+					if strings.TrimSpace(lines[i]) != "" {
+						last = lines[i]
+						break
+					}
+				}
+				if !strings.Contains(last, "[q] quit") {
+					t.Errorf("[%dx%d paused=%v]: footer not the last content line: %q",
+						c.w, c.h, paused, last)
+				}
 			}
 		}
 	}

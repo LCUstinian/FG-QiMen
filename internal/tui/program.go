@@ -314,15 +314,44 @@ type Program struct {
 // 经拥有 SIGINT 驱动的关闭逻辑。仍然可以通过调用 Done() 或 Quit() 让
 // program 退出。
 func NewProgram(cfg *types.Config) *Program {
+	return NewProgramWithOptions(cfg)
+}
+
+// NewProgramWithOptions is NewProgram with extra bubbletea options
+// appended after the production defaults (WithoutSignalHandler +
+// AltScreen). The production entry point stays NewProgram; the
+// options escape hatch exists for headless driving — a test can
+// capture the rendered stream via tea.WithOutput (bubbletea renders
+// to any writer, no TTY required) and inject keys via Send.
+//
+// NewProgramWithOptions 是 NewProgram 附加 bubbletea 选项的版本，附
+// 加项排在生产默认项（WithoutSignalHandler + AltScreen）之后。生产
+// 入口仍是 NewProgram；选项后门用于无头驱动——测试可以用
+// tea.WithOutput 捕获渲染流（bubbletea 对任意 writer 都渲染，无需
+// TTY），并用 Send 注入按键。
+func NewProgramWithOptions(cfg *types.Config, opts ...tea.ProgramOption) *Program {
 	m := NewModel(cfg)
 	d := &dispatcher{inner: &m}
-	p := tea.NewProgram(*d, tea.WithoutSignalHandler(), tea.WithAltScreen())
+	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithAltScreen()}
+	p := tea.NewProgram(*d, append(base, opts...)...)
 	return &Program{
 		p:   p,
 		ran: time.Now(),
 		cfg: cfg,
 	}
 }
+
+// Send forwards an arbitrary message into the bubbletea event loop —
+// the same channel the ui.UI methods push through. Production code
+// does not need it (the ui.UI surface covers the pipeline); it exists
+// for headless drivers that replay operator input (keys, resizes)
+// against the real program.
+//
+// Send 把任意消息转发进 bubbletea 事件循环——与 ui.UI 方法推送用的
+// 是同一条通道。生产代码不需要它（ui.UI 表面已覆盖管线）；它是给
+// 无头驱动用的，让操作员输入（按键、改尺寸）能在真实 program 上
+// 回放。
+func (p *Program) Send(msg tea.Msg) { p.p.Send(msg) }
 
 // Run blocks until the bubbletea program exits. Returns the final
 // program state or any error.

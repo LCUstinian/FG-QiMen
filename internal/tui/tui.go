@@ -469,20 +469,36 @@ func (m Model) View() string {
 	// overframes impossible above ~16 rows; the truncate is the
 	// last-resort for absurdly small terminals (where losing the
 	// footer beats scrolling the frame).
+	//
+	// CRITICAL: bubbletea's standard renderer counts frame lines as
+	// strings.Split(view, "\n") and drops the TOP lines when the
+	// count exceeds the terminal height (standard_renderer.go:186).
+	// A trailing "\n" therefore costs one real top row per frame —
+	// the live smoke probe caught the title bar (and the runState
+	// chip on it) vanishing from every frame. The reconciled frame
+	// must have EXACTLY m.height split elements: join content
+	// without a trailing newline, then pad with bare "\n"s whose
+	// split artifacts are the pad rows.
+	//
 	// 高度对账：短帧补行（防残影），超帧硬裁。实测 events 钳制使
 	// ~16 行以上的终端不可能超帧；裁剪是极小终端的兜底（那种情况
 	// 下丢 footer 好过整帧滚动）。
+	//
+	// 关键：bubbletea 标准 renderer 用 strings.Split(view, "\n") 数
+	// 帧行数，超出终端高度时丢弃**顶部**行（standard_renderer.go:186）。
+	// 尾随 "\n" 因此每帧吃掉一行真实顶行——实机冒烟探针抓到标题栏
+	// （连同其上的 runState 芯片）每帧消失。对账后的帧必须恰好有
+	// m.height 个 split 元素：内容 Join 不带尾随换行，再用裸 "\n"
+	// 补行——其 split 产物就是补的空行。
 	if m.height > 0 {
 		frame := strings.TrimRight(sb.String(), "\n")
 		lines := strings.Split(frame, "\n")
-		switch {
-		case len(lines) < m.height:
-			for i := len(lines); i < m.height; i++ {
-				sb.WriteString("\n")
-			}
-		case len(lines) > m.height:
-			sb.Reset()
-			sb.WriteString(strings.Join(lines[:m.height], "\n"))
+		if len(lines) > m.height {
+			lines = lines[:m.height]
+		}
+		sb.Reset()
+		sb.WriteString(strings.Join(lines, "\n"))
+		for i := len(lines); i < m.height; i++ {
 			sb.WriteString("\n")
 		}
 	}
