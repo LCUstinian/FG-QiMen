@@ -199,13 +199,13 @@ func TestResolveOutputPathFlagValueEscape(t *testing.T) {
 }
 
 // TestResolveOutputPathProjectMode: in project mode, the path
-// falls back to runs/projects/<name>/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
+// falls back to fgqm_workspace/projects/<name>/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
 // The daily bucket is the per-run boundary that prevents one
 // day's results from clobbering the next; the HH-MM-SS stamp
 // prevents two same-day runs from clobbering each other.
 func TestResolveOutputPathProjectMode(t *testing.T) {
 	c := &types.Config{Project: "corp"}
-	want := filepath.Join("runs", "projects", "corp", "2026-09-02", "fgqm_result_14-30-22.txt")
+	want := filepath.Join("fgqm_workspace", "projects", "corp", "2026-09-02", "fgqm_result_14-30-22.txt")
 	got, err := resolveOutputPath(c, "", "fgqm_result.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
@@ -216,11 +216,11 @@ func TestResolveOutputPathProjectMode(t *testing.T) {
 }
 
 // TestResolveOutputPathEphemeralMode: in ephemeral mode (Project ==
-// ""), the path falls back to runs/default/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
+// ""), the path falls back to fgqm_workspace/default/<YYYY-MM-DD>/<default>_<HH-MM-SS>.
 // Same daily-bucketing + timestamp rules as project mode.
 func TestResolveOutputPathEphemeralMode(t *testing.T) {
 	c := &types.Config{Project: ""}
-	want := filepath.Join("runs", "default", "2026-09-02", "fgqm_creds_14-30-22.txt")
+	want := filepath.Join("fgqm_workspace", "default", "2026-09-02", "fgqm_creds_14-30-22.txt")
 	got, err := resolveOutputPath(c, "", "fgqm_creds.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
@@ -232,14 +232,14 @@ func TestResolveOutputPathEphemeralMode(t *testing.T) {
 
 // TestResolveOutputPath_AliveProjectMode: the alive-list path is the
 // same shape as fgqm_result.txt / fgqm_rdp.* — daily bucket +
-// HH-MM-SS stamp under runs/projects/<name>/. Pins the contract the
-// README §"Output files" line now states.
+// HH-MM-SS stamp under fgqm_workspace/projects/<name>/. Pins the contract
+// the README §"Output files" line now states.
 // / 存活列表路径与 fgqm_result.txt / fgqm_rdp.* 同形——日桶 +
-// HH-MM-SS 时间戳，位于 runs/projects/<name>/ 下。钉死 README
+// HH-MM-SS 时间戳，位于 fgqm_workspace/projects/<name>/ 下。钉死 README
 // 输出文件段落现在声明的契约。
 func TestResolveOutputPath_AliveProjectMode(t *testing.T) {
 	c := &types.Config{Project: "corp"}
-	want := filepath.Join("runs", "projects", "corp", "2026-09-02", "fgqm_alive_14-30-22.txt")
+	want := filepath.Join("fgqm_workspace", "projects", "corp", "2026-09-02", "fgqm_alive_14-30-22.txt")
 	got, err := resolveOutputPath(c, "", "fgqm_alive.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
@@ -250,11 +250,11 @@ func TestResolveOutputPath_AliveProjectMode(t *testing.T) {
 }
 
 // TestResolveOutputPath_AliveEphemeralMode: same shape under
-// runs/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt.
-// / 同形，位于 runs/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt。
+// fgqm_workspace/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt.
+// / 同形，位于 fgqm_workspace/default/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt。
 func TestResolveOutputPath_AliveEphemeralMode(t *testing.T) {
 	c := &types.Config{Project: ""}
-	want := filepath.Join("runs", "default", "2026-09-02", "fgqm_alive_14-30-22.txt")
+	want := filepath.Join("fgqm_workspace", "default", "2026-09-02", "fgqm_alive_14-30-22.txt")
 	got, err := resolveOutputPath(c, "", "fgqm_alive.txt", fixedNow)
 	if err != nil {
 		t.Fatalf("resolveOutputPath: %v", err)
@@ -451,7 +451,7 @@ func TestOpenOutputSinks(t *testing.T) {
 		t.Fatal("sess.Out is nil after openOutputSinks")
 	}
 	wantTXT := filepath.Join(
-		"runs", "default",
+		"fgqm_workspace", "default",
 		time.Now().Format("2006-01-02"),
 		"fgqm_result_"+time.Now().Format("15-04-05")+".txt",
 	)

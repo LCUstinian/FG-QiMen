@@ -96,7 +96,7 @@ func TestAsStoreWithPassphrase_EncrypedPath(t *testing.T) {
 // TestProjectsRoot returns the expected layout.
 func TestProjectsRoot(t *testing.T) {
 	got := ProjectsRoot()
-	want := filepath.Join("runs", "projects")
+	want := filepath.Join("fgqm_workspace", "projects")
 	if got != want {
 		t.Errorf("ProjectsRoot() = %q, want %q", got, want)
 	}
@@ -155,11 +155,11 @@ func TestOpenPersistent(t *testing.T) {
 	if p.Name != name {
 		t.Errorf("Name = %q, want %q", p.Name, name)
 	}
-	wantRoot := filepath.Join("runs", "projects", name)
+	wantRoot := filepath.Join("fgqm_workspace", "projects", name)
 	if p.Root != wantRoot {
 		t.Errorf("Root = %q, want %q", p.Root, wantRoot)
 	}
-	wantDBPath := filepath.Join("runs", "projects", name, "fg.db")
+	wantDBPath := filepath.Join("fgqm_workspace", "projects", name, "fgqm.db")
 	if p.DBPath != wantDBPath {
 		t.Errorf("DBPath = %q, want %q", p.DBPath, wantDBPath)
 	}
@@ -207,7 +207,7 @@ func TestOpenPersistentRequiresName(t *testing.T) {
 	// negative space — if a caller ever wants to construct a
 	// persistent project directly, the name must be non-empty.
 	// We document the implicit rule by asserting the inverse: the
-	// public Open("") path does NOT create runs/projects/ on disk.
+	// public Open("") path does NOT create fgqm_workspace/projects/ on disk.
 	dir := t.TempDir()
 	oldwd, _ := os.Getwd()
 	_ = os.Chdir(dir)
@@ -218,8 +218,8 @@ func TestOpenPersistentRequiresName(t *testing.T) {
 		t.Fatalf("Open(\"\"): %v", err)
 	}
 	_ = p.Close()
-	if _, err := os.Stat(filepath.Join("runs", "projects")); !os.IsNotExist(err) {
-		t.Errorf("Open(\"\") unexpectedly created runs/projects/; stat err = %v", err)
+	if _, err := os.Stat(filepath.Join("fgqm_workspace", "projects")); !os.IsNotExist(err) {
+		t.Errorf("Open(\"\") unexpectedly created fgqm_workspace/projects/; stat err = %v", err)
 	}
 }
 
@@ -273,9 +273,9 @@ func TestListSkipsFiles(t *testing.T) {
 }
 
 // TestDeleteRefusesEmpty refuses to operate when name is "" (would
-// otherwise target cwd via filepath.Join("runs","projects",""),
-// producing the dangerous "runs/projects" path or, worse, an OS call
-// that surprises the operator).
+// otherwise target cwd via filepath.Join("fgqm_workspace","projects",""),
+// producing the dangerous "fgqm_workspace/projects" path or, worse, an
+// OS call that surprises the operator).
 func TestDeleteRefusesEmpty(t *testing.T) {
 	err := Delete("")
 	if err == nil {
@@ -347,14 +347,14 @@ func TestCloseNilSafe(t *testing.T) {
 
 // TestOpenPersistentNoState — when NoState=true is requested for a
 // named (persistent) project, OpenWithOptions must NOT open bbolt
-// and must NOT create the on-disk fg.db. The audit flagged
+// and must NOT create the on-disk fgqm.db. The audit flagged
 // `--no-state` as dead code: the flag was wired through cfg.NoState
 // but cmd/scan.go unconditionally called proj.AsStore() (or its
 // passphrase variant), which forced a bbolt open in workspace.Open.
 //
 // / TestOpenPersistentNoState — 当对命名（persistent）项目请求
 // NoState=true 时，OpenWithOptions 必须不打开 bbolt 且不得在磁盘上
-// 创建 fg.db。审计发现 `--no-state` 是死代码：flag 通过 cfg.NoState
+// 创建 fgqm.db。审计发现 `--no-state` 是死代码：flag 通过 cfg.NoState
 // 传递，但 cmd/scan.go 无条件调 proj.AsStore()（或其 passphrase 版
 // 本），迫使 workspace.Open 打开 bbolt。
 func TestOpenPersistentNoState(t *testing.T) {
@@ -381,20 +381,20 @@ func TestOpenPersistentNoState(t *testing.T) {
 	if p.DBPath != "" {
 		t.Errorf("NoState project: DBPath = %q, want empty", p.DBPath)
 	}
-	dbPath := filepath.Join(ProjectsRoot(), name, "fg.db")
+	dbPath := filepath.Join(ProjectsRoot(), name, "fgqm.db")
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		t.Errorf("NoState project: fg.db unexpectedly created at %s; stat err = %v",
+		t.Errorf("NoState project: fgqm.db unexpectedly created at %s; stat err = %v",
 			dbPath, err)
 	}
 }
 
 // TestOpenPersistentNormalStillWorks — sanity check that
 // OpenWithOptions with NoState=false preserves the existing
-// persistent behaviour (bbolt opens, fg.db created). Without this
+// persistent behaviour (bbolt opens, fgqm.db created). Without this
 // guard the NoState fix could regress the default path.
 //
 // / TestOpenPersistentNormalStillWorks — 健全性检查：NoState=false
-// 的 OpenWithOptions 保持现有持久化行为（打开 bbolt、创建 fg.db）。
+// 的 OpenWithOptions 保持现有持久化行为（打开 bbolt、创建 fgqm.db）。
 // 没有此保护，NoState 修法可能回退默认路径。
 func TestOpenPersistentNormalStillWorks(t *testing.T) {
 	dir := t.TempDir()
