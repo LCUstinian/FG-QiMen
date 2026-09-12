@@ -36,6 +36,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: every job here is read-only (lint / test / build).
+# Without this block the checkout token defaults to write-enabled,
+# which is more than any step needs (audit M-7 — all other workflows
+# already declare permissions; ci.yml was the only omission).
+#
+# 最小权限：本工作流所有 job 均只读（lint / test / build）。不写此
+# 块时 checkout token 默认带写权限，超出任何 step 的需要（审计
+# M-7——其余 workflow 均已声明 permissions，唯 ci.yml 缺失）。
+permissions:
+  contents: read
+
 jobs:
   # golangci-lint static analysis. Runs first to fail fast on style /
   # security / complexity issues that go vet doesn't catch.
@@ -46,10 +57,10 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.8'
           cache: true
@@ -83,7 +94,7 @@ jobs:
     name: HARD rule lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run HARD rule lint
         run: bash scripts/lint-hard-rule.sh
 
@@ -97,10 +108,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Pin to exact 1.26.0 to remove cross-patch non-determinism.
           # `'1.26'` resolves to "latest 1.26.x" which can change
@@ -188,7 +199,7 @@ jobs:
 
       - name: upload coverage artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-${{ matrix.os }}
           path: coverage.out
@@ -213,10 +224,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.8'
           cache: true
@@ -261,10 +272,10 @@ jobs:
             goarch: amd64
             ext: '.exe'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.8'
           cache: true
