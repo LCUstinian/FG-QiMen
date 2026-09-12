@@ -327,13 +327,20 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             curl -fsSL -o upx.zip "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-win64.zip"
             unzip -q upx.zip -d upx-dist
-            echo "$(pwd)/upx-dist/upx-5.2.0-win64" >> "$GITHUB_PATH"
+            echo "UPX_BIN=$(pwd)/upx-dist/upx-5.2.0-win64/upx.exe" >> "$GITHUB_ENV"
           else
             curl -fsSL -o upx.tar.xz "https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz"
             tar -xJf upx.tar.xz
-            echo "$(pwd)/upx-5.2.0-amd64_linux" >> "$GITHUB_PATH"
+            echo "UPX_BIN=$(pwd)/upx-5.2.0-amd64_linux/upx" >> "$GITHUB_ENV"
           fi
-          upx --version | head -n1
+          # $GITHUB_PATH does not apply to the CURRENT step, so verify
+          # and later invoke via the absolute path ($UPX_BIN) instead of
+          # bare `upx` — bare lookups also risk picking up a different
+          # version that happens to sit in the runner image.
+          # / $GITHUB_PATH 对当前步骤不生效，所以这里用绝对路径验证
+          # 并在后续步骤统一用 $UPX_BIN——裸 upx 还可能命中镜像里
+          # 巧合存在的其他版本。
+          "$UPX_BIN" --version | head -n1
 
       - name: upx compress (hardened)
         if: ${{ matrix.hardened == true }}
@@ -344,7 +351,7 @@ jobs:
         # garble 的加固版（strip_upx.py 对未加壳文件 no-op）。
         shell: bash
         run: |
-          if ! upx --best --lzma -q "release/${{ steps.names.outputs.bin }}"; then
+          if ! "$UPX_BIN" --best --lzma -q "release/${{ steps.names.outputs.bin }}"; then
             echo "::warning::UPX compression failed — shipping garble-only hardened binary"
           fi
 
