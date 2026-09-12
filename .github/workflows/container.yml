@@ -1,7 +1,10 @@
 # FG-QiMen OCI image workflow — builds and publishes container images
 # to GitHub Container Registry (ghcr.io) on tag push.
+# Also supports workflow_dispatch with a `version` input to backfill
+# images for a past tag (checks out that tag's source).
 # FG-QiMen OCI 镜像工作流——tag push 时构建并发布容器镜像到
-# GitHub Container Registry (ghcr.io)。
+# GitHub Container Registry (ghcr.io)。支持 workflow_dispatch 传
+# `version` 入参补跑历史版本的镜像（checkout 该 tag 的源码）。
 #
 # Strategy: minimal scratch-based image with the fg-qimen binary as
 # ENTRYPOINT. Two architectures (amd64, arm64) via buildx matrix.
@@ -18,6 +21,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to build (e.g. v0.7.1) — backfill images for a past release'
+        required: true
 
 permissions:
   contents: read   # checkout source
@@ -42,15 +49,28 @@ jobs:
             platform: linux/arm64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Backfill dispatch: build the binary FROM the tagged source so
+          # the image matches the released binaries, not main HEAD.
+          # / 补跑 dispatch：从 tag 源码构建二进制，保证镜像与已发布的
+          # 二进制一致，而不是 main HEAD。
+          ref: ${{ inputs.version || github.ref }}
 
       - name: derive version
         id: ver
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            VERSION="${VERSION#v}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
           else
             VERSION="dev-${GITHUB_SHA::7}"
           fi
+          # GHCR rejects image references containing uppercase letters;
+          # the owner here is "LCUstinian". / GHCR 拒绝含大写字母的镜像
+          # 引用；本仓库 owner 是 "LCUstinian"。
+          echo "owner_lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -76,9 +96,11 @@ jobs:
           file: .github/docker/Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/fg-qimen:${{ steps.ver.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/fg-qimen:latest
+            ghcr.io/${{ steps.ver.outputs.owner_lc }}/fg-qimen:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ steps.ver.outputs.owner_lc }}/fg-qimen:latest
           labels: |
             org.opencontainers.image.title=fg-qimen
             org.opencontainers.image.version=${{ steps.ver.outputs.version }}
@@ -93,4 +115,4 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: '1'
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/fg-qimen@${{ steps.build.outputs.digest }}
+          cosign sign --yes ghcr.io/${{ steps.ver.outputs.owner_lc }}/fg-qimen@${{ steps.build.outputs.digest }}
