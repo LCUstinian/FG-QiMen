@@ -49,6 +49,81 @@ func TestTruncateForCSV(t *testing.T) {
 	}
 }
 
+func TestNeutralizeCSVFormula(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// Dangerous starts get the spreadsheet-accepted `'` escape.
+		// 危险起始字符加表格软件接受的 `'` 转义。
+		{"=cmd|'/c calc'!A0", "'=cmd|'/c calc'!A0"},
+		{"=HYPERLINK(\"\\\\\\\\attacker\\\\x\")", "'=HYPERLINK(\"\\\\\\\\attacker\\\\x\")"},
+		{"+1+1", "'+1+1"},
+		{"-1", "'-1"},
+		{"@SUM(1)", "'@SUM(1)"},
+		{"\tTAB", "'\tTAB"},
+		{"\rCR", "'\rCR"},
+		// Benign starts pass through untouched. / 良性起始字符原样通过。
+		{"OpenSSH_9.0", "OpenSSH_9.0"},
+		{"http://x", "http://x"},
+		{"", ""},
+		{"127.0.0.1", "127.0.0.1"},
+	}
+	for _, c := range cases {
+		if got := neutralizeCSVFormula(c.in); got != c.want {
+			t.Errorf("neutralizeCSVFormula(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// The banner cell in the written CSV must be formula-neutralized; the
+// user/pass cells must stay verbatim (operator copies creds from here).
+// / 写出的 CSV 中 banner 单元格必须做公式中和；user/pass 单元格必须
+// 原样（操作员要从这里复制凭据）。
+func TestWriteResult_CSVBannerFormulaInjection(t *testing.T) {
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "fgqm_result.csv")
+	out, err := OpenOutput(OutputConfig{ResultCSVPath: csvPath, ShowCleartext: true})
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+	r := &types.Result{
+		Time:    time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+		Host:    "203.0.113.9",
+		Port:    80,
+		Service: "http",
+		Plugin:  "webtitle",
+		Banner:  `=cmd|'/c calc'!A0`,
+		Cred:    &types.Cred{User: "-admin", Pass: "=pass", AuthType: "password"},
+	}
+	if err := out.WriteResult(r); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	f, err := os.Open(csvPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+	rows, err := csv.NewReader(f).ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	// Banner cell (index 6) neutralized. / banner 单元格（下标 6）已中和。
+	if rows[1][6] != `'=cmd|'/c calc'!A0` {
+		t.Errorf("banner cell not neutralized: %q", rows[1][6])
+	}
+	// user/pass cells (7/8) untouched. / user/pass（7/8）原样保留。
+	if rows[1][7] != "-admin" || rows[1][8] != "=pass" {
+		t.Errorf("user/pass altered: user=%q pass=%q", rows[1][7], rows[1][8])
+	}
+}
+
 func TestOpenOutput_WithCSV(t *testing.T) {
 	dir := t.TempDir()
 	csvPath := filepath.Join(dir, "fgqm_result.csv")

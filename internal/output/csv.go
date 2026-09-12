@@ -54,3 +54,38 @@ func truncateForCSV(s string, maxBytes int) string {
 	}
 	return s[:maxBytes] + "..."
 }
+
+// csvFormulaPrefixes are the characters Excel / LibreOffice / Numbers
+// interpret as formula starts when a cell begins with one. A banner is
+// attacker-controlled data (remote title, Server header, fingerprint
+// names), so `=cmd|'/c calc'!A0` or `=HYPERLINK(...)` planted by a
+// hostile target would execute when the operator opens results.csv in
+// a spreadsheet (OWASP CSV Injection). Neutralize by prefixing a
+// single quote — the standard, spreadsheet-accepted escape that keeps
+// the visible text unchanged.
+//
+// csvFormulaPrefixes 是 Excel / LibreOffice / Numbers 视为公式起点的字符。
+// banner 是攻击者可控数据（远程 title、Server 头、指纹名），恶意目标
+// 埋入的 `=cmd|'/c calc'!A0` 或 `=HYPERLINK(...)` 会在操作员用表格软件
+// 打开 results.csv 时执行（OWASP CSV 注入）。按标准做法前置一个单引号
+// 中和——表格软件接受的转义方式，且显示文本不变。
+var csvFormulaPrefixes = []byte{'=', '+', '-', '@', '\t', '\r'}
+
+// neutralizeCSVFormula guards one CSV cell against spreadsheet formula
+// injection. Only apply to attacker-controlled columns (banner) — never
+// to user/pass (operator wordlist data must survive copy-paste verbatim).
+//
+// neutralizeCSVFormula 防护单个 CSV 单元格的表格公式注入。只对攻击者
+// 可控的列（banner）使用——绝不用于 user/pass（操作员词表数据必须
+// 原样可复制）。
+func neutralizeCSVFormula(s string) string {
+	if s == "" {
+		return s
+	}
+	for _, c := range csvFormulaPrefixes {
+		if s[0] == c {
+			return "'" + s
+		}
+	}
+	return s
+}

@@ -93,7 +93,7 @@ type Output struct {
 	// 时分配；包 alive sink 拥有 CSV header（首次调用时写）。懒
 	// 分配，跟 per-sink 去重 map 一样。
 	aliveCSVWriter *csv.Writer
-	csvWriter *csv.Writer
+	csvWriter      *csv.Writer
 
 	// csvHeaderWritten tracks whether the CSV header has been emitted
 	// yet. We use a plain bool (not a separate "exists in the file"
@@ -455,7 +455,11 @@ func (o *Output) writeCSVvia(cw *csv.Writer, r *types.Result) error {
 		r.Service,
 		r.Plugin,
 		"open", // all results reaching the sink are "open" ports
-		truncateForCSV(r.Banner, 1024),
+		// Banner is attacker-controlled (remote title / Server header) —
+		// neutralize spreadsheet formula injection (OWASP CSV Injection).
+		// Banner 是攻击者可控的（远程 title / Server 头）——中和表格
+		// 公式注入（OWASP CSV 注入）。
+		neutralizeCSVFormula(truncateForCSV(r.Banner, 1024)),
 		user,
 		pass,
 	}
@@ -495,6 +499,7 @@ func (o *Output) WriteCred(r *types.Result) error {
 //   - "csv": `host,port,service,time\n1.2.3.4,22,ssh,...\n` — header
 //     written on first call via a dedicated csv.Writer (allocated
 //     lazily on first row).
+//
 // / 格式：
 //   - "txt"（默认）：`1.2.3.4\n` —— 每行一个 host。
 //   - "json"：每行 `{"host":"...","port":22,"service":"ssh","time":"..."}\n`。

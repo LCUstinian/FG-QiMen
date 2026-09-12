@@ -77,6 +77,19 @@ func newNoRedirectClient(timeout time.Duration) *http.Client {
 	return &http.Client{Transport: tr, Timeout: timeout}
 }
 
+// maxFingerprintBody caps how much of a response body is buffered for
+// fingerprint matching. A hostile web server can return an arbitrarily
+// large (or infinite) body; without a cap, io.ReadAll buffers it all
+// in memory, and with hundreds of concurrent probes that is an OOM
+// the target can weaponize. 1 MB is ample for title / header / favicon
+// matching (parse.go already caps title extraction at 1 KB).
+//
+// maxFingerprintBody 限制指纹匹配缓冲的响应体大小。恶意 Web 服务器可
+// 返回任意大（甚至无限）的响应体；不设上限时 io.ReadAll 会全量缓冲，
+// 数百并发探测下目标可把 OOM 武器化。1 MB 对 title / header / favicon
+// 匹配绰绰有余（parse.go 的标题抽取本就只取 1 KB）。
+const maxFingerprintBody = 1 << 20 // 1 MB
+
 // newClient returns the standard client (up to 5 redirects).
 // / newClient 返回标准 client（最多跟随 5 次重定向）。
 func newClient(timeout time.Duration) *http.Client {
@@ -114,7 +127,7 @@ func fetchForRedirect(ctx context.Context, url string, timeout time.Duration) *f
 		return nil
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxFingerprintBody))
 	return &fingerprint.CheckData{
 		Body:    body,
 		Headers: formatHeaders(resp.Header),

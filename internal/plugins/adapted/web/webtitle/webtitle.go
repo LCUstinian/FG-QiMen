@@ -115,7 +115,10 @@ func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *t
 	if err != nil {
 		return nil
 	}
-	body, _ := io.ReadAll(resp.Body)
+	// Cap the buffered body: a hostile server can stream an unbounded
+	// response and OOM the scanner (audit H-1). / 限制缓冲的响应体：
+	// 恶意服务器可用无限流响应把扫描器打 OOM（审计 H-1）。
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxFingerprintBody))
 	_ = resp.Body.Close()
 	contentLen := len(body)
 
