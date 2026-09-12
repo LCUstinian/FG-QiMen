@@ -496,3 +496,22 @@ func (m Model) viewTopPlugins(height int, bp Breakpoint) string {
 	}
 	return m.renderTopPluginsPanel(width)
 }
+
+// viewFooter renders the bottom keymap hint line. Always 1 row.
+// / viewFooter 渲染底部 keymap 提示行。始终 1 行。
+func (m Model) viewFooter(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	km := DefaultKeymap()
+	parts := []string{
+		"[q] quit",
+		"[p] pause",
+		km.ToggleErrors.Help().Key + " " + km.ToggleErrors.Help().Desc,
+		km.LiveOverlay.Help().Key + " " + km.LiveOverlay.Help().Desc,
+		km.Help.Help().Key + " " + km.Help.Help().Desc,
+	}
+	return lipgloss.NewStyle().
+		Foreground(colorFgDim).
+		Render(strings.Join(parts, "  "))
+}
