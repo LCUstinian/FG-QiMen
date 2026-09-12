@@ -1,10 +1,19 @@
 # FG-QiMen release workflow — tag-triggered multi-platform release.
 # FG-QiMen release 工作流——tag 触发，多平台 release。
 #
-# Builds 11 platform targets (Linux x5, macOS x2, Windows x2, BSD x2),
-# generates SHA256SUMS, signs artifacts with cosign (keyless, OIDC),
-# generates CycloneDX SBOM, attaches SLSA Build Level 2 provenance,
-# and publishes a GitHub Release with the artifacts.
+# Builds TWO editions / 构建两个版本：
+#   - Standard / 标准版: clean reproducible build, 11 platform targets
+#     (Linux x5, macOS x2, Windows x2, BSD x2).
+#   - Hardened / 加固版: garble -seed=random obfuscation + UPX
+#     --best --lzma compression + UPX signature stripping
+#     (scripts/strip_upx.py), for linux-amd64 and windows-amd64 only.
+#     Intentionally NOT reproducible (random seed).
+#
+# Every artifact gets a cosign keyless signature (OIDC), a CycloneDX
+# SBOM (hardened: collected BEFORE UPX packing — buildinfo is
+# compressed away after), and SLSA Build Level 2 provenance. The
+# publish job aggregates SHA256SUMS (13 entries), a full SPDX SBOM,
+# and publishes the GitHub Release.
 #
 # CI workflow (ci.yml) is the green-or-red gate; release.yml only
 # runs on version tags (`v*`). workflow_dispatch is also supported
@@ -40,11 +49,13 @@ env:
 
 jobs:
   # ---- Build, sign, and publish artifacts -----------------------------
-  # 11-platform matrix. Linux non-amd64/arm64 targets use QEMU
-  # emulation on ubuntu-latest. / 11 平台矩阵。Linux 非 amd64/arm64
+  # 13-entry matrix: 11 standard targets + 2 hardened editions
+  # (linux-amd64, windows-amd64). Linux non-amd64/arm64 targets use
+  # QEMU emulation on ubuntu-latest. / 13 条矩阵：11 个标准目标 +
+  # 2 个加固版（linux-amd64、windows-amd64）。Linux 非 amd64/arm64
   # 目标在 ubuntu-latest 上用 QEMU 模拟。
   release:
-    name: build + sign (${{ matrix.target }})
+    name: build + sign (${{ matrix.target }}${{ matrix.hardened && ' (hardened)' || '' }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -57,6 +68,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: false
+            hardened: false
           # Linux ARM64 — QEMU on Ubuntu runner
           - target: linux-arm64
             goos: linux
@@ -64,6 +76,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
           # Linux ARMv7 (Raspberry Pi class) — QEMU
           - target: linux-armv7
             goos: linux
@@ -72,6 +85,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
           # Linux i386 — QEMU
           - target: linux-386
             goos: linux
@@ -79,6 +93,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
           # Linux RISC-V64 — QEMU
           - target: linux-riscv64
             goos: linux
@@ -86,6 +101,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
           # macOS Intel
           - target: darwin-amd64
             goos: darwin
@@ -93,6 +109,7 @@ jobs:
             ext: ''
             runner: macos-14
             qemu: false
+            hardened: false
           # macOS Apple Silicon
           - target: darwin-arm64
             goos: darwin
@@ -100,6 +117,7 @@ jobs:
             ext: ''
             runner: macos-14
             qemu: false
+            hardened: false
           # Windows x86_64
           - target: windows-amd64
             goos: windows
@@ -107,6 +125,23 @@ jobs:
             ext: '.exe'
             runner: windows-latest
             qemu: false
+            hardened: false
+          # Windows x86_64 — hardened edition (garble + UPX + strip).
+          # / Windows x86_64——加固版（garble + UPX + 特征消除）。
+          - target: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ''
+            runner: ubuntu-latest
+            qemu: false
+            hardened: true
+          - target: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: '.exe'
+            runner: windows-latest
+            qemu: false
+            hardened: true
           # Windows ARM64 (Surface Pro X class)
           - target: windows-arm64
             goos: windows
@@ -114,6 +149,7 @@ jobs:
             ext: '.exe'
             runner: windows-latest
             qemu: false
+            hardened: false
           # FreeBSD amd64 — QEMU on Ubuntu (experimental).
           - target: freebsd-amd64
             goos: freebsd
@@ -121,6 +157,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
           # OpenBSD amd64 — QEMU on Ubuntu (experimental).
           - target: openbsd-amd64
             goos: openbsd
@@ -128,6 +165,7 @@ jobs:
             ext: ''
             runner: ubuntu-latest
             qemu: true
+            hardened: false
     steps:
       - uses: actions/checkout@v4
 
@@ -148,13 +186,32 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: derive artifact names
+        id: names
+        # Single place computing the artifact file names. Hardened
+        # entries get a `-hardened` suffix before the extension:
+        #   fg-qimen-linux-amd64-hardened
+        #   fg-qimen-windows-amd64-hardened.exe
+        # / 统一计算产物文件名。加固版在扩展名前加 `-hardened`
+        # 后缀。
+        shell: bash
+        env:
+          HARDENED_SUFFIX: ${{ matrix.hardened && '-hardened' || '' }}
+        run: |
+          BIN="fg-qimen-${{ matrix.target }}${HARDENED_SUFFIX}${{ matrix.ext }}"
+          SBOM="fg-qimen-${{ matrix.target }}${HARDENED_SUFFIX}.sbom.json"
+          echo "bin=${BIN}" >> "$GITHUB_OUTPUT"
+          echo "sbom=${SBOM}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.8'
           cache: true
 
+      # ---- Standard build: clean, reproducible -------------------------
       - name: build ${{ matrix.target }}
+        if: ${{ matrix.hardened != true }}
         # Force bash on Windows (mkdir -p, the ${var} ldflags
         # expansion, and the heredoc-style multi-line run all
         # require bash; PowerShell would need different syntax).
@@ -174,8 +231,117 @@ jobs:
           mkdir -p release
           go build -trimpath -buildvcs=false \
             -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v${{ steps.ver.outputs.version }}" \
-            -o "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}" \
+            -o "release/${{ steps.names.outputs.bin }}" \
             .
+
+      # ---- Hardened build: garble obfuscation --------------------------
+      - name: install garble (hardened)
+        if: ${{ matrix.hardened == true }}
+        # garble is PINNED to v0.17.0 — verified to work against
+        # go 1.26.8. Do NOT bump to @latest: garble lags behind new Go
+        # releases and the build breaks. The local harden scripts pin
+        # the same version (GARBLE_VERSION default).
+        # / garble 固定在 v0.17.0——已验证与 go 1.26.8 兼容。不要
+        # 升到 @latest：garble 落后于 Go 新版，会构建失败。本地加固
+        # 脚本 pin 同一版本（GARBLE_VERSION 默认值）。
+        shell: bash
+        run: go install mvdan.cc/garble@v0.17.0
+
+      - name: build hardened (garble, random seed)
+        if: ${{ matrix.hardened == true }}
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: v1
+          CGO_ENABLED: '0'
+          GOARM: ${{ matrix.goarm || '' }}
+          # garble patches the linker via a Go overlay, which cannot
+          # replace files under GOMODCACHE. A downloaded toolchain
+          # (GOTOOLCHAIN=auto) lives in GOMODCACHE, so pin the real
+          # toolchain installed by setup-go. / garble 通过 Go overlay
+          # 补丁链接器，不能替换 GOMODCACHE 下的文件。下载的工具链
+          # （GOTOOLCHAIN=auto）位于 GOMODCACHE，因此固定使用
+          # setup-go 安装的原生工具链。
+          GOTOOLCHAIN: local
+        run: |
+          mkdir -p release
+          # -seed=random: every hardened build has a different SHA256,
+          # defeating file-hash based identification. The hardened
+          # edition is intentionally NOT reproducible.
+          # / -seed=random：每次加固构建 SHA256 都不同，对抗基于文件
+          # 哈希的识别。加固版有意不可复现。
+          "$(go env GOPATH)/bin/garble" -seed=random -literals build \
+            -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v${{ steps.ver.outputs.version }}" \
+            -trimpath \
+            -buildvcs=false \
+            -o "release/${{ steps.names.outputs.bin }}" \
+            .
+
+      # ---- SBOM: collected BEFORE UPX packing ---------------------------
+      # For hardened entries the Go buildinfo is compressed away by
+      # UPX — collecting the SBOM on the packed binary would yield an
+      # empty/garbled inventory. The cosign signature and SLSA
+      # provenance below still cover the FINAL (packed) bytes.
+      # / 加固版的 SBOM 在 UPX 加壳前采集：加壳后 Go buildinfo 被压
+      # 缩，对加壳二进制采集会得到空洞清单。下方的 cosign 签名与
+      # SLSA provenance 仍覆盖最终（加壳后）字节。
+      - name: install syft
+        uses: anchore/sbom-action@v0
+        with:
+          syft-version: v1.51.0
+
+      - name: generate SBOM
+        # Force bash on Windows (multi-line `\` continuation).
+        # / 在 Windows 上强制 bash（多行 `\` 续行）。
+        shell: bash
+        run: |
+          syft "release/${{ steps.names.outputs.bin }}" \
+            --output cyclonedx-json="release/${{ steps.names.outputs.sbom }}"
+
+      # ---- Hardened only: UPX compression + signature stripping --------
+      - name: install upx (hardened)
+        if: ${{ matrix.hardened == true }}
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            choco install upx -y --no-progress
+          else
+            sudo apt-get update -q
+            sudo apt-get install -y -q upx-ucl
+          fi
+
+      - name: upx compress (hardened)
+        if: ${{ matrix.hardened == true }}
+        # Warn-and-continue on UPX failure, matching the local
+        # harden.sh behavior: a garble-only hardened binary is still
+        # shipped (strip_upx.py then no-ops on the unpacked file).
+        # / UPX 失败告警继续，与本地 harden.sh 行为一致：仍发布仅
+        # garble 的加固版（strip_upx.py 对未加壳文件 no-op）。
+        shell: bash
+        run: |
+          if ! upx --best --lzma -q "release/${{ steps.names.outputs.bin }}"; then
+            echo "::warning::UPX compression failed — shipping garble-only hardened binary"
+          fi
+
+      - name: strip upx signatures (hardened)
+        if: ${{ matrix.hardened == true }}
+        # `python` on Windows runners (python3 is the Store stub);
+        # `python3` on Linux. / Windows runner 用 `python`（python3 是
+        # 商店占位符）；Linux 用 `python3`。
+        shell: bash
+        run: |
+          ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/strip_upx.py "release/${{ steps.names.outputs.bin }}"
+
+      - name: hardened self-test
+        if: ${{ matrix.hardened == true }}
+        # Fail early if garble/UPX broke the CLI surface, instead of
+        # waiting for the publish job. / garble/UPX 若破坏了 CLI，
+        # 尽早失败，不等 publish job。
+        shell: bash
+        run: |
+          version_output="$("release/${{ steps.names.outputs.bin }}" version)"
+          printf '%s\n' "$version_output" | head -n1 | grep -F "v${{ steps.ver.outputs.version }}"
 
       - name: install cosign
         uses: sigstore/cosign-installer@v3
@@ -189,42 +355,29 @@ jobs:
           COSIGN_EXPERIMENTAL: '1'
         run: |
           cosign sign-blob --yes \
-            --output-signature "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.sig" \
-            --output-certificate "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.pem" \
-            "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}"
+            --output-signature "release/${{ steps.names.outputs.bin }}.sig" \
+            --output-certificate "release/${{ steps.names.outputs.bin }}.pem" \
+            "release/${{ steps.names.outputs.bin }}"
 
       # SLSA Build Level 2 provenance attestation. / SLSA Build
       # Level 2 provenance 证明。
       - name: SLSA provenance attestation
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: 'release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}'
+          subject-path: 'release/${{ steps.names.outputs.bin }}'
           push-to-registry: false
           # Attestation is uploaded as an artifact alongside the binary
           # (next step). / 证明与 binary 一同作为 artifact 上传。
 
-      - name: install syft
-        uses: anchore/sbom-action@v0
-        with:
-          syft-version: v1.51.0
-
-      - name: generate SBOM
-        # Force bash on Windows (multi-line `\` continuation).
-        # / 在 Windows 上强制 bash（多行 `\` 续行）。
-        shell: bash
-        run: |
-          syft "release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}" \
-            --output cyclonedx-json="release/fg-qimen-${{ matrix.target }}.sbom.json"
-
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.target }}
+          name: release-${{ matrix.target }}${{ matrix.hardened && '-hardened' || '' }}
           path: |
-            release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}
-            release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.sig
-            release/fg-qimen-${{ matrix.target }}${{ matrix.ext }}.pem
-            release/fg-qimen-${{ matrix.target }}.sbom.json
+            release/${{ steps.names.outputs.bin }}
+            release/${{ steps.names.outputs.bin }}.sig
+            release/${{ steps.names.outputs.bin }}.pem
+            release/${{ steps.names.outputs.sbom }}
           if-no-files-found: error
 
   # ---- Aggregate, smoke-test, and create the GitHub Release -------
@@ -239,11 +392,15 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # Smoke-test the Linux/amd64 binary before computing checksums.
-      # Catches broken ldflags (wrong version) and a non-functional CLI
-      # surface early. / 在算 SHA256SUMS 之前 smoke-test linux/amd64
-      # binary，提早捕获 ldflags 错和不能跑的 CLI。
-      - name: smoke test linux/amd64 binary
+      # Smoke-test the Linux/amd64 binaries (standard + hardened)
+      # before computing checksums. Catches broken ldflags (wrong
+      # version) and a non-functional CLI surface early. The hardened
+      # binary additionally proves the garble+UPX pipeline still
+      # produces a working CLI.
+      # / 在算 SHA256SUMS 之前 smoke-test linux/amd64（标准版 +
+      # 加固版），提早捕获 ldflags 错和不能跑的 CLI。加固版额外
+      # 证明 garble+UPX 管线产出的仍是可用 CLI。
+      - name: smoke test linux/amd64 binaries (standard + hardened)
         working-directory: dist
         run: |
           set -euo pipefail
@@ -256,14 +413,18 @@ jobs:
           # 是当源 archive 在 windows-latest runner 上创建时（原
           # 始 +x 来自 `go build` 的 umask-077 模式）。chmod +x
           # 是幂等的，即使位已设也安全。
-          chmod +x ./fg-qimen-linux-amd64
+          chmod +x ./fg-qimen-linux-amd64 ./fg-qimen-linux-amd64-hardened
           version_output="$(./fg-qimen-linux-amd64 version)"
           printf '%s\n' "$version_output" | head -n1 | grep -F "${GITHUB_REF_NAME}"
           ./fg-qimen-linux-amd64 --help >/dev/null
+          hardened_version="$(./fg-qimen-linux-amd64-hardened version)"
+          printf '%s\n' "$hardened_version" | head -n1 | grep -F "${GITHUB_REF_NAME}"
+          ./fg-qimen-linux-amd64-hardened --help >/dev/null
 
-      # Fail-closed SHA256SUMS: enumerate the 11 expected binaries by
-      # exact name. / Fail-closed SHA256SUMS：按精确名枚举 11 个
-      # binary。
+      # Fail-closed SHA256SUMS: enumerate the 13 expected binaries by
+      # exact name (11 standard + 2 hardened).
+      # / Fail-closed SHA256SUMS：按精确名枚举 13 个 binary
+      # （11 标准版 + 2 加固版）。
       - name: compute and verify SHA256SUMS
         working-directory: dist
         run: |
@@ -280,6 +441,8 @@ jobs:
             fg-qimen-windows-arm64.exe
             fg-qimen-freebsd-amd64
             fg-qimen-openbsd-amd64
+            fg-qimen-linux-amd64-hardened
+            fg-qimen-windows-amd64-hardened.exe
           )
           for artifact in "${expected[@]}"; do
             test -s "$artifact"
@@ -288,6 +451,33 @@ jobs:
           test "$(wc -l < SHA256SUMS)" -eq "${#expected[@]}"
           sha256sum -c SHA256SUMS
           cat SHA256SUMS
+
+      # Full SPDX SBOM across every shipped binary — README documents
+      # FG-QiMen-release.spdx.json as a release artifact, so generate
+      # it here from the 13 verified binaries.
+      # / 覆盖全部发布二进制的完整 SPDX SBOM——README 将
+      # FG-QiMen-release.spdx.json 列为 Release 产物，这里基于
+      # 13 个已校验的 binary 生成。
+      - name: install syft (full SPDX SBOM)
+        uses: anchore/sbom-action@v0
+        with:
+          syft-version: v1.51.0
+
+      - name: generate full SPDX SBOM
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          # SHA256SUMS names are exactly the 13 binaries — copy them
+          # into a clean dir so the SPDX catalog contains only
+          # binaries (not .sig/.pem/.sbom.json sidecars).
+          # / SHA256SUMS 中的名字恰好是 13 个 binary——拷入干净目
+          # 录，使 SPDX 清单只含二进制（不含 .sig/.pem/.sbom.json
+          # 旁车文件）。
+          mkdir -p ../spdx-input
+          awk '{print $2}' SHA256SUMS | while read -r artifact; do
+            cp "$artifact" ../spdx-input/
+          done
+          syft "dir:../spdx-input" --output spdx-json=FG-QiMen-release.spdx.json
 
       - name: create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -299,9 +489,16 @@ jobs:
 
               See [RELEASE_NOTES](https://github.com/LCUstinian/FG-QiMen/blob/main/CHANGELOG.md) for what's changed.
 
+              ### Editions / 版本
+
+              - **Standard / 标准版** (`fg-qimen-<platform>`): clean, reproducible build (SOURCE_DATE_EPOCH pinned). 11 platforms.
+                / 标准版：纯净、可复现构建（固定 SOURCE_DATE_EPOCH）。11 个平台。
+              - **Hardened / 加固版** (`fg-qimen-<platform>-hardened`, linux-amd64 + windows-amd64 only): garble `-seed=random` obfuscation, UPX `--best --lzma` compression, UPX signature stripping. Intentionally NOT reproducible — every build has a different SHA256. Expect a 50-200ms startup delay and higher antivirus false-positive rates; the cosign signature still proves authenticity.
+                / 加固版（仅 linux-amd64 与 windows-amd64）：garble `-seed=random` 混淆、UPX `--best --lzma` 压缩、UPX 特征消除。有意不可复现——每次构建 SHA256 不同。启动延迟 50-200ms，杀软误报率更高；cosign 签名仍可证明来源。
+
               ### Platforms / 平台
 
-              11 targets across Linux (amd64, arm64, armv7, 386, riscv64), macOS (amd64, arm64), Windows (amd64, arm64), FreeBSD (amd64), OpenBSD (amd64).
+              13 artifacts: 11 standard targets across Linux (amd64, arm64, armv7, 386, riscv64), macOS (amd64, arm64), Windows (amd64, arm64), FreeBSD (amd64), OpenBSD (amd64), plus hardened editions for linux-amd64 and windows-amd64.
 
               ### Verification / 校验
 
@@ -318,6 +515,17 @@ jobs:
                 --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
                 --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
                 fg-qimen-linux-amd64
+              ```
+
+              Hardened edition / 加固版:
+
+              ```bash
+              COSIGN_EXPERIMENTAL=1 cosign verify-blob \
+                --certificate fg-qimen-windows-amd64-hardened.exe.pem \
+                --signature fg-qimen-windows-amd64-hardened.exe.sig \
+                --certificate-identity-regexp 'https://github.com/LCUstinian/FG-QiMen' \
+                --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+                fg-qimen-windows-amd64-hardened.exe
               ```
 
               ### SLSA Build Level 2 provenance / SLSA Build Level 2 provenance

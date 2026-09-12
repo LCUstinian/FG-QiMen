@@ -13,12 +13,13 @@
 #   ./scripts/harden.sh [binary_path] [version]
 #
 # Examples:
-#   ./scripts/harden.sh                          # defaults: release/fg-qimen 0.2.0
+#   ./scripts/harden.sh                          # defaults: release/fg-qimen, version auto-derived
 #   ./scripts/harden.sh release/fg-qimen 0.3.0   # custom path + version
 #   CLONE_SOURCE=/path/to/legit.exe ./scripts/harden.sh  # with cert cloning
 #
 # Environment variables:
 #   GARBLE         — path to garble binary (default: $GOPATH/bin/garble)
+#   GARBLE_VERSION — garble version to install if missing (default: v0.17.0, must match CI)
 #   GARBLE_SEED    — fixed seed for reproducible builds (default: random)
 #   CLONE_SOURCE   — path to legitimate PE for signature cloning (optional)
 #
@@ -36,12 +37,13 @@
 #   ./scripts/harden.sh [二进制路径] [版本号]
 #
 # 示例：
-#   ./scripts/harden.sh                              # 默认：release/fg-qimen 0.2.0
-#   ./scripts/harden.sh release/fg-qimen 0.3.0       # 自定义路径 + 版本
+#   ./scripts/harden.sh                              # 默认：release/fg-qimen，版本号自动推导
+#   ./scripts/harden.sh release/fg-qimen 0.3.0       # 自定义路径 + 版本号
 #   CLONE_SOURCE=/path/to/legit.exe ./scripts/harden.sh  # 带证书克隆
 #
 # 环境变量：
 #   GARBLE         — garble 二进制路径（默认：$GOPATH/bin/garble）
+#   GARBLE_VERSION — 缺失时安装的 garble 版本（默认：v0.17.0，须与 CI 一致）
 #   GARBLE_SEED    — 固定 seed 用于可复现构建（默认：random）
 #   CLONE_SOURCE   — 合法 PE 文件路径用于签名克隆（可选）
 
@@ -50,15 +52,37 @@ set -euo pipefail
 # ── Configuration ────────────────────────────────────────────────────────
 
 BINARY="${1:-release/fg-qimen}"
-VERSION="${2:-0.2.0}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STRIP_SCRIPT="${SCRIPT_DIR}/strip_upx.py"
+
+# Version: an explicit argument wins; otherwise derive it from the
+# source of truth — the `Value` var in internal/version/version.go
+# (kept equal to the most recent released version). No stale
+# hardcoded defaults.
+# / 版本号：显式传参优先；否则从唯一事实源——
+# internal/version/version.go 的 Value var 推导（与最近发布版本
+# 保持一致），不再有过期硬编码默认值。
+VERSION="${2:-}"
+if [[ -z "$VERSION" ]]; then
+    # Anchored to the `var Value = "..."` declaration line: a loose
+    # `.*Value = ` match also hits historical comments (e.g.
+    # `const Value = "0.2.0"` in docstrings) yielding a stale version.
+    VERSION="$(sed -n 's/^var Value = "\([^"]*\)".*/\1/p' "$SCRIPT_DIR/../internal/version/version.go")"
+fi
+if [[ -z "$VERSION" ]]; then
+    echo "[ERROR] cannot derive version from internal/version/version.go — pass it explicitly: $0 <binary> <version>" >&2
+    exit 1
+fi
+
 SKIP_BUILD="${3:-}"
+# GARBLE_VERSION must match the version pinned in release.yml.
+# / GARBLE_VERSION 必须与 release.yml 固定的版本一致。
+GARBLE_VERSION="${GARBLE_VERSION:-v0.17.0}"
 GARBLE_BIN="${GARBLE:-$(go env GOPATH)/bin/garble}"
 GARBLE_SEED="${GARBLE_SEED:-random}"
 MODULE_PATH="github.com/LCUstinian/FG-QiMen/internal/version.Value"
 LD_FLAGS="-s -w -buildid= -X ${MODULE_PATH}=${VERSION}"
 UPX_ARGS="--best --lzma -q"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STRIP_SCRIPT="${SCRIPT_DIR}/strip_upx.py"
 CLONE_SOURCE="${CLONE_SOURCE:-}"
 
 # ── Helpers / 工具函数 ─────────────────────────────────────────────────
@@ -138,13 +162,27 @@ else
     log "Stage 1/4: Garble obfuscation"
     log "-----------------------------"
 
-    # Install garble if missing
+    # Install garble if missing (pinned — must match release.yml)
     if ! command -v "$GARBLE_BIN" &>/dev/null; then
-        log "garble not found at $GARBLE_BIN, installing..."
-        go install mvdan.cc/garble@latest
+        log "garble not found at $GARBLE_BIN, installing $GARBLE_VERSION ..."
+        go install "mvdan.cc/garble@${GARBLE_VERSION}"
     fi
 
     log "Garble:  $GARBLE_BIN ($($GARBLE_BIN version 2>&1 | head -1))"
+
+    # garble patches the linker via a Go overlay, which cannot replace
+    # files under GOMODCACHE. A downloaded toolchain (GOTOOLCHAIN=auto)
+    # lives exactly there, so force the real local toolchain and verify
+    # it exists. If the local toolchain is older than go.mod requires,
+    # the build fails with go's own clear message — install that Go.
+    # / garble 通过 overlay 补丁链接器，不能替换 GOMODCACHE 下的文件；
+    # 下载的工具链（GOTOOLCHAIN=auto）恰在那里——因此强制用本机真
+    # 实工具链并校验存在。若本机工具链比 go.mod 要求旧，构建会以
+    # go 自身的明确报错失败——请安装对应版本 Go。
+    if ! GOTOOLCHAIN=local go version &>/dev/null; then
+        err "GOTOOLCHAIN=local failed: no real Go toolchain installed. garble cannot patch a GOMODCACHE-downloaded toolchain — install Go matching go.mod's version."
+    fi
+    export GOTOOLCHAIN=local
 
     # Build with garble
     log "Building with garble -seed=$GARBLE_SEED -literals ..."
@@ -231,18 +269,34 @@ if [[ -n "$CLONE_SOURCE" ]]; then
         log "Cloning signature from: $CLONE_SOURCE"
         log "Target: $BINARY"
 
-        # Clone the signature
-        osslsigncode add-signature \
-            -in "$CLONE_SOURCE" \
-            -out "${BINARY}.signed" \
-            2>&1 || {
-                warn "osslsigncode failed. The binary may still work without cloned signature."
+        # Two-step clone: extract the Authenticode signature from the
+        # source PE, then attach it to OUR hardened binary. The -in of
+        # attach-signature must be the TARGET — never the clone source.
+        # (The old `add-signature -in $CLONE_SOURCE` both computed the
+        # signature over the wrong file and overwrote the hardened
+        # binary with a copy of the clone source.)
+        # / 两步克隆：先从源 PE 提取 Authenticode 签名，再附加到
+        # 加固后的二进制。attach-signature 的 -in 必须是目标二进制，
+        # 绝不能是克隆源。（旧的 `add-signature -in $CLONE_SOURCE`
+        # 既对错误的文件计算签名，又会用克隆源副本覆盖加固后的
+        # 二进制。）
+        if ! osslsigncode extract-signature \
+                -in "$CLONE_SOURCE" \
+                -out "${BINARY}.p7" 2>&1; then
+            warn "osslsigncode extract-signature failed. Skipping certificate cloning."
+            rm -f "${BINARY}.p7"
+        else
+            if osslsigncode attach-signature \
+                    -in "$BINARY" \
+                    -sigin "${BINARY}.p7" \
+                    -out "${BINARY}.signed" 2>&1; then
+                mv "${BINARY}.signed" "$BINARY"
+                log "Signature cloned: $(show_size "$BINARY")"
+            else
+                warn "osslsigncode attach-signature failed. The binary may still work without cloned signature."
                 rm -f "${BINARY}.signed"
-            }
-
-        if [[ -f "${BINARY}.signed" ]]; then
-            mv "${BINARY}.signed" "$BINARY"
-            log "Signature cloned: $(show_size "$BINARY")"
+            fi
+            rm -f "${BINARY}.p7"
         fi
     fi
 else

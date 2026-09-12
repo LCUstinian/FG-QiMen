@@ -12,22 +12,23 @@ set shell := ["bash", "-uc"]
 # Binary name / 二进制名
 binary := "fg-qimen"
 
-# Version (override with `just version=v0.3.0 build`) / 版本
+# Version (auto-derived; override with `just version=v0.3.0 build`) / 版本
 #
-# Keep in sync with internal/version/version.go const. The v0.2
-# audit (doc-3) flagged the prior 0.1.0-dev default as silently
-# diverging from the source-of-truth const — a `just build` then
-# produced a binary that reported 0.1.0-dev while `go run .` from a
-# clean checkout reported 0.2.0. We now default to 0.2.0 to match
-# the const; CI / release workflows override this via
-# `just version=v0.x.y build`.
+# Derived at invocation time from the source of truth — the `Value`
+# var in internal/version/version.go — so it can never silently drift
+# from the const. The v0.2 audit (doc-3) flagged the prior 0.1.0-dev
+# default as silently diverging; the 0.2.0 literal that replaced it
+# drifted the same way once the const moved on. CI / release workflows
+# override this via `just version=v0.x.y build`.
 #
-# 与 internal/version/version.go 常量保持一致。v0.2 审计（doc-3）
-# 把旧的 0.1.0-dev 默认标为与真源常量静默漂移——`just build` 出的
-# 二进制报 0.1.0-dev，而干净 checkout 下的 `go run .` 报 0.2.0。
-# 现默认 0.2.0 以匹配常量；CI / release 工作流通过
-# `just version=v0.x.y build` 覆盖。
-version := "0.2.0"
+# 调用时从唯一事实源 internal/version/version.go 的 Value var 推导，
+# 因此不会与常量静默漂移。v0.2 审计（doc-3）把旧的 0.1.0-dev 默认
+# 标为静默漂移；替换它的 0.2.0 字面量在常量前进后同样漂移。CI /
+# release 工作流通过 `just version=v0.x.y build` 覆盖。
+# Anchored to the `var Value = "..."` declaration line: loose `.*Value = `
+# matching also hits historical comments (e.g. `const Value = "0.2.0"` in
+# docstrings) and yields a multi-line / stale version.
+version := `sed -n 's/^var Value = "\([^"]*\)".*/\1/p' internal/version/version.go`
 
 # Code obfuscation via garble (https://github.com/burrowers/garble).
 # 仅作用于 release 构建；`go run .` / `go test` / `go build -gcflags=...
@@ -373,7 +374,12 @@ coverage:
     @go tool cover -func=coverage.out | grep total | awk '{print $$3}'
 
 # Run all quality checks (fmt + vet + test) / 运行所有质量检查
-check: fmt vet test
+# NOTE: duplicate of the `check` recipe above (L351) which also runs
+# lint-hard-rule — that one is canonical; this stale copy broke every
+# `just` invocation with a redefinition error.
+# / 注意：与上方（L351）的 `check` 重复——上方含 lint-hard-rule 的
+# 是正主；这份过期副本让所有 `just` 调用报重定义错误。
+# check: fmt vet test
 
 # ─────────────────────────────────────────────────────────────────────
 # Cleanup / 清理
