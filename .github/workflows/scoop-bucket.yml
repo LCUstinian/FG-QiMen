@@ -102,9 +102,20 @@ jobs:
           curl -fsSL \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" \
             -o SHA256SUMS
-          # Scoop publishes the windows-amd64 .exe binary. / Scoop 发
-          # windows-amd64 .exe binary。
-          WIN_SHA256=$(grep -E '^fg-qimen-windows-amd64\.exe ' SHA256SUMS | awk '{print $1}')
+          # Scoop publishes the windows-amd64 .exe binary. sha256sum
+          # output is "<hash>  <filename>" — the filename is field 2,
+          # so match by field, NOT by line-start anchor (the original
+          # '^fg-qimen-windows-amd64\.exe ' grep matched nothing and
+          # grep's exit 1 killed the step under set -e).
+          # / Scoop 发布 windows-amd64 .exe。sha256sum 输出格式为
+          # "<hash>  <文件名>"——文件名是第 2 列，按列匹配，不能用
+          # 行首锚定（原先的 '^fg-qimen-windows-amd64\.exe ' 一个都
+          # 匹不上，grep exit 1 在 set -e 下直接杀死步骤）。
+          WIN_SHA256=$(awk '$2 == "fg-qimen-windows-amd64.exe" {print $1}' SHA256SUMS)
+          test -n "${WIN_SHA256}" || {
+            echo "::error::fg-qimen-windows-amd64.exe not found in SHA256SUMS"
+            exit 1
+          }
           # Compute a separate URL hash (Scoop wants a single file hash,
           # not the .sig / .pem artifact hashes). / 计算单独的 URL 哈
           # 希（Scoop 要单文件 hash，不要 .sig / .pem 的）。
