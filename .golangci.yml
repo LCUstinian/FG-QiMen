@@ -1,3 +1,19 @@
+# yaml-language-server: $schema=https://golangci-lint.run/jsonschema/golangci.v1.64.jsonschema.json
+#
+# The modeline above pins the IDE's YAML schema to the official
+# v1.64 schema. Without it, schemastore binds the UNVERSIONED
+# golangci.jsonschema.json — which now describes the v2 format
+# (issues.exclude-rules → linters.exclusions.rules) — so a valid
+# v1 config gets flagged as "property exclude-rules is not
+# allowed". `golangci-lint config verify` validates against this
+# exact schema and passes.
+# / 上面的 modeline 把 IDE 的 YAML schema 钉在官方 v1.64 版本。
+# 没有它时 schemastore 绑定的是不带版本号的 golangci.jsonschema
+# .json——它如今描述 v2 格式（issues.exclude-rules 改名为
+# linters.exclusions.rules），合法的 v1 配置会被误报
+# "属性 exclude-rules 不被允许"。`golangci-lint config verify`
+# 校验用的正是这个 v1.64 schema 且通过。
+
 # golangci-lint configuration for FG-QiMen (v0.3.0+).
 #
 # Modeled on fscan's .golangci.yml but with FG-QiMen-specific tweaks:
@@ -123,7 +139,6 @@ issues:
   # problem, not a CI failure.
   max-issues-per-linter: 50
   max-same-issues: 10
-  # Don't fail CI on the "exclude" rules. / 不让 exclude 规则失败 CI。
   exclude-rules:
     - path: _test\.go
       linters:
@@ -156,6 +171,15 @@ issues:
     - linters:
         - revive
       text: "stutter"
+
+# Stats live under `output:` in the v1.64 official schema — the old
+# `issues.show-stats` placement is rejected by strict validation
+# (`golangci-lint config verify` and IDE YAML schema), even though
+# `golangci-lint run` silently ignored it.
+# / v1.64 官方 schema 中 show-stats 属于 `output:` 段——旧的
+# `issues.show-stats` 位置会被严格校验拒绝（`golangci-lint config
+# verify` 与 IDE YAML schema），只是 `golangci-lint run` 静默忽略。
+output:
   # Show all issues from the same file before dedup, so we can see
   # patterns. / 显示同文件所有问题再 dedup,以便看出模式。
   show-stats: true
