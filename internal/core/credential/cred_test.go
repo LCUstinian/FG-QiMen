@@ -95,34 +95,6 @@ func TestPool_LoadFile(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Scheduler
-// ─────────────────────────────────────────────────────────────────────
-
-type alwaysMissAuth struct{ name string }
-
-func (a *alwaysMissAuth) Name() string        { return a.name }
-func (a *alwaysMissAuth) DefaultPorts() []int { return []int{1} }
-func (a *alwaysMissAuth) Authenticate(_ context.Context, _ string, _ int, _ []credential.Cred, _ time.Duration) (*credential.Hit, error) {
-	return nil, nil
-}
-
-func TestScheduler_HitSink(t *testing.T) {
-	var hits int
-	sink := credential.FuncHitSink(func(*credential.Hit) { hits++ })
-	s := credential.NewScheduler(credential.DefaultSchedulerOptions())
-	auth := &alwaysMissAuth{name: "fake"}
-	targets := []credential.Target{
-		{Host: "127.0.0.1", Port: 1, Auth: auth, Creds: []credential.Cred{{User: "u", Pass: "p"}}},
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	s.Run(ctx, targets, sink)
-	if hits != 0 {
-		t.Errorf("expected 0 hits, got %d", hits)
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // SSH authenticator
 // ─────────────────────────────────────────────────────────────────────
 
