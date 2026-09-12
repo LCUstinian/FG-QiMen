@@ -292,9 +292,9 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// shorthands at registration time; the rewrite is done in
 	// cmd/multishort.go before cobra sees the args.
 	pf.StringVar(&flagOutputTXT, "output-txt", "",
-		"path to TXT result file (default: <project>/<YYYY-MM-DD>/fgqm_result.txt or ./runs/default/<YYYY-MM-DD>/fgqm_result.txt — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
+		"path to TXT result file (default: <project>/<YYYY-MM-DD>/fgqm_result.txt or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
 	pf.StringVar(&flagOutputJSON, "output-json", "",
-		"path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.json or ./runs/default/<YYYY-MM-DD>/fgqm_result.json — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
+		"path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.json or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.json — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
 	pf.StringVar(&flagOutputCSV, "output-csv", "",
 		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written. Falls under the same <YYYY-MM-DD>/ bucket as fgqm_result.txt/json unless explicitly overridden.")
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",

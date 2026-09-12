@@ -22,7 +22,7 @@ import (
 var projectsCmd = &cobra.Command{
 	Use:   "projects",
 	Short: "Manage project workspaces",
-	Long:  "List, create, delete, or inspect project workspaces under ./runs/projects/.",
+	Long:  "List, create, delete, or inspect project workspaces under ./fgqm_workspace/projects/.",
 }
 
 var (
@@ -79,11 +79,11 @@ func init() {
 	projectsCmd.AddCommand(projectsImportCmd)
 }
 
-// runProjectsList lists all projects under ./runs/projects/.
-// runProjectsList 列出 ./runs/projects/ 下的所有项目。
+// runProjectsList lists all projects under ./fgqm_workspace/projects/.
+// runProjectsList 列出 ./fgqm_workspace/projects/ 下的所有项目。
 func runProjectsList(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
-	entries, err := os.ReadDir(filepath.Join("runs", "projects"))
+	entries, err := os.ReadDir(filepath.Join("fgqm_workspace", "projects"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Fprintln(out, "(no projects yet — run `fg-qimen projects create <name>` to create one)")
@@ -134,7 +134,7 @@ func runProjectsCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer proj.Close()
-	fmt.Fprintf(cmd.OutOrStdout(), "[+] project created: runs/projects/%s\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "[+] project created: fgqm_workspace/projects/%s\n", name)
 	return nil
 }
 
@@ -142,7 +142,7 @@ func runProjectsCreate(cmd *cobra.Command, args []string) error {
 // runProjectsDelete 删除一个项目工作区。
 func runProjectsDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	dir := filepath.Join("runs", "projects", name)
+	dir := filepath.Join("fgqm_workspace", "projects", name)
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("project %q does not exist", name)
 	}
@@ -152,7 +152,7 @@ func runProjectsDelete(cmd *cobra.Command, args []string) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "[-] project deleted: runs/projects/%s\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "[-] project deleted: fgqm_workspace/projects/%s\n", name)
 	return nil
 }
 
@@ -168,7 +168,7 @@ func runProjectsInfo(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Project: %s\n", name)
-	fmt.Fprintf(out, "Root:    runs/projects/%s\n", name)
+	fmt.Fprintf(out, "Root:    fgqm_workspace/projects/%s\n", name)
 	fmt.Fprintf(out, "DB:      %s\n", proj.DBPath)
 	stats, _ := proj.Stats()
 	if stats != "" {
@@ -184,7 +184,7 @@ func runProjectsInfo(cmd *cobra.Command, args []string) error {
 	// 加前缀因为它是手编目标列表（操作员预期直接读写）。结果 /
 	// 凭据 / RDP 文件都带 fgqm_ 前缀，混合目录里显眼，便于 grep。
 	for _, fname := range []string{"targets.txt", "fgqm_result.txt", "fgqm_result.json", "fgqm_creds.txt", "fgqm_rdp.json", "fgqm_rdp.txt"} {
-		fpath := filepath.Join("runs", "projects", name, fname)
+		fpath := filepath.Join("fgqm_workspace", "projects", name, fname)
 		if info, err := os.Stat(fpath); err == nil {
 			fmt.Fprintf(out, "  %-15s  %d bytes\n", fname, info.Size())
 		} else {

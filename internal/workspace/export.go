@@ -6,14 +6,14 @@
 //	[4 bytes magic "FGQ1"]  (file marker + version)
 //	[4 bytes header length, little-endian uint32]
 //	[N bytes header JSON]   (project name, version, created_at, etc.)
-//	[rest]                  bbolt data, byte-for-byte copy of fg.db
+//	[rest]                  bbolt data, byte-for-byte copy of fgqm.db
 //
 // v0.4 Phase 2.4：.fgq 文件是持久化项目的单文件转储。格式（二进制）：
 //
 //	[4 字节 magic "FGQ1"]           (文件标识 + 版本)
 //	[4 字节 header 长度，小端 uint32]
 //	[N 字节 header JSON]            (项目名、版本、创建时间等)
-//	[剩余]                           bbolt 数据，fg.db 字节级副本
+//	[剩余]                           bbolt 数据，fgqm.db 字节级副本
 //
 // The format is designed to be:
 //   - Detected at a glance (4-byte magic)
@@ -152,10 +152,10 @@ func (p *Project) Export(outPath string) error {
 // 处创建新项目。
 //
 // The original bbolt file is reconstructed byte-for-byte and
-// placed at <ProjectsRoot>/<name>/fg.db. If a project with
+// placed at <ProjectsRoot>/<name>/fgqm.db. If a project with
 // this name already exists, Import refuses to overwrite unless
 // the caller passed the --force flag (the calling CLI does that
-// check). / 原 bbolt 文件字节级重建，置于 <ProjectsRoot>/<name>/fg.db。
+// check). / 原 bbolt 文件字节级重建，置于 <ProjectsRoot>/<name>/fgqm.db。
 // 如果同名项目已存在，Import 拒绝覆盖，除非调用方传 --force
 // flag（CLI 调用方做检查）。
 func Import(inPath, name string) error {
@@ -207,8 +207,8 @@ func Import(inPath, name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	dbPath := filepath.Join(dir, "fg.db")
-	tmp, err := os.CreateTemp(dir, "fg.db.import.*")
+	dbPath := filepath.Join(dir, "fgqm.db")
+	tmp, err := os.CreateTemp(dir, "fgqm.db.import.*")
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
