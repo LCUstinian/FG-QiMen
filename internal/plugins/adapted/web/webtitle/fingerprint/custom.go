@@ -38,6 +38,22 @@ import (
 // 次规则集获取的超时。
 const sourceTimeout = 10 * time.Second
 
+// Load guards (audit M-1, revised). Go's regexp is RE2-style: match
+// time is linear in the input — catastrophic backtracking does not
+// exist, so "evil regex ReDoS" is not a Go threat. What IS real:
+// a huge (or hostile) ruleset makes every target's matching pass
+// O(rules × body), so we cap both the raw bytes and the rule count
+// and fail loudly instead of silently degrading a /24 scan.
+// / 加载护栏（审计 M-1，修订）。Go regexp 是 RE2 语义：匹配时间与
+// 输入线性——不存在灾难性回溯，"恶意正则 ReDoS"在 Go 上不成立。
+// 真实风险是：巨大（或恶意）规则集让每个目标的匹配趟变成
+// O(规则数 × body)，因此对原始字节数与规则条数都设上限，超限
+// 大声报错，而不是悄悄拖慢整个 /24 扫描。
+const (
+	maxRulesetBytes = 16 << 20 // 16 MiB, same cap as fetchURL / 与 fetchURL 相同上限
+	maxCustomRules  = 10000    // rules; EHole's public CMS list is ~600 / 规则条数；EHole 公开库约 600 条
+)
+
 // matcher mirrors the FingerprintHub HTTP matcher shape. Defined
 // as a named type so we can build it without inline struct literals
 // of the same shape. / matcher 镜像 FingerprintHub HTTP matcher
@@ -99,6 +115,15 @@ func LoadCustomRuleset(path string) (int, error) {
 	data, err := loadRulesetSource(path)
 	if err != nil {
 		return 0, err
+	}
+	// Uniform size cap for both sources: a URL is capped inside
+	// fetchURL, but a local file (os.ReadFile) is not — a misplaced
+	// multi-GB dump should fail here, not malloc. /
+	// 两个来源统一上限：URL 在 fetchURL 内已限，本地文件
+	//（os.ReadFile）没有——误指的几 GB 转储应在这里失败，而不是
+	// 先吃进内存。
+	if len(data) > maxRulesetBytes {
+		return 0, fmt.Errorf("ruleset %s is %d bytes (cap %d) — refusing to load", path, len(data), maxRulesetBytes)
 	}
 	return parseAndRegister(data)
 }
@@ -162,6 +187,9 @@ func registerNative(data []byte) (int, error) {
 	if err := json.Unmarshal(data, &wrap); err != nil {
 		return 0, err
 	}
+	if len(wrap.Rules) > maxCustomRules {
+		return 0, fmt.Errorf("ruleset declares %d rules (cap %d) — refusing to load", len(wrap.Rules), maxCustomRules)
+	}
 	customRulesMu.Lock()
 	defer customRulesMu.Unlock()
 	for _, r := range wrap.Rules {
@@ -220,6 +248,9 @@ func registerEHole(data []byte) (int, error) {
 	var wrap eHoleRule
 	if err := json.Unmarshal(data, &wrap); err != nil {
 		return 0, err
+	}
+	if len(wrap.CMS) > maxCustomRules {
+		return 0, fmt.Errorf("ruleset declares %d rules (cap %d) — refusing to load", len(wrap.CMS), maxCustomRules)
 	}
 	customRulesMu.Lock()
 	defer customRulesMu.Unlock()

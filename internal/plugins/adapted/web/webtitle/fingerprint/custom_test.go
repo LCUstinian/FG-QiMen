@@ -3,10 +3,12 @@
 package fingerprint
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,6 +116,69 @@ func TestLoadCustomRuleset_InvalidRegex(t *testing.T) {
 	_, err := LoadCustomRuleset(path)
 	if err == nil {
 		t.Error("expected error on invalid regex, got nil")
+	}
+}
+
+// TestLoadCustomRuleset_TooManyRules — a ruleset declaring more than
+// maxCustomRules rules must be refused (audit M-1 guard: matching is
+// O(rules × body) per target, so an oversized set silently degrades
+// every scan). / TestLoadCustomRuleset_TooManyRules — 声明超过
+// maxCustomRules 条的规则集必须被拒（审计 M-1 护栏：每目标匹配是
+// O(规则数 × body)，超大集合会悄悄拖慢所有扫描）。
+func TestLoadCustomRuleset_TooManyRules(t *testing.T) {
+	customRulesMu.Lock()
+	customRules = nil
+	pendingCustomEntries = nil
+	customRulesMu.Unlock()
+	t.Cleanup(func() {
+		customRulesMu.Lock()
+		customRules = nil
+		pendingCustomEntries = nil
+		customRulesMu.Unlock()
+	})
+
+	var b strings.Builder
+	b.WriteString(`{"rules":[`)
+	for i := 0; i <= maxCustomRules; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"name":"r%d","matchers":[{"part":"body","type":"word","values":["x"]}]}`, i)
+	}
+	b.WriteString(`]}`)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "toomany.json")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadCustomRuleset(path)
+	if err == nil {
+		t.Fatal("expected refusal for oversized ruleset, got nil")
+	}
+	if !strings.Contains(err.Error(), "refusing to load") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestLoadCustomRuleset_TooManyBytes — a local file above
+// maxRulesetBytes is refused before parsing (the URL path already
+// capped inside fetchURL; the file path had no cap). /
+// TestLoadCustomRuleset_TooManyBytes — 本地文件超 maxRulesetBytes
+// 在解析前被拒（URL 路径在 fetchURL 内已限；文件路径原本无上限）。
+func TestLoadCustomRuleset_TooManyBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.json")
+	blob := make([]byte, maxRulesetBytes+1)
+	if err := os.WriteFile(path, blob, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadCustomRuleset(path)
+	if err == nil {
+		t.Fatal("expected refusal for oversized ruleset file, got nil")
+	}
+	if !strings.Contains(err.Error(), "bytes (cap") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
