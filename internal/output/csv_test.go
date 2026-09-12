@@ -188,12 +188,15 @@ func TestWriteResult_CSVHeaderAndRow(t *testing.T) {
 	// Second result: header must NOT be re-emitted.
 	// 第二条 result：表头不应重复。
 	r2 := &types.Result{
-		Time:    time.Date(2026, 6, 19, 10, 0, 5, 0, time.UTC),
-		Host:    "10.0.0.2",
-		Port:    80,
-		Service: "http",
-		Plugin:  "http",
-		Banner:  "nginx/1.25",
+		Time:       time.Date(2026, 6, 19, 10, 0, 5, 0, time.UTC),
+		Host:       "10.0.0.2",
+		Port:       80,
+		Service:    "http",
+		Plugin:     "http",
+		Banner:     "nginx/1.25",
+		Product:    "nginx",
+		Version:    "1.25",
+		Confidence: "high",
 	}
 	if err := out.WriteResult(r2); err != nil {
 		t.Fatalf("WriteResult: %v", err)
@@ -241,6 +244,20 @@ func TestWriteResult_CSVHeaderAndRow(t *testing.T) {
 	// Second data row should have empty user/pass. / 第二行 user/pass 为空。
 	if rows[2][7] != "" || rows[2][8] != "" {
 		t.Errorf("row 2 user/pass not empty: user=%q pass=%q", rows[2][7], rows[2][8])
+	}
+
+	// The three columns appended in v0.7.2 must land at the END
+	// (positions 9/10/11) so the original column order stays stable.
+	// / v0.7.2 追加的三列必须落在末尾（位置 9/10/11），原列序保持稳定。
+	if rows[2][9] != "nginx" || rows[2][10] != "1.25" || rows[2][11] != "high" {
+		t.Errorf("row 2 product/version/confidence = %q/%q/%q, want nginx/1.25/high",
+			rows[2][9], rows[2][10], rows[2][11])
+	}
+	// Row 1 (no identity fields set) keeps the cells empty. /
+	// 行 1（未设身份字段）保持空单元格。
+	if rows[1][9] != "" || rows[1][10] != "" || rows[1][11] != "" {
+		t.Errorf("row 1 product/version/confidence = %q/%q/%q, want empty",
+			rows[1][9], rows[1][10], rows[1][11])
 	}
 }
 

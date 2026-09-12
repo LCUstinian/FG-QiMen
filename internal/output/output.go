@@ -496,6 +496,9 @@ func (o *Output) writeCSVvia(cw *csv.Writer, r *types.Result) error {
 		neutralizeCSVFormula(truncateForCSV(r.Banner, 1024)),
 		user,
 		pass,
+		r.Product,
+		r.Version,
+		r.Confidence,
 	}
 	return cw.Write(row)
 }

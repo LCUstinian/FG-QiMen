@@ -291,47 +291,48 @@ func TestNowOrZero(t *testing.T) {
 	}
 }
 
-// TestFormatPortfinger — banner truncation at 80 chars. Version
-// segment separated by " | ". The audit flagged banner-length drift
-// as a doc-15 user-visible inconsistency.
+// TestFormatPortfinger — banner truncation at 80 chars. Product and
+// version render as "product version" after " | "; both empty degrades
+// to the bare service form. The audit flagged banner-length drift as a
+// doc-15 user-visible inconsistency.
 func TestFormatPortfinger(t *testing.T) {
 	cases := []struct {
-		name           string
-		svc, ver, ban  string
-		mustContain    []string
-		mustNotContain []string
+		name                   string
+		svc, product, ver, ban string
+		mustContain            []string
+		mustNotContain         []string
 	}{
 		{
 			name: "all empty",
-			svc:  "ssh", ver: "", ban: "",
+			svc:  "ssh", product: "", ver: "", ban: "",
 			mustContain: []string{"ssh", "banner="},
 		},
 		{
-			name: "with version",
-			svc:  "ssh", ver: "8.0", ban: "OpenSSH_8.0",
-			mustContain: []string{"ssh", " | 8.0", "OpenSSH_8.0"},
+			name: "with product and version",
+			svc:  "ssh", product: "OpenSSH", ver: "8.9p1", ban: "SSH-2.0-OpenSSH_8.9p1",
+			mustContain: []string{"ssh", " | OpenSSH 8.9p1", "SSH-2.0-OpenSSH_8.9p1"},
 		},
 		{
-			name: "version with leading whitespace trimmed",
-			svc:  "httpd", ver: " 2.4.41", ban: "Apache",
-			mustContain: []string{"httpd", " | 2.4.41"}, // trimmed, not "  2.4.41"
+			name: "version without product",
+			svc:  "httpd", product: "", ver: "2.4.41", ban: "Apache",
+			mustContain: []string{"httpd", " | 2.4.41"},
 		},
 		{
 			name: "long banner truncated at 80",
-			svc:  "http", ver: "",
+			svc:  "http", product: "", ver: "",
 			ban:         strings.Repeat("x", 200),
 			mustContain: []string{"...", "xxx"}, // ellipsis present, body present
 		},
 		{
 			name: "short banner not truncated",
-			svc:  "ssh", ver: "",
+			svc:  "ssh", product: "", ver: "",
 			ban:            "OpenSSH",
 			mustNotContain: []string{"..."},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			out := formatPortfinger(c.svc, c.ver, c.ban)
+			out := formatPortfinger(c.svc, c.product, c.ver, c.ban)
 			for _, want := range c.mustContain {
 				if !strings.Contains(out, want) {
 					t.Errorf("formatPortfinger() = %q; missing %q", out, want)
@@ -351,12 +352,12 @@ func TestFormatPortfinger(t *testing.T) {
 // audit's documented column budget.
 func TestFormatPortfingerTruncationBoundary(t *testing.T) {
 	exactly80 := strings.Repeat("x", 80)
-	out := formatPortfinger("svc", "", exactly80)
+	out := formatPortfinger("svc", "", "", exactly80)
 	if strings.Contains(out, "...") {
 		t.Errorf("80-char banner: output should not truncate; got %q", out)
 	}
 	over80 := strings.Repeat("x", 81)
-	out = formatPortfinger("svc", "", over80)
+	out = formatPortfinger("svc", "", "", over80)
 	if !strings.Contains(out, "...") {
 		t.Errorf("81-char banner: output should truncate with '...'; got %q", out)
 	}

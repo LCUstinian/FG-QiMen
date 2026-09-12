@@ -80,19 +80,35 @@ func NewVScan() *VScan {
 	return v
 }
 
+// BannerMatch is the structured outcome of one banner fingerprint hit.
+// For hard matches Product/Version carry the parsed p/.../ v/.../
+// segments (with $N substitution applied); for soft fallbacks only
+// Service is set — with nmap's "service?" suffix — and Product/Version
+// stay empty, matching the long-standing softmatch demotion contract.
+// / BannerMatch 是一次 banner 指纹命中的结构化结果。硬匹配时
+// Product/Version 携带解析后的 p/.../ v/.../ 分段（已做 $N 替换）；
+// soft 兜底只填 Service（带 nmap "service?" 后缀），Product/Version
+// 留空——与既有的 softmatch 降级契约一致。
+type BannerMatch struct {
+	Service string
+	Product string
+	Version string
+	Soft    bool
+}
+
 // MatchBanner finds the best service match for a banner (or any
 // response bytes). Iterates all probes' match rules; a HARD match
 // returns immediately (authoritative). Soft matches are only a
 // fallback: if no hard rule matches anywhere, the FIRST soft hit is
-// reported in nmap's convention as "service?" with empty version info
+// reported in nmap's convention as "service?" with no product/version
 // — a soft regex is a loose protocol hint, not a fingerprint.
 // / MatchBanner 为给定 banner（或响应字节）找最佳服务匹配。遍历所有
 // probe 的 match 规则；硬匹配立即返回（可信）。softmatch 只作兜底：
 // 全库无硬匹配时，首个 soft 命中按 nmap 惯例降级为 "service?" 且
-// 不带版本信息——soft 正则是宽松的协议提示，不是指纹。
-func (v *VScan) MatchBanner(banner []byte) (service, versionInfo string, found bool) {
+// 不带产品/版本——soft 正则是宽松的协议提示，不是指纹。
+func (v *VScan) MatchBanner(banner []byte) (BannerMatch, bool) {
 	if len(banner) == 0 {
-		return "", "", false
+		return BannerMatch{}, false
 	}
 	var softService string
 	for _, p := range v.Probes {
@@ -104,7 +120,8 @@ func (v *VScan) MatchBanner(banner []byte) (service, versionInfo string, found b
 				continue
 			}
 			if !m.IsSoft {
-				return m.Service, m.VersionInfo, true
+				product, version := parseVersionInfo(m.VersionInfo, m.FoundItems)
+				return BannerMatch{Service: m.Service, Product: product, Version: version}, true
 			}
 			if softService == "" {
 				softService = m.Service
@@ -112,7 +129,7 @@ func (v *VScan) MatchBanner(banner []byte) (service, versionInfo string, found b
 		}
 	}
 	if softService != "" {
-		return softService + "?", "", true
+		return BannerMatch{Service: softService + "?", Soft: true}, true
 	}
-	return "", "", false
+	return BannerMatch{}, false
 }

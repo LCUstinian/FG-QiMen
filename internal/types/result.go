@@ -56,7 +56,29 @@ type Result struct {
 	Banner  string    `json:"banner,omitempty"`
 	Extra   any       `json:"extra,omitempty"`
 	Cred    *Cred     `json:"cred,omitempty"`
+	// Product / Version are the structured identity extracted by the
+	// nmap-style banner fingerprint (p/.../ v/.../ segments with $N
+	// substitution) or a plugin's protocol handshake. All omitempty so
+	// unknown-service results keep byte-identical NDJSON output.
+	// / Product / Version 是 nmap 风格 banner 指纹（p/.../ v/.../ 分段
+	// 加 $N 子匹配替换）或插件协议握手提取出的结构化身份。全部
+	// omitempty：未知服务的 NDJSON 输出与既往逐字节一致。
+	Product string `json:"product,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Confidence grades the identity claim: ConfHigh = authoritative
+	// (nmap hard match or real protocol handshake), ConfLow = hint
+	// (nmap softmatch fallback). Empty when nothing is known.
+	// / Confidence 给身份断言分级：ConfHigh = 权威（nmap 硬匹配或真
+	// 协议握手），ConfLow = 提示（nmap softmatch 兜底）。未知时为空。
+	Confidence string `json:"confidence,omitempty"`
 }
+
+// Confidence vocabulary for Result.Confidence. / Result.Confidence 的
+// 置信度取值。
+const (
+	ConfHigh = "high" // nmap hard match / real protocol handshake / nmap 硬匹配或真协议握手
+	ConfLow  = "low"  // nmap softmatch fallback / nmap softmatch 兜底
+)
 
 // resultPool reuses Result objects to reduce GC pressure.
 // resultPool 复用 Result 对象以减少 GC 压力。
@@ -87,5 +109,8 @@ func PutResult(r *Result) {
 	r.Banner = ""
 	r.Extra = nil
 	r.Cred = nil
+	r.Product = ""
+	r.Version = ""
+	r.Confidence = ""
 	resultPool.Put(r)
 }

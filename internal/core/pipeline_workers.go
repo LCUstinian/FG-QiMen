@@ -102,21 +102,36 @@ func runPluginWorker(
 			// Result，加固网络——开放端口不吐 banner——探测到的端口永远
 			// 不会进入任何输出文件（TUI 计数有端口，JSON 始终为空）。
 			// 端口本身就是发现；svc/banner 未知时留空。
-			svc, ver := "", ""
+			var bm fingerprint.BannerMatch
 			if item.Banner != "" {
 				vscanOnce.Do(func() { vscan = fingerprint.NewVScan() })
 				if vscan != nil {
-					if s, v, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
-						svc, ver = s, v
+					if m, ok := vscan.MatchBanner([]byte(item.Banner)); ok {
+						bm = m
 					}
 				}
 			}
+			// Confidence: a hard nmap match is authoritative; the
+			// softmatch fallback ("svc?") is only a hint. Unmatched
+			// ports carry no confidence claim.
+			// / 置信度：nmap 硬匹配是权威的；softmatch 兜底（"svc?"）
+			// 只是提示。未命中的端口不带置信度断言。
+			conf := ""
+			if bm.Service != "" {
+				conf = types.ConfHigh
+				if bm.Soft {
+					conf = types.ConfLow
+				}
+			}
 			r := &types.Result{
-				Host:    item.Host,
-				Port:    item.Port,
-				Service: svc,
-				Banner:  formatPortfinger(svc, ver, item.Banner),
-				Time:    time.Now(),
+				Host:       item.Host,
+				Port:       item.Port,
+				Service:    bm.Service,
+				Product:    bm.Product,
+				Version:    bm.Version,
+				Confidence: conf,
+				Banner:     formatPortfinger(bm.Service, bm.Product, bm.Version, item.Banner),
+				Time:       time.Now(),
 			}
 			sess.State.Counters.Results.Add(1)
 			sess.UI.Event(r)
@@ -143,6 +158,12 @@ func runPluginWorker(
 						r.Time = nowOrZero(r.Time)
 						r.Plugin = p.Name()
 						r.Service = p.Name()
+						// A plugin Identify is a real protocol
+						// handshake — the most authoritative
+						// identity claim in the pipeline.
+						// / 插件 Identify 是真协议握手——管线中
+						// 最权威的身份断言。
+						r.Confidence = types.ConfHigh
 						// TUI Spec A (Task 3): record plugin hit so the
 						// TUI's "Plugin hits" breakdown counts per-service
 						// finds. normalisePluginName collapses "ssh" /

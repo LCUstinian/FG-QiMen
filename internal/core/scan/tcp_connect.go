@@ -56,6 +56,17 @@ func NewTCPConnectProbeWithBanner(br BannerReader) *TCPConnectProbe {
 	}
 }
 
+// FirstBanner is the default BannerReader: read up to 256 bytes within
+// the standard 200ms budget and trim non-printables. Production wiring
+// (core.NewScanner) uses it so Stage-0 banner fingerprinting has data
+// to work on; silent ports just pay the 200ms deadline once.
+// / FirstBanner 是默认 BannerReader：在标准 200ms 预算内读最多 256
+// 字节并去除不可打印字符。生产装配（core.NewScanner）用它让 Stage-0
+// banner 指纹有数据可吃；静默端口只需多付一次 200ms deadline。
+func FirstBanner(conn net.Conn) string {
+	return readBanner(conn, 200*time.Millisecond)
+}
+
 // Name implements Probe. / Name 实现 Probe。
 func (p *TCPConnectProbe) Name() string { return "tcp-connect" }
 
@@ -152,9 +163,20 @@ func (p *TCPConnectProbe) Probe(ctx context.Context, host string, port int, time
 	}, nil
 }
 
-// readBanner reads up to 256 bytes from conn within timeout, trims
-// whitespace, and returns it. / readBanner 在 timeout 内从 conn 读最多
-// 256 字节，去空白后返回。
+// readBanner reads up to 256 bytes from conn within timeout. Bytes are
+// normalized for MATCHING, not display: printable ASCII plus CR/LF/TAB
+// are kept, other control/binary bytes are dropped. The trailing CRLF
+// must survive — end-anchored fingerprint rules (e.g. the OpenSSH
+// `...Ubuntu[ -_](...)\r?\n` family) fail on a trimmed banner, which
+// used to demote every clean hard match to a soft `service?` guess.
+// Display paths re-sanitize (formatPortfinger collapses interior
+// newlines; TrimSpace drops the trailing CRLF).
+// / readBanner 在 timeout 内从 conn 读最多 256 字节。字节为"匹配"而
+// 规范化，而非为显示：保留可打印 ASCII 加 CR/LF/TAB，丢弃其余控制/
+// 二进制字节。尾部 CRLF 必须存活——尾部锚定的指纹规则（如 OpenSSH
+// `...Ubuntu[ -_](...)\r?\n` 家族）在去尾 banner 上全部失配，曾经把
+// 干净的硬匹配统统降级成 soft `service?` 猜测。显示路径会再收敛
+// （formatPortfinger 折叠内部换行；TrimSpace 去掉尾部 CRLF）。
 func readBanner(conn net.Conn, timeout time.Duration) string {
 	if timeout <= 0 {
 		timeout = 200 * time.Millisecond
@@ -162,7 +184,13 @@ func readBanner(conn net.Conn, timeout time.Duration) string {
 	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 256)
 	n, _ := conn.Read(buf)
-	return trimASCII(buf[:n])
+	out := make([]byte, 0, n)
+	for _, c := range buf[:n] {
+		if (c >= 32 && c < 127) || c == '\r' || c == '\n' || c == '\t' {
+			out = append(out, c)
+		}
+	}
+	return string(out)
 }
 
 // trimASCII strips non-printable bytes and trims whitespace. Banner

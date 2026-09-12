@@ -113,6 +113,93 @@ func patternToGoRegex(src string) string {
 	return b.String()
 }
 
+// versionSubRe matches the $1..$9 submatch references used by
+// nmap-service-probes version-info templates. / versionSubRe 匹配
+// nmap-service-probes 版本信息模板使用的 $1..$9 子匹配引用。
+var versionSubRe = regexp.MustCompile(`\$([1-9])`)
+
+// substituteVersionInfo expands $N references against the pattern's
+// captured submatches (Match.FoundItems). Out-of-range references
+// expand to the empty string, mirroring nmap's tolerant behaviour.
+// / substituteVersionInfo 用 pattern 捕获的子匹配（Match.FoundItems）
+// 展开 $N 引用。越界引用展开为空串，与 nmap 的宽容行为一致。
+func substituteVersionInfo(s string, subs []string) string {
+	if s == "" || !strings.Contains(s, "$") {
+		return s
+	}
+	return versionSubRe.ReplaceAllStringFunc(s, func(ref string) string {
+		n := int(ref[1] - '0')
+		if n >= 1 && n <= len(subs) {
+			return subs[n-1]
+		}
+		return ""
+	})
+}
+
+// parseVersionInfo splits the raw version-info template
+// (` p/product/ v/version/ i/.../ o/.../ cpe:/.../`) into the product
+// and version fields. Each segment is a directive letter followed by a
+// delimiter character and the value up to the next unescaped
+// delimiter; values may contain spaces (e.g. Debian package versions)
+// and backslash-escaped delimiters. Only `p` and `v` are extracted —
+// i/o/d/cpe are intentionally ignored (YAGNI).
+// / parseVersionInfo 把原始版本信息模板（` p/product/ v/version/
+// i/.../ o/.../ cpe:/.../`）拆成 product 和 version 字段。每段 = 指令
+// 字母 + 分隔符 + 值（到下一个未转义的分隔符为止）；值可含空格（如
+// Debian 包版本）和反斜杠转义的分隔符。只提取 `p` 和 `v`——i/o/d/cpe
+// 有意忽略（YAGNI）。
+func parseVersionInfo(vi string, subs []string) (product, version string) {
+	var productRaw, versionRaw string
+	for i := 0; i < len(vi); {
+		// Skip the whitespace between segments. / 跳过段间空白。
+		for i < len(vi) && vi[i] == ' ' {
+			i++
+		}
+		if i >= len(vi) {
+			break
+		}
+		// Directive name: a single letter, except the multi-char
+		// "cpe:". / 指令名：单字母，多字符的 "cpe:" 除外。
+		var name string
+		if strings.HasPrefix(vi[i:], "cpe:") {
+			name, i = "cpe:", i+4
+		} else {
+			name, i = vi[i:i+1], i+1
+		}
+		if i >= len(vi) {
+			break
+		}
+		delim := vi[i]
+		i++
+		var val strings.Builder
+		for i < len(vi) {
+			c := vi[i]
+			if c == '\\' && i+1 < len(vi) {
+				// Backslash escapes the next character (including the
+				// delimiter). / 反斜杠转义下一字符（含分隔符）。
+				val.WriteByte(vi[i+1])
+				i += 2
+				continue
+			}
+			if c == delim {
+				i++
+				break
+			}
+			val.WriteByte(c)
+			i++
+		}
+		switch name {
+		case "p":
+			productRaw = val.String()
+		case "v":
+			versionRaw = val.String()
+		}
+	}
+	product = strings.TrimSpace(substituteVersionInfo(productRaw, subs))
+	version = strings.TrimSpace(substituteVersionInfo(versionRaw, subs))
+	return product, version
+}
+
 // parseMatchDirective is the common implementation for both `match`
 // and `softmatch`. / parseMatchDirective 是 `match` 和 `softmatch` 的
 // 公共实现。

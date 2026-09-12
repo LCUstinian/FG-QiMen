@@ -173,11 +173,17 @@ func wantCredential(mode types.RunMode) bool {
 // (pushStats moved to pipeline_sink.go as part of the v0.2.1 god-
 // file split.)
 
-// formatPortfinger formats the matched banner into a single line.
-// formatPortfinger 把匹配结果格式化为单行。
-func formatPortfinger(svc, ver, banner string) string {
+// formatPortfinger formats the matched banner into a single line,
+// preferring the parsed product/version over the raw version-info
+// template: "ssh | OpenSSH 8.9p1 | banner=...". With no product and
+// no version it degrades to the bare service form ("svc | banner=...").
+// / formatPortfinger 把匹配结果格式化为单行，优先用解析后的
+// product/version 而非原始版本信息模板："ssh | OpenSSH 8.9p1 |
+// banner=..."。product/version 全空时退化为纯服务形式
+// （"svc | banner=..."）。
+func formatPortfinger(svc, product, ver, banner string) string {
 	banner = strings.TrimSpace(banner)
-	if svc == "" && ver == "" && banner == "" {
+	if svc == "" && product == "" && ver == "" && banner == "" {
 		// Nothing known about this port — an empty string keeps the
 		// result line clean ("host:port  []") instead of dragging a
 		// decorative "| banner=" tail. / 对该端口一无所知——空串保
@@ -185,12 +191,26 @@ func formatPortfinger(svc, ver, banner string) string {
 		// "| banner=" 尾巴。
 		return ""
 	}
+	// The captured banner keeps its real CR/LF for end-anchored
+	// fingerprint rules; result.txt / CSV / NDJSON rows are single-line,
+	// so collapse interior newlines here. / 抓取的 banner 为尾部锚定的
+	// 指纹规则保留真实 CR/LF；result.txt / CSV / NDJSON 行是单行的，
+	// 在这里折叠内部换行。
+	banner = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, banner)
 	out := svc
-	if ver != "" {
-		// Trim leading whitespace from versionInfo (the format is
-		// " p/product/ v/version/ ..."). / 去掉 versionInfo 前导空格
-		// （格式是 " p/product/ v/version/ ..."）。
-		out += " | " + strings.TrimSpace(ver)
+	if product != "" || ver != "" {
+		out += " | " + product
+		if ver != "" {
+			if product != "" {
+				out += " "
+			}
+			out += ver
+		}
 	}
 	if len(banner) > 80 {
 		banner = banner[:80] + "..."

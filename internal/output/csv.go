@@ -12,9 +12,12 @@ package output
 
 // csvHeader is the column order for results.csv. Keep stable — downstream
 // scripts (Excel pivots, AWK, pandas) rely on column position not name.
+// product/version/confidence were appended at the END (v0.7.2) so the
+// original 9 columns kept their positions.
 //
 // csvHeader 是 results.csv 的列顺序。保持稳定——下游脚本（Excel 数据透视表、
-// AWK、pandas）依赖列位置而非列名。
+// AWK、pandas）依赖列位置而非列名。product/version/confidence 于
+// v0.7.2 追加在末尾——原 9 列位置不变。
 var csvHeader = []string{
 	"time",
 	"host",
@@ -25,6 +28,9 @@ var csvHeader = []string{
 	"banner",
 	"user",
 	"pass",
+	"product",
+	"version",
+	"confidence",
 }
 
 // splitUserPass splits "user / pass" (the format from ShowUserPassword)

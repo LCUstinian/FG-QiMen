@@ -6,6 +6,15 @@
 
 ### Added
 
+- **每条结果携带结构化服务身份** —— `Result` 新增 `product`、
+  `version`、`confidence` 字段。nmap 风格 banner 指纹现在解析
+  `p/product/ v/version/` 模板分段（含 `$1`-`$9` 子匹配展开），不再
+  原样吐出整串；硬匹配标 `high`、softmatch 兜底标 `low`；插件
+  Identify（真协议握手）标 `high`。NDJSON 自动带出新字段（未知时
+  省略，未知服务的记录与既往逐字节一致）；results.csv 在**末尾**
+  追加 `product`/`version`/`confidence` 三列，原 9 列位置不变；txt
+  banner 行现在显示 `ssh | OpenSSH 8.9p1 | banner=...`，替代原始
+  `p/.../ v/.../` 模板。
 - **每次扫描的日志归档** —— 每次扫描现在会把日志行写入结果文件
   旁的 `fgqm_log_HH-MM-SS.txt`（同日分桶 + 同时间戳）。文本模式
   （`--no-tui`）控制台与文件同步输出（tee）；TUI 模式与 `--silent`
@@ -41,7 +50,17 @@
 
 ### Fixed
 
-- **fingerprint：垃圾 banner 上的幽灵服务（dps-shell 一类）** ——
+- **scan：banner 抓取从未接入生产扫描** —— `core.NewScanner` 构造
+  `TCPConnectProbe` 时没挂 `BannerReader`，每个开放端口的 banner 恒
+  为空，Stage-0 的 nmap 风格指纹层在真实扫描中是死代码（只在单元
+  测试里跑过）。生产路径现在用 `scan.FirstBanner` 拨号（每个开放
+  端口 256 字节 / 200ms 预算）。
+- **scan：banner 去尾破坏所有尾部锚定的指纹规则** —— `readBanner`
+  把 CR/LF 替换成空格再去尾，锚定在行尾换行的规则（OpenSSH
+  `...\r?\n` 家族等几十条）永远无法硬匹配：真实 sshd 被报成
+  `ssh?` 而非 `ssh`。banner 现在为匹配保留真实 CR/LF；显示路径自行
+  折叠内部换行与尾部空白（TXT/CSV/NDJSON 保持单行）。
+- **fingerprint：垃圾 banner 上的幽灵服务（dps-shell 类）** ——
   pattern 编译器此前把字节转义（`\x7c` 等）解码成裸字节，且仅对
   不可打印字节重新转义，于是解码出的 0x7c 变成了活的 `|` 正则
   "或"分支。每个含 `\x7c` 协议字段分隔符的 pattern 都被静默切成

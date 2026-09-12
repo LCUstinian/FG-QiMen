@@ -22,24 +22,31 @@ func TestVScan_LoadOK(t *testing.T) {
 }
 
 // TestVScan_MatchBanner_SSH verifies a typical SSH banner matches the
-// OpenSSH probe. / TestVScan_MatchBanner_SSH 验证典型 SSH banner 命中
-// OpenSSH 探针。
+// OpenSSH probe with a parsed product and version. The real DB rule
+// (`p/OpenSSH/ v/$2 Ubuntu $3/`) must expand $N references against the
+// captured submatches. / TestVScan_MatchBanner_SSH 验证典型 SSH banner
+// 命中 OpenSSH 探针并解析出产品与版本。真实 DB 规则
+// （`p/OpenSSH/ v/$2 Ubuntu $3/`）必须按捕获子匹配展开 $N 引用。
 func TestVScan_MatchBanner_SSH(t *testing.T) {
 	v := fingerprint.NewVScan()
 	banner := []byte("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1\r\n")
-	svc, ver, ok := v.MatchBanner(banner)
+	m, ok := v.MatchBanner(banner)
 	if !ok {
 		t.Fatal("expected SSH banner to hit")
 	}
-	if svc == "" {
-		t.Errorf("expected non-empty service name, got %q", svc)
+	if m.Service != "ssh" {
+		t.Errorf("Service = %q, want %q", m.Service, "ssh")
 	}
-	// Version info is preserved verbatim; we don't parse p/v/ in v0.1.
-	// / Version info 原样保留；v0.1 不解析 p/v/。
-	if ver == "" {
-		t.Errorf("expected non-empty version info, got %q", ver)
+	if m.Product != "OpenSSH" {
+		t.Errorf("Product = %q, want %q", m.Product, "OpenSSH")
 	}
-	t.Logf("matched service=%q ver=%q", svc, ver)
+	if m.Version == "" {
+		t.Errorf("Version = %q, want non-empty ($N expansion)", m.Version)
+	}
+	if m.Soft {
+		t.Errorf("hard match must not be flagged Soft")
+	}
+	t.Logf("matched service=%q product=%q version=%q", m.Service, m.Product, m.Version)
 }
 
 // TestVScan_MatchBanner_HTTP verifies a typical HTTP response matches.
@@ -47,11 +54,11 @@ func TestVScan_MatchBanner_SSH(t *testing.T) {
 func TestVScan_MatchBanner_HTTP(t *testing.T) {
 	v := fingerprint.NewVScan()
 	resp := []byte("HTTP/1.1 200 OK\r\nServer: nginx/1.21\r\nContent-Type: text/html\r\n\r\n")
-	svc, _, ok := v.MatchBanner(resp)
+	m, ok := v.MatchBanner(resp)
 	if !ok {
 		t.Skipf("HTTP probe not in v0.1 dataset; skipping")
 	}
-	t.Logf("matched service=%q", svc)
+	t.Logf("matched service=%q product=%q", m.Service, m.Product)
 }
 
 // TestVScan_MatchBanner_Miss verifies a clean miss. / TestVScan_MatchBanner_Miss
@@ -61,7 +68,7 @@ func TestVScan_MatchBanner_Miss(t *testing.T) {
 	// Pure random bytes that no probe should match.
 	// / 纯随机字节，不应被任何 probe 匹配。
 	weird := []byte{0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd, 0xfc}
-	_, _, ok := v.MatchBanner(weird)
+	_, ok := v.MatchBanner(weird)
 	if ok {
 		t.Logf("note: a probe matched random bytes; this is rare but OK")
 	}
@@ -86,14 +93,14 @@ func TestVScan_MatchBanner_EscapeFidelity_Pipe(t *testing.T) {
 	// The exact jrpgt payload embedded mid-string must NOT be reported
 	// as jrpgt (pre-fix this matched everything). / 精确 payload 嵌在
 	// 字符串中间不得报成 jrpgt（修复前这种 banner 必中）。
-	if svc, _, ok := v.MatchBanner([]byte("garbage<<jrpgt!>>|junk")); ok && svc == "jrpgt" {
-		t.Errorf("\\x7c compiled as alternation: junk banner matched %q", svc)
+	if m, ok := v.MatchBanner([]byte("garbage<<jrpgt!>>|junk")); ok && m.Service == "jrpgt" {
+		t.Errorf("\\x7c compiled as alternation: junk banner matched %q", m.Service)
 	}
 
 	// The exact payload still hard-matches. / 精确 payload 仍硬匹配。
-	svc, _, ok := v.MatchBanner([]byte("<<jrpgt!>>|"))
-	if !ok || svc != "jrpgt" {
-		t.Errorf("exact jrpgt payload: got svc=%q ok=%v, want jrpgt", svc, ok)
+	m, ok := v.MatchBanner([]byte("<<jrpgt!>>|"))
+	if !ok || m.Service != "jrpgt" {
+		t.Errorf("exact jrpgt payload: got svc=%q ok=%v, want jrpgt", m.Service, ok)
 	}
 }
 
@@ -115,29 +122,33 @@ func TestVScan_MatchBanner_LooseRuleBlacklisted(t *testing.T) {
 		b[i] = 'A' // filler; no \n so the dropped `s` flag is irrelevant
 	}
 	b[128] = 0x60 // the only range-constrained byte / 唯一的范围约束字节
-	svc, _, ok := v.MatchBanner(b)
-	if ok && svc == "nagios-nsca" {
-		t.Errorf("blacklisted vacuous rule still fired: %q", svc)
+	m, ok := v.MatchBanner(b)
+	if ok && m.Service == "nagios-nsca" {
+		t.Errorf("blacklisted vacuous rule still fired: %q", m.Service)
 	}
 }
 
 // TestVScan_MatchBanner_SoftmatchDemoted verifies the nmap "?"
 // convention end-to-end on the real DB: the banner satisfies the
 // daytime SOFT rule but no hard rule, so it is reported as "daytime?"
-// with empty version info. / TestVScan_MatchBanner_SoftmatchDemoted
-// 在真实 DB 上端到端验证 nmap "?" 惯例：banner 只满足 daytime 的
-// soft 规则（无硬规则命中），因此报为 "daytime?" 且版本信息为空。
+// with no product/version and Soft set. /
+// TestVScan_MatchBanner_SoftmatchDemoted 在真实 DB 上端到端验证 nmap
+// "?" 惯例：banner 只满足 daytime 的 soft 规则（无硬规则命中），因此
+// 报为 "daytime?" 且无产品/版本、Soft 置位。
 func TestVScan_MatchBanner_SoftmatchDemoted(t *testing.T) {
 	v := fingerprint.NewVScan()
-	svc, ver, ok := v.MatchBanner([]byte("12:34:56 2026/09/12\n"))
+	m, ok := v.MatchBanner([]byte("12:34:56 2026/09/12\n"))
 	if !ok {
 		t.Fatal("expected the daytime softmatch to hit")
 	}
-	if svc != "daytime?" {
-		t.Errorf("svc = %q, want %q (softmatch demotion)", svc, "daytime?")
+	if m.Service != "daytime?" {
+		t.Errorf("svc = %q, want %q (softmatch demotion)", m.Service, "daytime?")
 	}
-	if ver != "" {
-		t.Errorf("softmatch version info = %q, want empty", ver)
+	if m.Product != "" || m.Version != "" {
+		t.Errorf("softmatch product/version = %q/%q, want empty", m.Product, m.Version)
+	}
+	if !m.Soft {
+		t.Errorf("softmatch must set Soft")
 	}
 }
 

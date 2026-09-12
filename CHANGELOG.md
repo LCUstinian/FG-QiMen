@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Structured service identity on every result** — `Result` now carries
+  `product`, `version`, and `confidence` fields. The nmap-style banner
+  fingerprint parses its `p/product/ v/version/` template segments
+  (including `$1`-`$9` submatch expansion) instead of dumping the raw
+  string, grades hard matches `high` and softmatch fallbacks `low`, and
+  plugin identify results (real protocol handshakes) are graded `high`.
+  NDJSON emits the new fields automatically (omitted when unknown, so
+  unknown-service records stay byte-identical); results.csv gains
+  `product`/`version`/`confidence` columns appended at the END so the
+  original 9 column positions are unchanged; the txt banner line now
+  reads `ssh | OpenSSH 8.9p1 | banner=...` instead of the raw
+  `p/.../ v/.../` template.
 - **Per-run log file** — every scan now archives its log lines to
   `fgqm_log_HH-MM-SS.txt` next to the result files (same daily
   bucket + timestamp stamp). Text mode (`--no-tui`) tees to console
@@ -53,6 +65,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **scan: banner grabbing was never wired into production scans** —
+  `core.NewScanner` built a `TCPConnectProbe` without a `BannerReader`,
+  so every open port yielded an empty banner and the Stage-0
+  nmap-style fingerprint layer was dead code on real scans (it only
+  ever ran in unit tests). Production now dials with
+  `scan.FirstBanner` (256 bytes / 200 ms budget per open port).
+- **scan: banner trimming broke every end-anchored fingerprint rule** —
+  `readBanner` replaced CR/LF with spaces and trimmed the result, so
+  rules anchored on a trailing newline (the OpenSSH `...\r?\n` family,
+  and dozens like them) could never hard-match: a live sshd was
+  reported as `ssh?` instead of `ssh`. Banners now keep their real
+  CR/LF for matching; display paths collapse interior newlines and
+  trailing whitespace themselves (single-line TXT/CSV/NDJSON rows are
+  preserved).
 - **fingerprint: phantom services on garbage banners (dps-shell class)**
   — the pattern compiler decoded byte escapes (`\x7c` etc.) into raw
   bytes and re-escaped only non-printables, so a decoded 0x7c became a

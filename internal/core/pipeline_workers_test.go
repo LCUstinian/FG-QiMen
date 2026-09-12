@@ -150,10 +150,16 @@ func TestPipelineWorkers_PortLevelResultForEveryOpenPort(t *testing.T) {
 		// 实 banner 下 nmap 探针库的宽松匹配会让 service 名成为指
 		// 纹质量问题，而非 Stage 0 契约。
 		assertService bool
+		// assertSSHIdentity pins the structured identity for the
+		// OpenSSH case: the real DB rule is a hard match with
+		// p/OpenSSH/ product expansion. / assertSSHIdentity 为
+		// OpenSSH 用例锁定结构化身份：真实 DB 规则是硬匹配且展开
+		// p/OpenSSH/ 产品。
+		assertSSHIdentity bool
 	}{
 		{name: "no banner", banner: "", wantService: "", assertService: true},
 		{name: "unmatched banner", banner: "GARBAGE-NOT-A-SERVICE\r\n"},
-		{name: "ssh banner", banner: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1\r\n"},
+		{name: "ssh banner", banner: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1\r\n", assertSSHIdentity: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -188,6 +194,17 @@ func TestPipelineWorkers_PortLevelResultForEveryOpenPort(t *testing.T) {
 			}
 			if tc.assertService && r.Service != tc.wantService {
 				t.Errorf("Service = %q, want %q", r.Service, tc.wantService)
+			}
+			if tc.assertSSHIdentity {
+				if r.Confidence != types.ConfHigh {
+					t.Errorf("Confidence = %q, want %q (hard match)", r.Confidence, types.ConfHigh)
+				}
+				if r.Product != "OpenSSH" {
+					t.Errorf("Product = %q, want %q", r.Product, "OpenSSH")
+				}
+				if r.Version == "" {
+					t.Errorf("Version = %q, want non-empty ($N expansion)", r.Version)
+				}
 			}
 		})
 	}
