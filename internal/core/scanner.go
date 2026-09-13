@@ -563,7 +563,7 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		}()
 		// TCP consume: forwards open ports until the scan completes.
 		// / TCP 消费：转发开放端口直到扫描完成。
-		if !consume(scanRes, "tcp", scanDone) {
+		if !consume(scanRes, types.ProtocolTCP, scanDone) {
 			return
 		}
 
@@ -628,7 +628,7 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			// the deferred close(items) releases the plugin workers
 			// either way. / 返回值忽略：这是最后一个阶段——无论哪种
 			// 结束方式，随后的 defer close(items) 都会释放 plugin worker。
-			consume(udpRes, "udp", udpDone)
+			consume(udpRes, types.ProtocolUDP, udpDone)
 		}
 	}()
 

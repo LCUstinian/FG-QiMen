@@ -36,7 +36,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -130,11 +129,14 @@ func persistResult(sess *session.Session, r *types.Result) {
 			}
 		}
 		// Typed side-channel: if a plugin stashed a
-		// *output.RDPFingerprint in Extra, dual-write it
-		// to rdp.json / rdp.txt. / 类型化旁路：如果插件把
-		// *output.RDPFingerprint 放在 Extra 里，双写到
-		// rdp.json / rdp.txt。
-		if rdpFP, ok := r.Extra.(*output.RDPFingerprint); ok {
+		// *types.RDPFingerprint in Extra, dual-write it
+		// to rdp.json / rdp.txt. The type lives in types (not
+		// output) so the producing plugin never imports the
+		// output layer. / 类型化旁路：如果插件把
+		// *types.RDPFingerprint 放在 Extra 里，双写到
+		// rdp.json / rdp.txt。类型放 types（非 output），
+		// 生产方插件因此不依赖输出层。
+		if rdpFP, ok := r.Extra.(*types.RDPFingerprint); ok {
 			if err := sess.Out.WriteRDP(*rdpFP); err != nil {
 				sess.Log.Warn("output write rdp failed: %v", err)
 			}

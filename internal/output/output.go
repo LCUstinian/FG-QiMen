@@ -593,37 +593,17 @@ func (o *Output) writeAlive(r *types.Result) {
 	}
 }
 
-// RDPFingerprint is the extended RDP fingerprint structure that we persist
-// to dedicated rdp.json / rdp.txt files (beyond the regular result stream).
-//
-// RDPFingerprint 是我们持久化到专用 rdp.json / rdp.txt 文件的扩展 RDP 指纹结构
-// （超出常规 result 流的范围）。
-type RDPFingerprint struct {
-	Host             string    `json:"host"`
-	Port             int       `json:"port"`
-	ServerName       string    `json:"server_name,omitempty"`
-	Domain           string    `json:"domain,omitempty"`
-	DomainJoined     bool      `json:"domain_joined"`
-	OSVersion        string    `json:"os_version,omitempty"`
-	OSBuild          string    `json:"os_build,omitempty"`
-	ProductID        string    `json:"product_id,omitempty"`
-	ServerFlags      []string  `json:"server_flags,omitempty"`
-	NLASupported     bool      `json:"nla_supported"`
-	CredSSPSupported bool      `json:"credssp_supported"`
-	CertSubject      string    `json:"cert_subject,omitempty"`
-	CertIssuer       string    `json:"cert_issuer,omitempty"`
-	CertValidFrom    string    `json:"cert_valid_from,omitempty"`
-	CertValidTo      string    `json:"cert_valid_to,omitempty"`
-	CertThumbprint   string    `json:"cert_thumbprint,omitempty"`
-	ProtocolVersion  uint32    `json:"protocol_version,omitempty"`
-	ScanTime         time.Time `json:"scan_time"`
-}
-
 // WriteRDP writes a structured RDP fingerprint to rdp.json (NDJSON) and
-// rdp.txt (human-readable). Each file has its own mutex. / WriteRDP
-// 把结构化的 RDP 指纹写入 rdp.json（NDJSON）和 rdp.txt（人类可读）。
-// 每个文件独立 mutex。
-func (o *Output) WriteRDP(fp RDPFingerprint) error {
+// rdp.txt (human-readable). Each file has its own mutex.
+//
+// The type itself lives in types (types.RDPFingerprint): the rdp plugin
+// produces it into Result.Extra, and output only renders it — keeping
+// the plugin layer free of an output dependency.
+// / WriteRDP 把结构化的 RDP 指纹写入 rdp.json（NDJSON）和 rdp.txt
+// （人类可读）。每个文件独立 mutex。类型本体在 types
+// （types.RDPFingerprint）：rdp 插件把它放进 Result.Extra，output 只
+// 负责渲染——插件层因此无需依赖 output。
+func (o *Output) WriteRDP(fp types.RDPFingerprint) error {
 	if o.rdpjson != nil {
 		o.rdpjsonMu.Lock()
 		enc := json.NewEncoder(o.rdpjson)

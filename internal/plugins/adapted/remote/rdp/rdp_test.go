@@ -9,14 +9,14 @@
 //
 // The plugin's Identify walks the same state machine, parses
 // the serverCore, and returns a types.Result whose Extra holds
-// a *output.RDPFingerprint.
+// a *types.RDPFingerprint.
 //
 // / rdp_test.go — rdp Identify 插件的 fake-server 测试。模式：
 // fakeserver.ListenLoop 绑 127.0.0.1:0，handler 驱动插件期望的
 // 4 步 RDP 握手：1) 读 X.224 CR；2) 写 X.224 CC 选 selectedProto；
 // 3) 读 MCS Connect-Initial；4) 写 MCS Connect-Response 含
 // serverCore。plugin Identify 走同一状态机，解析 serverCore，
-// 返 Extra = *output.RDPFingerprint 的 types.Result。
+// 返 Extra = *types.RDPFingerprint 的 types.Result。
 //
 // This is a STATEFUL TCP plugin (Tier 3 in the v0.6.0 fake-server
 // plan). The handler is a closure-free linear 4-step sequence —
@@ -42,8 +42,8 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
-	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/remote/rdp"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // fakeRDPServer handles one RDP client connection via
@@ -197,11 +197,11 @@ func TestRdp_IdentifyHit_HYBRID(t *testing.T) {
 	if res.Service != "rdp" {
 		t.Errorf("Service = %q, want rdp", res.Service)
 	}
-	// Extra should hold a populated *output.RDPFingerprint.
-	// / Extra 应含一个填好的 *output.RDPFingerprint。
-	rdpFP, ok := res.Extra.(*output.RDPFingerprint)
+	// Extra should hold a populated *types.RDPFingerprint.
+	// / Extra 应含一个填好的 *types.RDPFingerprint。
+	rdpFP, ok := res.Extra.(*types.RDPFingerprint)
 	if !ok {
-		t.Fatalf("Extra type = %T, want *output.RDPFingerprint", res.Extra)
+		t.Fatalf("Extra type = %T, want *types.RDPFingerprint", res.Extra)
 	}
 	if rdpFP.ServerName != "WIN-SRV-01" {
 		t.Errorf("ServerName = %q, want WIN-SRV-01", rdpFP.ServerName)
@@ -228,7 +228,7 @@ func TestRdp_IdentifyHit_Plain(t *testing.T) {
 	if res.Service != "rdp" {
 		t.Errorf("Service = %q, want rdp", res.Service)
 	}
-	rdpFP := res.Extra.(*output.RDPFingerprint)
+	rdpFP := res.Extra.(*types.RDPFingerprint)
 	if rdpFP.NLASupported {
 		t.Errorf("NLASupported = true, want false (selectedProto=RDP)")
 	}

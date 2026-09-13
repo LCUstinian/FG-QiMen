@@ -260,7 +260,7 @@ func TestWriteRDPEmitsBoth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenOutput: %v", err)
 	}
-	fp := RDPFingerprint{
+	fp := types.RDPFingerprint{
 		Host:             "10.0.0.5",
 		Port:             3389,
 		ServerName:       "WIN-SRV01",
@@ -284,7 +284,7 @@ func TestWriteRDPEmitsBoth(t *testing.T) {
 	if len(jsonLines) != 1 {
 		t.Fatalf("got %d rdp.json lines, want 1", len(jsonLines))
 	}
-	var got RDPFingerprint
+	var got types.RDPFingerprint
 	if err := json.Unmarshal([]byte(jsonLines[0]), &got); err != nil {
 		t.Fatalf("unmarshal rdp.json: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 					t.Errorf("WriteCred: %v", err)
 					return
 				}
-				fp := RDPFingerprint{
+				fp := types.RDPFingerprint{
 					Host:     r.Host,
 					Port:     r.Port,
 					ScanTime: r.Time,

@@ -113,7 +113,7 @@ func runPluginWorker(
 					// / 按协议分派：UDP item 必须对 UDP probe 规则匹配
 					// ——TCP 规则集不认识 DNS/SNMP/NBTStat 响应，反之
 					// 亦然。
-					if item.Protocol == "udp" {
+					if item.Protocol == types.ProtocolUDP {
 						bm, _ = vscan.MatchUDPBanner([]byte(item.Banner))
 					} else {
 						bm, _ = vscan.MatchBanner([]byte(item.Banner))
@@ -163,7 +163,7 @@ func runPluginWorker(
 			// covered by the TCP scan). / UDP item 完全跳过插件：每个
 			// 插件 Identify 都是 TCP 协议握手，无法与 UDP-only 服务对话
 			//（同端口的 TCP listener 已被 TCP 阶段覆盖）。
-			if item.Protocol == "udp" {
+			if item.Protocol == types.ProtocolUDP {
 				continue
 			}
 			for _, p := range portIndex[item.Port] {

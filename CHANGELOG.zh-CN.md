@@ -69,6 +69,15 @@
 
 ### Changed
 
+- **分层：RDPFingerprint 从 output 下沉到 types** —— rdp 插件此前
+  import internal/output 只为把 `*output.RDPFingerprint` 塞进
+  `Result.Extra` 供管线 sink downcast（plugins → output 倒置）。
+  结构体现在移至 `internal/types`（`types.RDPFingerprint`）：插件
+  生产、sink 分发、output 只渲染。字段与 JSON tag 不变——rdp.json /
+  rdp.txt 输出逐字节一致。
+- **`types.ProtocolTCP` / `types.ProtocolUDP` 常量** —— 跨越
+  scan→plugin 边界的 `"tcp"` / `"udp"` 魔法字符串（`ScanItem.
+  Protocol` 的生产方与分派方）改用共享常量。
 - **AIMD 自适应并发池（借鉴 fscan 的 AdaptivePool）** —— 扫描池原本
   "只增不减"的 open 比例启发式替换为两阶段控制器，由无锁扫描度量
   驱动：慢启动（以 `--threads` 目标的 1/4 出生，健康周期内逐周期

@@ -92,6 +92,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **layering: RDPFingerprint moved from output to types** — the rdp
+  plugin used to import internal/output solely to stash an
+  `*output.RDPFingerprint` in `Result.Extra` for the pipeline sink to
+  downcast (plugins → output inversion). The struct now lives in
+  `internal/types` (`types.RDPFingerprint`): the plugin produces it,
+  the sink dispatches it, output only renders it. Same fields, same
+  JSON tags — rdp.json / rdp.txt output is byte-identical.
+- **`types.ProtocolTCP` / `types.ProtocolUDP` constants** — the
+  `"tcp"` / `"udp"` magic strings crossing the scan→plugin boundary
+  (`ScanItem.Protocol` producers and dispatchers) now use shared
+  constants.
 - **AIMD adaptive concurrency pool (borrowed from fscan's
   AdaptivePool)** — the scan pool's grow-only open-ratio heuristic is
   replaced by a two-phase controller driven by lock-free scan metrics:

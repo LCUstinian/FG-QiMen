@@ -3,7 +3,7 @@
 // Orchestrates a 4-step handshake (X.224 CR → X.224 CC → MCS Connect-
 // Initial → MCS Connect-Response), parses the serverCore data from
 // the GCC Conference Create Response, and returns a types.Result
-// with Extra = *output.RDPFingerprint so the pipeline can dual-write
+// with Extra = *types.RDPFingerprint so the pipeline can dual-write
 // to rdp.json / rdp.txt via runResultSink (see core/pipeline.go).
 //
 // HARD RULE: this plugin performs IDENTIFICATION ONLY. It never
@@ -14,7 +14,7 @@
 // 包 rdp — RDP 深指纹 Identify 插件。
 // 编排 4 步握手（X.224 CR → X.224 CC → MCS Connect-Initial → MCS
 // Connect-Response），从 GCC Conference Create Response 抽 serverCore
-// 数据，返带 Extra = *output.RDPFingerprint 的 types.Result，让管线
+// 数据，返带 Extra = *types.RDPFingerprint 的 types.Result，让管线
 // 通过 runResultSink 双写到 rdp.json / rdp.txt（见 core/pipeline.go）。
 //
 // 硬性原则：本插件只做识别。绝不跑 Attach / Login / Session Setup。
@@ -30,7 +30,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
@@ -78,7 +77,7 @@ func (p *Plugin) Identify(ctx context.Context, host string, port int) *types.Res
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 
-	fp := output.RDPFingerprint{
+	fp := types.RDPFingerprint{
 		Host:     host,
 		Port:     port,
 		ScanTime: time.Now(),

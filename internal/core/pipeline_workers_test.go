@@ -237,7 +237,7 @@ func TestPipelineWorkers_UDPDemoDispatch(t *testing.T) {
 
 	banner := string([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}) +
 		"STAT pid 1\r\nSTAT uptime 2\r\nSTAT time 3\r\nSTAT version 1.6.9\r\n"
-	items <- types.ScanItem{Host: "127.0.0.1", Port: port, Protocol: "udp", Banner: banner}
+	items <- types.ScanItem{Host: "127.0.0.1", Port: port, Protocol: types.ProtocolUDP, Banner: banner}
 	close(items)
 	<-done
 	close(results)

@@ -15,6 +15,17 @@ type Cred struct {
 	AuthType string `json:"auth_type,omitempty"` // "password" / "key" / ...
 }
 
+// Protocol values for ScanItem.Protocol. The scan layer produces
+// them and the plugin-routing layer compares against them; use the
+// constants instead of string literals so the scan→plugin contract
+// has a single source of truth.
+// / ScanItem.Protocol 的取值。扫描层产出、插件路由层比对；用常量
+// 替代字符串字面量，让 scan→plugin 契约只有一个真相源。
+const (
+	ProtocolTCP = "tcp" // historic default / 历史默认
+	ProtocolUDP = "udp"
+)
+
 // ScanItem is the unit of work emitted by the port scan producer and
 // consumed by plugin workers.
 // ScanItem 是端口扫描 producer 发出、被 plugin worker 消费的工作单位。
