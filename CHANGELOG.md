@@ -7,6 +7,60 @@ All notable changes to FG-QiMen are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-13
+
+### Added
+
+- **TCP active probes identify silent open ports** — most services
+  (HTTP, memcached, RPC portmappers...) say nothing until spoken to,
+  so the passive first-banner grab sees only the chatty minority.
+  When Stage-0 matching finds neither a banner nor a rule hit on a
+  TCP item, the worker now sends the nmap hint probes (rarity-
+  ascending, capped at 3/port, NULL and TLS probes excluded — or the
+  rarity-1 generic trio for unhinted ports) on one connection and
+  matches the first response through the same rule engine, so the
+  `fp_probe` / `fp_pattern` evidence chain flows unchanged. Opt out
+  with `--no-fp-probes`.
+- **Probe-path quality measurement** — `TestGolden_ProbeMetrics` plus
+  the `testdata/golden_probes.json` probe-response corpus (redis
+  INFO / NOAUTH / protected-refusal captures with version extraction,
+  memcached stats softmatch, nginx via GetRequest) with load-bearing
+  false-positive guards: OpenSSH's `Protocol mismatch.` and Postfix's
+  `554` refusal banners must stay silent, and do. New `ProbePorts` /
+  `ProbeHits` counters quantify the cost-vs-return of active probing.
+- **Out-of-scope discovery tracking (`--expand-scope off|auto`)** —
+  protocol interactions that surface hosts outside the requested
+  scope (NetBIOS NBSTAT/NBNS registrations, TLS SAN entries, SMB
+  hints) are now recorded with discovery time, source protocol and
+  attributes to the always-on `fgqm_discovery` sink. `off` (default)
+  stays record-only with a rerun hint; `auto` runs ONE bounded second
+  round over the new hosts (RFC1918 private IPs only, same /24 as a
+  scanned target or inside the given CIDR list, `--exclude-hosts`
+  still applies, hard cap 256 hosts).
+- **Read-only SMB/FTP enumeration (`--share-enum` / `--ftp-enum`)** —
+  a new optional `plugins.Enumerator` capability interface, strictly
+  separated from `Credential` (no credentialed share walks, ever).
+  `--share-enum` lists SMB shares via null session and records
+  directory metadata; `--ftp-enum` walks FTP trees anonymously or as
+  a weak-credential hit. Depth 2 / 200 entries / 30 s per host,
+  metadata only — file contents are never downloaded, nothing is
+  written. Share and FTP findings land in deliberately separate
+  `fgqm_shares` / `fgqm_ftp` sinks.
+- **Important-server inventory (`fgqm_servers`)** — results are
+  classified against an infrastructure role table (domain controller,
+  file server, backup, VPN, database, ...), tagged `important` in the
+  NDJSON stream, surfaced with a terminal notice, and aggregated at
+  Close into `fgqm_servers.ndjson/txt` with NBNS hostname enrichment:
+  IP, hostname, roles, evidence ports.
+
+### Changed
+
+- **NDJSON sink default extensions renamed `.json` → `.ndjson`** —
+  editors validating a whole `.json` file as a single document flag
+  multi-root NDJSON as invalid. SARIF is single-document and keeps
+  `.sarif`; flags and explicit `-oj` paths are unaffected. NDJSON
+  records carry `schema: 2` (new: the `important` field).
+
 ## [0.8.2] - 2026-09-13
 
 ### Fixed

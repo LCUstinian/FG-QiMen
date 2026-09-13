@@ -2,6 +2,50 @@
 
 
 # Changelog
+## [0.9.0] - 2026-09-13
+
+### Added 新增
+
+- **TCP 主动探测识别静默开放端口** —— 多数服务（HTTP、memcached、
+  RPC portmapper……）在被问话之前一言不发，被动首 banner 抓取只能
+  看到健谈的少数派。当 Stage-0 匹配在 TCP 项上既无 banner 也无规则
+  命中时，worker 现在会在同一条连接上发送 nmap hint 探测（rarity 升
+  序、每端口上限 3 条、排除 NULL 与 TLS 探测；未被 hint 的端口用
+  rarity-1 通用三件套），首个响应走同一规则引擎——`fp_probe` /
+  `fp_pattern` 证据链不受影响。用 `--no-fp-probes` 退出。
+- **探测路径质量度量** —— `TestGolden_ProbeMetrics` 与
+  `testdata/golden_probes.json` 探测响应语料（redis INFO / NOAUTH /
+  protected-refusal 捕获含版本提取、memcached stats softmatch、经
+  GetRequest 的 nginx），外加承重的误报守卫：OpenSSH 的
+  `Protocol mismatch.` 与 Postfix 的 `554` 拒答 banner 必须保持
+  静默——实测如此。新增 `ProbePorts` / `ProbeHits` 计数器量化主动
+  探测的成本收益。
+- **范围外发现追踪（`--expand-scope off|auto`）** —— 协议交互触及
+  请求范围外主机（NetBIOS NBSTAT/NBNS 注册、TLS SAN 条目、SMB 线索）
+  时，现在一律记录发现时间、来源协议与相关属性到常开的
+  `fgqm_discovery` sink。`off`（默认）仅记录并提示重跑；`auto` 对
+  新主机加扫一轮有界扩展（仅 RFC1918 私网、与已扫目标同 /24 或在
+  给定 CIDR 内、`--exclude-hosts` 仍生效、上限 256 台）。
+- **只读 SMB/FTP 枚举（`--share-enum` / `--ftp-enum`）** —— 新增
+  可选的 `plugins.Enumerator` 能力接口，与 `Credential` 严格分离
+  （绝不做带凭据的共享遍历）。`--share-enum` 经 null session 列出
+  SMB 共享并记录目录元数据；`--ftp-enum` 匿名或以弱口令命中身份遍历
+  FTP 目录树。深度 2 / 200 条目 / 每 host 30 秒，只取元数据——绝不
+  下载文件内容、不做任何写入。共享与 FTP 发现刻意分别落入
+  `fgqm_shares` / `fgqm_ftp` sink。
+- **重要服务器清单（`fgqm_servers`）** —— 结果对照基础设施角色表
+  （域控制器、文件服务器、备份、VPN、数据库……）分类，在 NDJSON 流
+  中带 `important` 标记，终端提示，Close 时聚合进
+  `fgqm_servers.ndjson/txt`（含 NBNS 主机名充实）：IP、主机名、角色、
+  证据端口。
+
+### Changed 变更
+
+- **NDJSON sink 默认扩展名 `.json` → `.ndjson`** —— 按单文档校验
+  整个 `.json` 文件的编辑器会把多根 NDJSON 标为非法。SARIF 是单文档
+  保持 `.sarif`；flag 与显式 `-oj` 路径不受影响。NDJSON 记录带
+  `schema: 2`（新增 `important` 字段）。
+
 ## [0.8.2] - 2026-09-13
 
 ### Fixed
