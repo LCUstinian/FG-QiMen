@@ -94,6 +94,13 @@ type BannerMatch struct {
 	Product string
 	Version string
 	Soft    bool
+	// Probe / Pattern are the identification BASIS: which probe's
+	// rule fired and the verbatim upstream rule text. They let
+	// callers attach auditable evidence to every identity claim.
+	// / Probe / Pattern 是识别依据：哪个探针的规则命中 + 逐字上游
+	// 规则文本。调用方可据此给每条身份断言附带可审计证据。
+	Probe   string
+	Pattern string
 }
 
 // MatchBanner finds the best service match for a banner (or any
@@ -133,26 +140,36 @@ func matchAll(probes []Probe, banner []byte) (BannerMatch, bool) {
 	if len(banner) == 0 {
 		return BannerMatch{}, false
 	}
-	var softService string
-	for _, p := range probes {
+	var softMatch *Match
+	var softProbe string
+	for i := range probes {
+		p := &probes[i]
 		if p.Matchs == nil {
 			continue
 		}
-		for _, m := range *p.Matchs {
+		for j := range *p.Matchs {
+			m := &(*p.Matchs)[j]
 			if !m.MatchPattern(banner) {
 				continue
 			}
 			if !m.IsSoft {
 				product, version := parseVersionInfo(m.VersionInfo, m.FoundItems)
-				return BannerMatch{Service: m.Service, Product: product, Version: version}, true
+				return BannerMatch{
+					Service: m.Service, Product: product, Version: version,
+					Probe: p.Name, Pattern: m.Pattern,
+				}, true
 			}
-			if softService == "" {
-				softService = m.Service
+			if softMatch == nil {
+				softMatch = m
+				softProbe = p.Name
 			}
 		}
 	}
-	if softService != "" {
-		return BannerMatch{Service: softService + "?", Soft: true}, true
+	if softMatch != nil {
+		return BannerMatch{
+			Service: softMatch.Service + "?", Soft: true,
+			Probe: softProbe, Pattern: softMatch.Pattern,
+		}, true
 	}
 	return BannerMatch{}, false
 }

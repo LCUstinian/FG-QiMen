@@ -450,6 +450,13 @@ func (o *Output) WriteResult(r *types.Result) error {
 			}
 			out = &cp
 		}
+		// Stamp the NDJSON contract version on the emitted line (not
+		// on r — the pooled object and the persisted store record stay
+		// free of a per-row constant). / 在写出行上盖 NDJSON 契约版本
+		//（不动 r——池化对象与持久化 store 记录不携带每行相同常量）。
+		if out.Schema == 0 {
+			out.Schema = types.SchemaNDJSON
+		}
 		_ = o.jsnEnc.Encode(out)
 		o.jsnMu.Unlock()
 	}

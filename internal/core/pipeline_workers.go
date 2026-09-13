@@ -139,6 +139,8 @@ func runPluginWorker(
 				Product:    bm.Product,
 				Version:    bm.Version,
 				Confidence: conf,
+				FpProbe:    bm.Probe,
+				FpPattern:  bm.Pattern,
 				Banner:     formatPortfinger(bm.Service, bm.Product, bm.Version, item.Banner),
 				Time:       time.Now(),
 			}

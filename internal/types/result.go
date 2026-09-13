@@ -90,7 +90,40 @@ type Result struct {
 	// / Confidence 给身份断言分级：ConfHigh = 权威（nmap 硬匹配或真
 	// 协议握手），ConfLow = 提示（nmap softmatch 兜底）。未知时为空。
 	Confidence string `json:"confidence,omitempty"`
+	// FpProbe / FpPattern record the identification BASIS of an
+	// nmap-style banner match: which probe's rule fired and the
+	// verbatim upstream rule text (nmap-service-probes.txt line
+	// content, escape-faithful). They turn every identity claim into
+	// auditable evidence — "Identify, not just connect" extends to
+	// "identify, and show your work". Plugin-driven identity keeps
+	// both empty: the Plugin field already names that source.
+	// / FpProbe / FpPattern 记录 nmap 风格 banner 命中的识别依据：哪
+	// 个探针的哪条规则命中，规则文本逐字保留上游原文（转义保真）。
+	// 每条身份断言因此自带可审计证据——「识别而非仅仅连通」延伸为
+	// 「识别，并展示依据」。插件驱动的识别两者留空：Plugin 字段已
+	// 说明来源。
+	FpProbe   string `json:"fp_probe,omitempty"`
+	FpPattern string `json:"fp_pattern,omitempty"`
+	// Schema is the NDJSON contract version of the record. 0 means
+	// legacy/unversioned (pre-schema files); the writer stamps
+	// SchemaNDJSON on every line it emits, so line-oriented consumers
+	// can detect which shape they read even from partial reads. It is
+	// deliberately NOT set at construction: the persisted store
+	// records and the redaction copy path stay free of a constant
+	// that would be identical on every row.
+	// / Schema 是该记录的 NDJSON 契约版本。0 = 旧版/无版本（schema
+	// 之前的文件）；写出端在每行盖上 SchemaNDJSON，使行式消费方即便
+	// 只读到部分行也能识别数据形状。刻意不在构造期赋值：持久化
+	// store 记录与脱敏拷贝路径不携带每行都相同的常量。
+	Schema int `json:"schema,omitempty"`
 }
+
+// SchemaNDJSON is the current NDJSON record contract version.
+// History: 0 = pre-schema (no fingerprint evidence fields, no
+// schema); 1 = adds fp_probe / fp_pattern evidence fields.
+// / SchemaNDJSON 是当前 NDJSON 记录契约版本。历史：0 = 无 schema
+// （无指纹证据字段）；1 = 新增 fp_probe / fp_pattern 证据字段。
+const SchemaNDJSON = 1
 
 // Confidence vocabulary for Result.Confidence. / Result.Confidence 的
 // 置信度取值。
@@ -131,5 +164,8 @@ func PutResult(r *Result) {
 	r.Product = ""
 	r.Version = ""
 	r.Confidence = ""
+	r.FpProbe = ""
+	r.FpPattern = ""
+	r.Schema = 0
 	resultPool.Put(r)
 }
