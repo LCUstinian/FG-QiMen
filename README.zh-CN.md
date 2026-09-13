@@ -14,26 +14,26 @@ FG-QiMen 是一个纯 CLI 扫描器，通过 Go channel 管线解耦**端口扫�
 [English](README.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
-┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ─┐
-│  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 18/24  ports ▓▓░░░░░░░░░░░░░░░░░░░░ 142/8000  rate 142 pps · 28 hits/s  ▁▂▃▅▇▅▃▂▁
+┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ──┐
+│  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓░░░ 18/24   ports 142/8000 │
 ├────────────────────────────────────────────────────────────────┤
-│ LIVE EVENTS                                                     │
-│   [14:23:01] ✓ 10.0.0.5:22      ssh                            │
-│   [14:23:02] ✓ 10.0.0.7:80      http                           │
-│   [14:23:04] ✓✓ 10.0.0.12:3306  mysql     [admin/admin OK!]    │
-│   [14:23:07] ⚠ 10.0.0.18:443    https     [TLS handshake fail]│
-│   [14:23:09] ✗ 10.0.0.22:23     telnet                         │
+│ LIVE EVENTS                                                    │
+│   [14:23:01] ✓ 10.0.0.5:22       ssh                           │
+│   [14:23:02] ✓ 10.0.0.7:80       http                          │
+│   [14:23:04] ✓✓ 10.0.0.12:3306   mysql    [admin/admin OK!]    │
+│   [14:23:07] ⚠ 10.0.0.18:443     https    [TLS handshake fail] │
+│   [14:23:09] ✗ 10.0.0.22:23      telnet                        │
 ├──────────────────────┬─────────────────────────────────────────┤
 │ STAGE                │ TOP PLUGINS                             │
-│   alive       18/24  │   [ssh     12] ███████████░░░░░░░       │
-│   ports    142/8000  │   [http      7] ███████░░░░░░░░░░░       │
-│   results      23    │   [mysql     2] ██░░░░░░░░░░░░░░░░       │
-│   creds        2     │   [redis     1] █░░░░░░░░░░░░░░░░░       │
-│   errors      7     │   [https     1] █░░░░░░░░░░░░░░░░░       │
+│   alive       18/24  │   [ssh      12] ███████████░░░░░░░      │
+│   ports    142/8000  │   [http      7] ███████░░░░░░░░░░░      │
+│   results        23  │   [mysql     2] ██░░░░░░░░░░░░░░░░      │
+│   creds           2  │   [redis     1] █░░░░░░░░░░░░░░░░░      │
+│   errors          7  │   [https     1] █░░░░░░░░░░░░░░░░░      │
 ├──────────────────────┴─────────────────────────────────────────┤
 │ ERRORS: timeout 42  refused 15  dns 7  reset 3                 │
 ├────────────────────────────────────────────────────────────────┤
-│ [q] quit  [p] pause  e errors panel  L live overlay  ? toggle help │
+│ [q] quit  [p] pause  e errors  L overlay  ? help               │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -313,21 +313,21 @@ IPv6 一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规则
 ## CLI 参考
 
 ```
-fg-qimen [flags]                             # 隐式 scan
-fg-qimen scan [target] [flags]               # 显式 scan；target 可为 CIDR/范围/主机
-fg-qimen resume --project <name>             # 恢复项目
-fg-qimen projects list                       # 列出项目
-fg-qimen projects create <n>                 # 创建项目
-fg-qimen projects delete <n>                 # 删除项目
-fg-qimen projects info <n>                   # 项目详情
-fg-qimen projects export <n> <out.fgq>       # 导出项目为单个 .fgq 文件
-fg-qimen projects import <in.fgq> <n>        # 从 .fgq 文件导入
-fg-qimen projects prune <n> --before <date>  # 删除早于 <date> 的 seen-hashes（--compact 回收磁盘）
-fg-qimen schedules add <name> --cron "<expr>" # 在项目 DB 中持久化调度
-fg-qimen schedules list                      # 查看已排队调度
-fg-qimen schedules remove <name>             # 删除调度
-fg-qimen version                             # 显示版本
-fg-qimen completion bash                     # 生成 shell 补全
+fg-qimen [flags]                                # 隐式 scan
+fg-qimen scan [target] [flags]                  # 显式 scan；target 可为 CIDR/范围/主机
+fg-qimen resume --project <name>                # 恢复项目
+fg-qimen projects list                          # 列出项目
+fg-qimen projects create <n>                    # 创建项目
+fg-qimen projects delete <n>                    # 删除项目
+fg-qimen projects info <n>                      # 项目详情
+fg-qimen projects export <n> <out.fgq>          # 导出项目为单个 .fgq 文件
+fg-qimen projects import <in.fgq> <n>           # 从 .fgq 文件导入
+fg-qimen projects prune <n> --before <date>     # 删除早于 <date> 的 seen-hashes（--compact 回收磁盘）
+fg-qimen schedules add <name> --cron "<expr>"   # 在项目 DB 中持久化调度
+fg-qimen schedules list                         # 查看已排队调度
+fg-qimen schedules remove <name>                # 删除调度
+fg-qimen version                                # 显示版本
+fg-qimen completion bash                        # 生成 shell 补全
 ```
 
 ### 快速上手（6 个核心 flag）

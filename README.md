@@ -19,26 +19,26 @@ deduction — measure first, then scan.
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
-┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ─┐
-│  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 18/24  ports ▓▓░░░░░░░░░░░░░░░░░░░░ 142/8000  rate 142 pps · 28 hits/s  ▁▂▃▅▇▅▃▂▁
+┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ──┐
+│  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓░░░ 18/24   ports 142/8000 │
 ├────────────────────────────────────────────────────────────────┤
-│ LIVE EVENTS                                                     │
-│   [14:23:01] ✓ 10.0.0.5:22      ssh                            │
-│   [14:23:02] ✓ 10.0.0.7:80      http                           │
-│   [14:23:04] ✓✓ 10.0.0.12:3306  mysql     [admin/admin OK!]    │
-│   [14:23:07] ⚠ 10.0.0.18:443    https     [TLS handshake fail]│
-│   [14:23:09] ✗ 10.0.0.22:23     telnet                         │
+│ LIVE EVENTS                                                    │
+│   [14:23:01] ✓ 10.0.0.5:22       ssh                           │
+│   [14:23:02] ✓ 10.0.0.7:80       http                          │
+│   [14:23:04] ✓✓ 10.0.0.12:3306   mysql    [admin/admin OK!]    │
+│   [14:23:07] ⚠ 10.0.0.18:443     https    [TLS handshake fail] │
+│   [14:23:09] ✗ 10.0.0.22:23      telnet                        │
 ├──────────────────────┬─────────────────────────────────────────┤
 │ STAGE                │ TOP PLUGINS                             │
-│   alive       18/24  │   [ssh     12] ███████████░░░░░░░       │
-│   ports    142/8000  │   [http      7] ███████░░░░░░░░░░░       │
-│   results      23    │   [mysql     2] ██░░░░░░░░░░░░░░░░       │
-│   creds        2     │   [redis     1] █░░░░░░░░░░░░░░░░░       │
-│   errors      7     │   [https     1] █░░░░░░░░░░░░░░░░░       │
+│   alive       18/24  │   [ssh      12] ███████████░░░░░░░      │
+│   ports    142/8000  │   [http      7] ███████░░░░░░░░░░░      │
+│   results        23  │   [mysql     2] ██░░░░░░░░░░░░░░░░      │
+│   creds           2  │   [redis     1] █░░░░░░░░░░░░░░░░░      │
+│   errors          7  │   [https     1] █░░░░░░░░░░░░░░░░░      │
 ├──────────────────────┴─────────────────────────────────────────┤
 │ ERRORS: timeout 42  refused 15  dns 7  reset 3                 │
 ├────────────────────────────────────────────────────────────────┤
-│ [q] quit  [p] pause  e errors panel  L live overlay  ? toggle help │
+│ [q] quit  [p] pause  e errors  L overlay  ? help               │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -356,21 +356,21 @@ deferred.
 ## CLI reference
 
 ```
-fg-qimen [flags]                             # implicit scan
-fg-qimen scan [target] [flags]               # explicit scan; target may be a CIDR/range/host
-fg-qimen resume --project <name>             # resume project
-fg-qimen projects list                       # list projects
-fg-qimen projects create <n>                 # create project
-fg-qimen projects delete <n>                 # delete project
-fg-qimen projects info <n>                   # show project details
-fg-qimen projects export <n> <out.fgq>       # export project to single .fgq file
-fg-qimen projects import <in.fgq> <n>        # import from .fgq file
-fg-qimen projects prune <n> --before <date>  # delete seen-hashes older than <date> (--compact reclaims disk)
-fg-qimen schedules add <name> --cron "<expr>" # persist a schedule in the project DB
-fg-qimen schedules list                      # inspect queued schedules
-fg-qimen schedules remove <name>             # drop a schedule
-fg-qimen version                             # show version
-fg-qimen completion bash                     # generate shell completion
+fg-qimen [flags]                                # implicit scan
+fg-qimen scan [target] [flags]                  # explicit scan; target may be a CIDR/range/host
+fg-qimen resume --project <name>                # resume project
+fg-qimen projects list                          # list projects
+fg-qimen projects create <n>                    # create project
+fg-qimen projects delete <n>                    # delete project
+fg-qimen projects info <n>                      # show project details
+fg-qimen projects export <n> <out.fgq>          # export project to single .fgq file
+fg-qimen projects import <in.fgq> <n>           # import from .fgq file
+fg-qimen projects prune <n> --before <date>     # delete seen-hashes older than <date> (--compact reclaims disk)
+fg-qimen schedules add <name> --cron "<expr>"   # persist a schedule in the project DB
+fg-qimen schedules list                         # inspect queued schedules
+fg-qimen schedules remove <name>                # drop a schedule
+fg-qimen version                                # show version
+fg-qimen completion bash                        # generate shell completion
 ```
 
 ### Quick start (6 essential flags)
