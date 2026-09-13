@@ -82,10 +82,13 @@ func TestEncodeNetBIOSName(t *testing.T) {
 	if len(out) != 32 {
 		t.Fatalf("encoded name length = %d, want 32", len(out))
 	}
-	// First byte should be 0x20 (label) | ('*' >> 4) = 0x20 | 0x02 = 0x22.
-	// / 首字节应为 0x20（label）| ('*' >> 4) = 0x20 | 0x02 = 0x22。
-	if out[0] != 0x22 {
-		t.Errorf("out[0] = 0x%02x, want 0x22", out[0])
+	// First byte should be 'A'+nibble (RFC 1001 wire standard):
+	// 'A' + ('*' >> 4) = 0x41 | 0x02 = 0x43 ('C'), giving the
+	// canonical "CK…" wildcard prefix. / 首字节应为 'A'+半字节
+	//（RFC 1001 线上标准）：'A' + ('*' >> 4) = 0x41 | 0x02 = 0x43
+	//（'C'），即规范的 "CK…" 通配前缀。
+	if out[0] != 0x43 {
+		t.Errorf("out[0] = 0x%02x, want 0x43", out[0])
 	}
 }
 

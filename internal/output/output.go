@@ -134,6 +134,31 @@ type Output struct {
 	sarifMu  sync.Mutex
 	sarifBuf []*types.Result
 
+	// v0.9: discovery / shares / ftp sink pairs (NDJSON + txt) and the
+	// servers aggregator. Discovery, shares and ftp stream incrementally;
+	// servers aggregates per host and emits one record per host at
+	// Close() (a half-written server row mid-stream would read as a
+	// complete inventory). / v0.9：discovery / shares / ftp sink 对
+	//（NDJSON + txt）与 servers 聚合器。discovery、shares、ftp 增量
+	// 流式写；servers 按 host 聚合，Close() 时每 host 一条记录输出
+	//（流中半截服务器记录会被误读为完整清单）。
+	discjson, disctxt       *flushCloser
+	discMu                  sync.Mutex
+	sharesjson, sharestxt   *flushCloser
+	sharesMu                sync.Mutex
+	ftpjson, ftptxt         *flushCloser
+	ftpMu                   sync.Mutex
+	serversjson, serverstxt *flushCloser
+	serversMu               sync.Mutex
+	serversBuf              map[string]*ServerRecord
+
+	// hostnameLookup enriches server records with hostnames captured by
+	// the scope tracker (NBNS name tables). Injected via OutputConfig to
+	// keep the output layer free of a core dependency.
+	// / hostnameLookup 用范围追踪器捕获的主机名（NBNS 名字表）充实服
+	// 务器记录。经 OutputConfig 注入，output 层因此不依赖 core。
+	hostnameLookup func(host string) string
+
 	// showCleartext gates whether result.txt, result.json, and result.csv
 	// embed the cleartext password (default: redacted fingerprint).
 	// creds.txt is ALWAYS cleartext — the operator's working file.
@@ -210,6 +235,30 @@ type OutputConfig struct {
 	// 轮转（默认）。
 	RotateMaxBytes int64
 	RotateMaxFiles int
+
+	// v0.9: discovery / shares / ftp / servers sink paths and the
+	// hostname-enrichment hook (see Output.hostnameLookup).
+	// / v0.9：discovery / shares / ftp / servers sink 路径与主机名充实
+	// 钩子（见 Output.hostnameLookup）。
+	DiscoveryJSONPath string // empty = no discovery output
+	DiscoveryTXTPath  string // empty = no discovery output
+	SharesJSONPath    string // empty = no shares output
+	SharesTXTPath     string // empty = no shares output
+	FTPJSONPath       string // empty = no ftp output
+	FTPTXTPath        string // empty = no ftp output
+	ServersJSONPath   string // empty = no servers output
+	ServersTXTPath    string // empty = no servers output
+	HostnameLookup    func(host string) string
+}
+
+// SetHostnameLookup installs the hostname-enrichment hook used by the
+// servers inventory (scope tracker NBNS names). NOT concurrency-safe:
+// call once during pipeline assembly, before the result sink starts —
+// after that the field is read-only. / SetHostnameLookup 安装 servers
+// 清单用的主机名充实钩子（scope 追踪器的 NBNS 名）。非并发安全：管
+// 线装配时调用一次，结果汇启动前——之后该字段只读。
+func (o *Output) SetHostnameLookup(fn func(host string) string) {
+	o.hostnameLookup = fn
 }
 
 // OpenOutput opens (creates if needed) the configured output files and
@@ -217,7 +266,7 @@ type OutputConfig struct {
 //
 // OpenOutput 打开（如不存在则创建）配置指定的输出文件，返回并发安全的 writer。
 func OpenOutput(cfg OutputConfig) (*Output, error) {
-	o := &Output{showCleartext: cfg.ShowCleartext}
+	o := &Output{showCleartext: cfg.ShowCleartext, hostnameLookup: cfg.HostnameLookup}
 	type opener struct {
 		path string
 		perm os.FileMode
@@ -243,6 +292,14 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 			o.csvWriter = csv.NewWriter(w.bw())
 		}},
 		{cfg.ResultSARIFPath, 0o644, func(w *flushCloser) { o.sarif = w }},
+		{cfg.DiscoveryJSONPath, 0o644, func(w *flushCloser) { o.discjson = w }},
+		{cfg.DiscoveryTXTPath, 0o644, func(w *flushCloser) { o.disctxt = w }},
+		{cfg.SharesJSONPath, 0o644, func(w *flushCloser) { o.sharesjson = w }},
+		{cfg.SharesTXTPath, 0o644, func(w *flushCloser) { o.sharestxt = w }},
+		{cfg.FTPJSONPath, 0o644, func(w *flushCloser) { o.ftpjson = w }},
+		{cfg.FTPTXTPath, 0o644, func(w *flushCloser) { o.ftptxt = w }},
+		{cfg.ServersJSONPath, 0o644, func(w *flushCloser) { o.serversjson = w }},
+		{cfg.ServersTXTPath, 0o644, func(w *flushCloser) { o.serverstxt = w }},
 		{cfg.ResultAlivePath, 0o644, func(w *flushCloser) {
 			o.alive = w
 			// Wire alive list format from config (default = "txt"
@@ -312,6 +369,17 @@ func (o *Output) Close() error {
 		// write it, then close. / SARIF 放最后：从 o.sarifBuf 组装
 		// 文档、写入、再关闭。
 		{o.sarif, &o.sarifMu, "sarif"},
+		// servers 也放最后：先按 host 聚合输出，再关闭。
+		// / servers also goes last: emit the per-host aggregation
+		// first, then close.
+		{o.serversjson, &o.serversMu, "servers.json"},
+		{o.serverstxt, &o.serversMu, "servers.txt"},
+		{o.discjson, &o.discMu, "discovery.json"},
+		{o.disctxt, &o.discMu, "discovery.txt"},
+		{o.sharesjson, &o.sharesMu, "shares.json"},
+		{o.sharestxt, &o.sharesMu, "shares.txt"},
+		{o.ftpjson, &o.ftpMu, "ftp.json"},
+		{o.ftptxt, &o.ftpMu, "ftp.txt"},
 	}
 	var firstErr error
 	for _, c := range closers {
@@ -326,6 +394,15 @@ func (o *Output) Close() error {
 			err = writeSARIFDocument(c.w, o.sarifBuf)
 			if err != nil {
 				err = fmt.Errorf("write sarif: %w", err)
+			} else {
+				err = c.w.Close()
+			}
+		} else if c.label == "servers.json" || c.label == "servers.txt" {
+			// Emit the aggregated server inventory before close.
+			// / 关闭前先输出按 host 聚合的服务器清单。
+			err = o.writeServersLocked(c.w, c.label)
+			if err != nil {
+				err = fmt.Errorf("write %s: %w", c.label, err)
 			} else {
 				err = c.w.Close()
 			}
@@ -379,6 +456,14 @@ func (o *Output) Flush() error {
 		{o.webtxt, &o.webtxtMu},
 		{o.csv, &o.csvMu},
 		{o.alive, &o.aliveMu},
+		{o.discjson, &o.discMu},
+		{o.disctxt, &o.discMu},
+		{o.sharesjson, &o.sharesMu},
+		{o.sharestxt, &o.sharesMu},
+		{o.ftpjson, &o.ftpMu},
+		{o.ftptxt, &o.ftpMu},
+		// servers buffers until Close — nothing to flush mid-run.
+		// / servers 缓冲到 Close 才输出——中途无可刷。
 	}
 	var firstErr error
 	for _, f := range flushers {
@@ -408,6 +493,11 @@ func (o *Output) WriteResult(r *types.Result) error {
 		o.sarifBuf = append(o.sarifBuf, r)
 		o.sarifMu.Unlock()
 	}
+	// v0.9: fold role-tagged results into the important-server
+	// inventory (no-op unless r.Important is set and a servers sink is
+	// open). / v0.9：把带角色标记的结果折叠进重要服务器清单（无角色
+	// 或 servers sink 未开时是 no-op）。
+	o.collectServers(r)
 	// TXT — own mutex. / TXT —— 独立 mutex。
 	if o.txt != nil {
 		o.txtMu.Lock()

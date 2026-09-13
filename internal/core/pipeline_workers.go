@@ -255,6 +255,23 @@ func runPluginWorker(
 				continue
 			}
 			for _, p := range portIndex[item.Port] {
+				// v0.9 (需求B): flag-gated read-only enumeration — the
+				// SMB guest-session share list (--share-enum) and the
+				// anonymous FTP walk (--ftp-enum) run on every open
+				// matching port, independent of whether Identify claims
+				// the port (a share server that rejects our negotiate
+				// can still serve a guest session). hasCred=false means
+				// "unauthenticated probe only". Enumeration is
+				// synchronous in this worker and bounded by
+				// DefaultEnumHostTimeout, so it cannot avalanche the
+				// worker pool. / v0.9（需求B）：flag 把关的只读枚举
+				//——SMB guest 会话共享列表（--share-enum）与匿名 FTP
+				// 遍历（--ftp-enum）在每个开放匹配端口上运行，与
+				// Identify 是否认领该端口无关（拒绝我们 negotiate 的共
+				// 享服务器仍可能开放 guest 会话）。hasCred=false 表示
+				// "仅未认证探测"。枚举在本 worker 内同步执行、受
+				// DefaultEnumHostTimeout 限制，不会雪崩 worker 池。
+				enumDispatch(ctx, sess, p, item.Host, item.Port, "", "", false, out)
 				// Identify / 识别
 				if wantIdentify(sess.Config.Mode) {
 					hash := types.HashKey(item.Host, fmt.Sprintf("%d", item.Port), p.Name(), "identify")
@@ -319,7 +336,19 @@ func runPluginWorker(
 					// duplicate logic. / 凭据测试走中央 credential.Scheduler
 					// （sync，单 target 内联调用）。绕过 plugin 自己的
 					// Credential 方法以避免重复逻辑。
-					dispatchCred(ctx, sess, p.Name(), item.Host, item.Port, creds, out)
+					hit := dispatchCred(ctx, sess, p.Name(), item.Host, item.Port, creds, out)
+					// v0.9 (需求B): a credential HIT is post-auth evidence
+					// territory — the FTP weak-cred directory walk
+					// (需求B.2) runs here with the hit's credentials. SMB
+					// deliberately skips this: the share enum is strictly
+					// the unauthenticated probe (enumDispatch forces it).
+					// / v0.9（需求B）：凭据命中即进入认证后取证范围——
+					// FTP 弱口令目录遍历（需求B.2）在此用命中凭据运行。
+					// SMB 刻意跳过：共享枚举严格只做未认证探测
+					//（enumDispatch 强制如此）。
+					if hit != nil {
+						enumDispatch(ctx, sess, p, item.Host, item.Port, hit.Cred.User, hit.Cred.Pass, true, out)
+					}
 				}
 			}
 		}
@@ -363,7 +392,11 @@ func persistResultInline(sess *session.Session, r *types.Result) {
 }
 
 // dispatchCred runs a single-target credential test via core/cred.
-// dispatchCred 通过 core/cred 跑单 target 凭据测试。
+// v0.9 (需求B): the *credential.Hit is returned so the caller can chain
+// the weak-credential enumeration (FTP walk) — the hit itself stays
+// authentication-only. / dispatchCred 通过 core/cred 跑单 target 凭据
+// 测试。v0.9（需求B）：返回 *credential.Hit 让调用方可以衔接弱口令枚
+// 举（FTP 遍历）——命中本身保持仅认证。
 func dispatchCred(
 	ctx context.Context,
 	sess *session.Session,
@@ -371,10 +404,10 @@ func dispatchCred(
 	port int,
 	commonCreds []types.Cred,
 	out chan<- *types.Result,
-) {
+) *credential.Hit {
 	auth, ok := credential.LookupAuthenticator(serviceName)
 	if !ok || auth == nil {
-		return
+		return nil
 	}
 	// Translate types.Cred → credential.Cred at the boundary. The two types
 	// carry the same payload but live in different packages to avoid
@@ -415,7 +448,7 @@ func dispatchCred(
 		// / TUI Spec A（Task 3）：把错误归类，让 TUI 显示"Errors: 4
 		// timeout, 2 refused"而非扁平计数。
 		bumpSyncMap(&sess.State.ErrorCategories, ClassifyError(err))
-		return
+		return nil
 	}
 	if hit == nil {
 		// Authentic miss — no cred matched. Don't log per-miss to
@@ -424,7 +457,7 @@ func dispatchCred(
 		//
 		// 认证 miss——没有凭据匹配。不逐条记 miss 以保 log 干净；调用
 		// 方的 State.Counters.Results 自增告诉操作员"我们试过了"。
-		return
+		return nil
 	}
 	sess.State.Counters.Creds.Add(1)
 	r := &types.Result{
@@ -442,5 +475,77 @@ func dispatchCred(
 	select {
 	case out <- r:
 	case <-ctx.Done():
+	}
+	return hit
+}
+
+// enumDispatch runs the optional read-only Enumerator (需求B) on a
+// plugin that implements it, gated on the operator's --share-enum /
+// --ftp-enum flags. Dispatch rules:
+//   - smb + --share-enum: ONLY the unauthenticated guest-session probe
+//     (hasCred is forced off) — a weak-cred SMB hit goes to creds.txt
+//     and never triggers a credentialed share walk.
+//   - ftp + --ftp-enum: without a cred hit the anonymous login is
+//     probed; with one, the walk runs as the hit account.
+//
+// The result's Extra payload routes to the dedicated evidence sinks
+// (shares.* / ftp.*) via persistResult's typed side-channels.
+//
+// enumDispatch 对实现了可选只读枚举接口（需求B）的插件执行枚举，由
+// 操作员的 --share-enum / --ftp-enum flag 把关。分发规则：
+//   - smb + --share-enum：仅未认证 guest 会话探测（强制关闭
+//     hasCred）——SMB 弱口令命中只进 creds.txt，绝不触发带凭据共享遍历。
+//   - ftp + --ftp-enum：无凭据命中时探测匿名登录；有命中时以命中账
+//     号遍历。
+//
+// 结果的 Extra 载荷经 persistResult 的类型化旁路进入专用证据 sink
+// （shares.* / ftp.*）。
+func enumDispatch(
+	ctx context.Context,
+	sess *session.Session,
+	p plugins.Plugin,
+	host string,
+	port int,
+	user, pass string,
+	hasCred bool,
+	out chan<- *types.Result,
+) {
+	en, ok := p.(plugins.Enumerator)
+	if !ok {
+		return
+	}
+	cfg := sess.Config
+	isSMB := cfg.ShareEnum && p.Name() == "smb"
+	isFTP := cfg.FTPEnum && p.Name() == "ftp"
+	if !isSMB && !isFTP {
+		return
+	}
+	switch {
+	case isSMB:
+		// Unauthenticated probe only — credentials never sprayed here.
+		// / 仅未认证探测——凭据绝不在此喷洒。
+		user, pass = "", ""
+	case isFTP && !hasCred:
+		// Empty user = anonymous probe (the plugin translates it).
+		// / 空 user = 匿名探测（由插件翻译）。
+		user, pass = "", ""
+	}
+	r := en.Enumerate(ctx, host, port, user, pass, types.EnumLimits{
+		MaxDepth:    DefaultEnumMaxDepth,
+		MaxEntries:  DefaultEnumMaxEntries,
+		HostTimeout: DefaultEnumHostTimeout,
+	})
+	if r == nil {
+		return
+	}
+	r.Plugin = p.Name()
+	r.Service = p.Name()
+	r.Time = time.Now()
+	sess.State.Counters.Results.Add(1)
+	sess.UI.Event(r)
+	select {
+	case out <- r:
+	case <-ctx.Done():
+		persistResultInline(sess, r)
 	}
 }

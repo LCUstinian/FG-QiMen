@@ -216,7 +216,7 @@ func runProjectsInfo(cmd *cobra.Command, args []string) error {
 	// out in mixed directories and grep-friendly. / targets.txt 不
 	// 加前缀因为它是手编目标列表（操作员预期直接读写）。结果 /
 	// 凭据 / RDP 文件都带 fgqm_ 前缀，混合目录里显眼，便于 grep。
-	for _, fname := range []string{"targets.txt", "fgqm_result.txt", "fgqm_result.json", "fgqm_creds.txt", "fgqm_rdp.json", "fgqm_rdp.txt"} {
+	for _, fname := range []string{"targets.txt", "fgqm_result.txt", "fgqm_result.ndjson", "fgqm_creds.txt", "fgqm_rdp.ndjson", "fgqm_rdp.txt"} {
 		fpath := filepath.Join("fgqm_workspace", "projects", name, fname)
 		if info, err := os.Stat(fpath); err == nil {
 			fmt.Fprintf(out, "  %-15s  %d bytes\n", fname, info.Size())

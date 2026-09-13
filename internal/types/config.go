@@ -116,19 +116,19 @@ type Config struct {
 	// on open port 445: list share names, mount what an anonymous
 	// session can, and record directory metadata (names, sizes, mtimes).
 	// Evidence-only: file contents are never downloaded. Findings go
-	// to shares.json / shares.txt. / ShareEnum 开启只读 SMB 匿名会话
+	// to shares.ndjson / shares.txt. / ShareEnum 开启只读 SMB 匿名会话
 	// 共享枚举（445 开放时）：列共享名，挂载匿名会话可访问的共享，
 	// 记录目录元数据（名/大小/修改时间）。仅取证：绝不下载文件内容。
-	// 结果写入 shares.json / shares.txt。
+	// 结果写入 shares.ndjson / shares.txt。
 	ShareEnum bool
 
 	// FTPEnum enables read-only FTP directory walks: on open port 21,
 	// try anonymous login first, then any credential hit from the
 	// credential stage, and record the directory tree metadata. Findings
-	// go to ftp.json / ftp.txt, deliberately separate from share
+	// go to ftp.ndjson / ftp.txt, deliberately separate from share
 	// findings. / FTPEnum 开启只读 FTP 目录遍历：21 端口开放时先试
 	// 匿名登录，再试凭据阶段的命中凭据，记录目录树元数据。结果写入
-	// ftp.json / ftp.txt，刻意与共享发现分开记录。
+	// ftp.ndjson / ftp.txt，刻意与共享发现分开记录。
 	FTPEnum bool
 
 	// Network / 网络
@@ -316,6 +316,20 @@ func (c *Config) Validate() error {
 	}
 	if c.Proxy != "" && c.Socks5 != "" {
 		return CodeConflictingFlag.New("--proxy and --socks5 are mutually exclusive (specify only one)", "use either --proxy or --socks5, not both")
+	}
+	// v0.9 (需求A): --expand-scope is a choice-flag. Empty normalises to
+	// "off" (record-only) so callers that build Config programmatically
+	// get the same default as the CLI flag default.
+	// / v0.9（需求A）：--expand-scope 是选项型 flag。空串归一化为
+	// "off"（仅记录），编程构造 Config 的调用方与 CLI 默认值一致。
+	switch c.ExpandScope {
+	case "":
+		c.ExpandScope = "off"
+	case "off", "auto":
+		// ok
+	default:
+		return CodeInvalidFlagValue.Newf("use --expand-scope off|auto",
+			"invalid --expand-scope %q (expected off|auto)", c.ExpandScope)
 	}
 	if c.Host == "" && c.HostsFile == "" {
 		// Empty is allowed for subcommands like `projects list`.

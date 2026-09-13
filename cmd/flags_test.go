@@ -33,6 +33,7 @@ var expectedFlagGroups = map[string]string{
 	"hosts-file":         "Target",
 	"exclude-hosts":      "Target",
 	"exclude-hosts-file": "Target",
+	"expand-scope":       "Target",
 	// Workspace
 	"project":     "Workspace",
 	"project-key": "Workspace",
@@ -98,6 +99,9 @@ var expectedFlagGroups = map[string]string{
 	"no-prescreen": "Behavior",
 	"verbose":      "Behavior",
 	"plugins":      "Behavior",
+	// v0.9 (需求B): read-only enumeration gates. / v0.9（需求B）：只读枚举开关。
+	"share-enum": "Behavior",
+	"ftp-enum":   "Behavior",
 	// Safety
 	"show-creds":   "Safety",
 	"insecure-tls": "Safety",

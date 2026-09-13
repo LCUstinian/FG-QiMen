@@ -25,13 +25,14 @@ type Code string
 // 稳定错误码。仅追加；不要重编号。
 const (
 	// E0xx — validation / config / 校验与配置
-	CodeInvalidTarget   Code = "E001" // invalid host/CIDR/range syntax
-	CodeInvalidPort     Code = "E002" // invalid port spec
-	CodeInvalidCred     Code = "E003" // invalid credential spec
-	CodeMissingTarget   Code = "E004" // no targets specified
-	CodeUnknownMode     Code = "E005" // unknown --mode value
-	CodeInvalidTimeout  Code = "E006" // invalid duration
-	CodeConflictingFlag Code = "E007" // e.g. --resume + --no-state
+	CodeInvalidTarget    Code = "E001" // invalid host/CIDR/range syntax
+	CodeInvalidPort      Code = "E002" // invalid port spec
+	CodeInvalidCred      Code = "E003" // invalid credential spec
+	CodeMissingTarget    Code = "E004" // no targets specified
+	CodeUnknownMode      Code = "E005" // unknown --mode value
+	CodeInvalidTimeout   Code = "E006" // invalid duration
+	CodeConflictingFlag  Code = "E007" // e.g. --resume + --no-state
+	CodeInvalidFlagValue Code = "E008" // unknown value for a choice-flag (e.g. --expand-scope)
 
 	// E1xx — persistence / bbolt / project / 持久化与项目
 	CodeProjectNameInvalid Code = "E101" // --project name failed validation

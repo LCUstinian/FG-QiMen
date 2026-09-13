@@ -62,7 +62,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	resultJSON, err := resolveOutputPath(cfg, flagOutputJSON, "fgqm_result.json", now)
+	resultJSON, err := resolveOutputPath(cfg, flagOutputJSON, "fgqm_result.ndjson", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
@@ -70,7 +70,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
-	rdpJSON, err := resolveOutputPath(cfg, "", "fgqm_rdp.json", now)
+	rdpJSON, err := resolveOutputPath(cfg, "", "fgqm_rdp.ndjson", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
@@ -80,7 +80,7 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 	}
 	// Web fingerprint (webtitle structured payload + TLS identity).
 	// / Web 指纹（webtitle 结构化 payload + TLS 证书身份）。
-	webJSON, err := resolveOutputPath(cfg, "", "fgqm_web.json", now)
+	webJSON, err := resolveOutputPath(cfg, "", "fgqm_web.ndjson", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
@@ -95,6 +95,50 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 	// 去重）。默认始终开启——操作员直接管道给 nmap / masscan /
 	// curl 循环，写个空文件没坏处。
 	alivePath, err := resolveOutputPath(cfg, "", "fgqm_alive.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	// v0.9: dedicated evidence sinks (需求A/B). Discovery records
+	// out-of-scope host finds; shares/ftp carry the read-only
+	// enumeration evidence (separate files, never merged); servers is
+	// the aggregated important-server inventory (always emits its
+	// header + host count at Close). Like every sink, a sink with no
+	// findings is swept as a zero-byte file at Close — absence of the
+	// file IS the "nothing qualified" signal.
+	// / v0.9：专用证据 sink（需求A/B）。discovery 记录范围外主机发现；
+	// shares/ftp 携带只读枚举证据（分开落盘，永不合并）；servers 是
+	// 重要服务器聚合清单（Close 时总是输出头部 + 主机数）。与其余 sink
+	// 一样，无发现的 sink 在 Close 时作为零字节文件被清扫——文件不存在
+	// 即"无符合项"信号。
+	discJSON, err := resolveOutputPath(cfg, "", "fgqm_discovery.ndjson", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	discTXT, err := resolveOutputPath(cfg, "", "fgqm_discovery.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	sharesJSON, err := resolveOutputPath(cfg, "", "fgqm_shares.ndjson", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	sharesTXT, err := resolveOutputPath(cfg, "", "fgqm_shares.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	ftpJSON, err := resolveOutputPath(cfg, "", "fgqm_ftp.ndjson", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	ftpTXT, err := resolveOutputPath(cfg, "", "fgqm_ftp.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	serversJSON, err := resolveOutputPath(cfg, "", "fgqm_servers.ndjson", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	serversTXT, err := resolveOutputPath(cfg, "", "fgqm_servers.txt", now)
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
@@ -121,19 +165,27 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 		}
 	}
 	out, err := output.OpenOutput(output.OutputConfig{
-		ResultTXTPath:   resultTXT,
-		ResultJSONPath:  resultJSON,
-		ResultCSVPath:   resultCSV,
-		ResultSARIFPath: resultSARIF,
-		CredsPath:       credsPath,
-		RotateMaxBytes:  flagOutputRotateBytes,
-		RotateMaxFiles:  flagOutputRotateFiles,
-		RDPJSONPath:     rdpJSON,
-		RDPTXTPath:      rdpTXT,
-		WebJSONPath:     webJSON,
-		WebTXTPath:      webTXT,
-		ResultAlivePath: alivePath,
-		AliveFormat:     flagAliveFormat,
+		ResultTXTPath:     resultTXT,
+		ResultJSONPath:    resultJSON,
+		ResultCSVPath:     resultCSV,
+		ResultSARIFPath:   resultSARIF,
+		CredsPath:         credsPath,
+		RotateMaxBytes:    flagOutputRotateBytes,
+		RotateMaxFiles:    flagOutputRotateFiles,
+		RDPJSONPath:       rdpJSON,
+		RDPTXTPath:        rdpTXT,
+		WebJSONPath:       webJSON,
+		WebTXTPath:        webTXT,
+		DiscoveryJSONPath: discJSON,
+		DiscoveryTXTPath:  discTXT,
+		SharesJSONPath:    sharesJSON,
+		SharesTXTPath:     sharesTXT,
+		FTPJSONPath:       ftpJSON,
+		FTPTXTPath:        ftpTXT,
+		ServersJSONPath:   serversJSON,
+		ServersTXTPath:    serversTXT,
+		ResultAlivePath:   alivePath,
+		AliveFormat:       flagAliveFormat,
 		// P0#2: result.txt gets the redaction gate; creds.txt is
 		// always cleartext (operator's working file).
 		// P0#2：result.txt 加 redact 门；creds.txt 始终是明文（操作员

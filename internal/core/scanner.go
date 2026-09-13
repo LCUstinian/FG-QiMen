@@ -26,6 +26,7 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/alive"
 	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
+	"github.com/LCUstinian/FG-QiMen/internal/core/scope"
 	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
@@ -98,8 +99,13 @@ func RunScan(ctx context.Context, sess *session.Session) (int, error) {
 
 // runFullPipeline is the original alive → scan → identify →
 // optional credential pipeline, used for ModeScan and ModeLinked.
+// v0.9 (需求A): with --expand-scope auto it wraps the pipeline in a
+// bounded two-round loop — round 1 rescans NIC identities discovered
+// outside the requested scope (capped, non-recursive).
 // / runFullPipeline 是原 alive → scan → identify → 可选 credential
-// 流水线，给 ModeScan 和 ModeLinked 用。
+// 流水线，给 ModeScan 和 ModeLinked 用。v0.9（需求A）：开启
+// --expand-scope auto 时外面包一层有界两轮循环——轮 1 复扫在请求
+// 范围之外发现的网卡身份（有上限、不递归）。
 func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	cfg := sess.Config
 
@@ -128,6 +134,95 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		sess.Log.Info("all targets excluded; nothing to scan")
 		return 0, nil
 	}
+
+	// The denominator reflects what will actually be probed in round 0
+	// (excludes/prescreen already filtered the list). Expansion
+	// candidates discovered later Add() onto this counter.
+	// / 分母反映轮 0 实际会被探测的目标数（排除/预筛已过滤）。后续
+	// 发现的扩展候选 Add() 到该计数器上。
+	sess.State.TotalHosts.Store(int64(len(targets)))
+
+	// v0.9 (需求A): scope tracker — built ONCE and shared by every
+	// round. / v0.9（需求A）：范围追踪器——只构建一次，所有轮共享。
+	tracker, err := buildScopeTracker(sess)
+	if err != nil {
+		return 0, err
+	}
+
+	// scanned accumulates every address probed across rounds — the
+	// expansion filter's "not already scanned" set.
+	// / scanned 跨轮累计所有已探测地址——扩展过滤的"未扫过"集合。
+	scanned := targetAddrs(targets)
+
+	for round := 0; ; round++ {
+		var roundTargets []types.Target
+		if round == 0 {
+			roundTargets = targets
+		} else {
+			// v0.9 (需求A) bounded expansion round: the discovery
+			// events recorded during round 0 pass every safety gate
+			// (RFC1918 ∧ same /24 as a scanned address ∧ not scanned
+			// ∧ not excluded ∧ ≤256 hosts) before any packet goes out.
+			// / v0.9（需求A）有界扩展轮：轮 0 记录的发现事件在发出任
+			// 何包之前先过全部安全门（RFC1918 ∧ 与已扫地址同 /24 ∧
+			// 未扫过 ∧ 未被排除 ∧ ≤256 台）。
+			excl, exerr := scope.BuildHostMatcher(cfg.ExcludeHosts, cfg.ExcludeHostsFile)
+			if exerr != nil {
+				return 0, fmt.Errorf("exclude hosts: %w", exerr)
+			}
+			candidates := scope.ExpansionCandidates(tracker.Events(), scanned, excl, maxExpansionHosts)
+			if len(candidates) == 0 {
+				break
+			}
+			sess.Log.Info("[*] expand-scope: %d new host(s) discovered outside the requested scope; bounded rescan", len(candidates))
+			sess.State.TotalHosts.Add(int64(len(candidates)))
+			for _, c := range candidates {
+				roundTargets = append(roundTargets, types.Target{Addr: c, Tag: "expand-scope"})
+			}
+			scanned = append(scanned, candidates...)
+		}
+		if _, rerr := runFullPipelineRound(ctx, sess, roundTargets, round, tracker); rerr != nil {
+			return 0, rerr
+		}
+		// Expansion is opt-in (--expand-scope auto) and capped at ONE
+		// extra round — no recursion. AliveOnly skips it entirely.
+		// / 扩展需显式开启（--expand-scope auto）且只加扫一轮——不递
+		// 归。AliveOnly 完全跳过。
+		if cfg.AliveOnly || cfg.ExpandScope != "auto" {
+			break
+		}
+	}
+
+	// v0.9 (需求A): when discoveries exist but expansion was off, give
+	// the operator the one-flag rerun path. / v0.9（需求A）：有发现但
+	// 未开扩展时，给操作员一条 flag 即可重跑的路径。
+	if sess.Scope != nil && cfg.ExpandScope != "auto" && sess.Scope.Discovered() > 0 {
+		sess.Log.Info("[*] expand-scope: %d host(s) discovered outside the requested scope were NOT scanned; rerun with --expand-scope auto to include them",
+			sess.Scope.Discovered())
+	}
+
+	sess.State.Stage.Store(types.StageDone)
+	sess.UI.Done(summaryString(sess))
+	return 0, nil
+}
+
+// maxExpansionHosts bounds the --expand-scope auto extra round: a
+// discovered-subnet avalanche must never turn one scan into thousands.
+// / maxExpansionHosts 限制 --expand-scope auto 扩展轮：发现风暴绝不
+// 能把一次扫描变成数千次。
+const maxExpansionHosts = 256
+
+// runFullPipelineRound runs one full pipeline round (env profile →
+// prescreen → alive → scan → identify → optional cred) over targets.
+// Round 0 is the operator's requested scope; round 1 (only with
+// --expand-scope auto) rescans bounded expansion candidates. Returns
+// without UI.Done — the outer loop owns the end-of-scan summary.
+// / runFullPipelineRound 对 targets 跑一整轮管线（环境画像 → 预筛 →
+// alive → scan → identify → 可选 cred）。轮 0 是操作员请求的范围；
+// 轮 1（仅 --expand-scope auto）复扫有界的扩展候选。返回时不出
+// UI.Done——扫描结束摘要由外层循环负责。
+func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []types.Target, round int, tracker *scope.Tracker) (int, error) {
+	cfg := sess.Config
 
 	// Network environment profiling (borrowed from fscan's
 	// network_profiler): sample a few targets, classify LAN/WAN/
@@ -174,8 +269,9 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			sess.Log.Info("[*] prescreen: %s", summary)
 			if len(filtered) == 0 {
 				sess.Log.Info("[*] prescreen: every segment silent; nothing to scan")
-				sess.State.TotalHosts.Store(0)
-				sess.UI.Done(summaryString(sess))
+				if round == 0 {
+					sess.State.TotalHosts.Store(0)
+				}
 				return 0, nil
 			}
 			// Filter the typed targets by the surviving addr set so
@@ -194,17 +290,6 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			targets = kept
 		}
 	}
-
-	// TUI Spec A (Task 3): record total host count so the TUI can
-	// show "alive 2/4" progress instead of just "alive 2". Stored
-	// once at scan start so it stays correct if targets is later
-	// mutated. Deliberately AFTER the exclude/prescreen filters so
-	// the denominator reflects what will actually be probed.
-	// / TUI Spec A（Task 3）：记录总主机数，让 TUI 显示 "alive 2/4"
-	// 而非仅 "alive 2"。在扫描开始时存一次，避免后续 targets 被改
-	// 时出错。刻意放在排除/预筛过滤之后，让分母反映实际会被探测的
-	// 目标数。
-	sess.State.TotalHosts.Store(int64(len(targets)))
 
 	// Stage 0: alive (core/alive). / 阶段 0：存活发现。
 	// TUI Spec A (Task 3): publish Stage transition so the TUI can
@@ -248,7 +333,21 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	aliveRes, _ := aliveDiscovery.Run(ctx, targetAddrs(targets))
 	alivePollCancel() // stop the poller before storing final value
 	sess.State.Counters.AliveProbed.Store(aliveDiscovery.Progress())
-	sess.State.Counters.Alive.Store(int64(len(aliveRes.Hits)))
+	// Round 0 stores; the expansion round adds — alive count stays
+	// cumulative across rounds. / 轮 0 存；扩展轮累加——存活数跨轮
+	// 保持累计。
+	if round == 0 {
+		sess.State.Counters.Alive.Store(int64(len(aliveRes.Hits)))
+	} else {
+		sess.State.Counters.Alive.Add(int64(len(aliveRes.Hits)))
+	}
+	// v0.9 (需求A): protocol facts captured by the probes (NBNS name
+	// tables with MAC + aliases) become discovery events here —
+	// out-of-scope sightings land in fgqm_discovery.*, in-scope ones
+	// only enrich the hostname cache. / v0.9（需求A）：探测抓到的协议
+	// 事实（NBNS 名字表：MAC + 别名网卡）在这里变成发现事件——范围外
+	// 目击进 fgqm_discovery.*，范围内的只充实主机名缓存。
+	feedScopeTracker(tracker, aliveRes.Hits)
 	if len(aliveRes.Hits) > 0 && len(aliveRes.Hits) < len(targets) {
 		sess.Log.Info("[*] alive: %d/%d hosts responded", len(aliveRes.Hits), len(targets))
 	}
@@ -294,7 +393,9 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	sess.State.Stage.Store(types.StagePortScan)
 
 	if cfg.AliveOnly {
-		sess.UI.Done(summaryString(sess))
+		// Outer loop owns the Done summary (and skips the expansion
+		// round on AliveOnly). / 外层循环负责 Done 摘要（AliveOnly 时
+		// 也会跳过扩展轮）。
 		return 0, nil
 	}
 
@@ -381,13 +482,17 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	}
 	// TUI Spec A (Task 3): record the maximum number of port-scan
 	// probes that will be attempted (len(targets) * len(ports)).
-	// The channel-based producer/consumer doesn't have a static
-	// portScanItems slice, so we use the upper bound — the TUI
-	// uses this for "ports X/Y" progress display. / TUI Spec A
-	//（Task 3）：记录端口扫描的最大探测数（targets × ports）。基于
-	// 通道的 producer/consumer 没有静态 portScanItems slice，所以
-	// 取上界——TUI 用来显示 "ports X/Y" 进度。
-	sess.State.TotalPorts.Store(int64(len(targets)) * int64(len(ports)))
+	// Round 0 stores the total; the expansion round ADDS its own so
+	// the TUI's "ports X/Y" progress stays monotonic across rounds.
+	// / TUI Spec A（Task 3）：记录端口扫描的最大探测数
+	//（targets × ports）。轮 0 存总量；扩展轮做加法，让 TUI 的
+	// "ports X/Y" 进度跨轮保持单调。
+	roundPorts := int64(len(targets)) * int64(len(ports))
+	if round == 0 {
+		sess.State.TotalPorts.Store(roundPorts)
+	} else {
+		sess.State.TotalPorts.Add(roundPorts)
+	}
 	if len(udpPorts) > 0 {
 		sess.State.TotalPorts.Add(int64(len(targets)) * int64(len(udpPorts)))
 	}
@@ -736,13 +841,10 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// 率翻倍。)
 
 	wg.Wait()
-	// TUI Spec A (Task 3): publish Stage transition into DONE.
-	// Set after wg.Wait() returns so the TUI label flips at the
-	// moment all worker goroutines have exited. / TUI Spec A
-	//（Task 3）：发布 Stage 到 DONE。在 wg.Wait() 返回后设置，
-	// 让 TUI 标签在所有 worker goroutine 都退出后切换。
-	sess.State.Stage.Store(types.StageDone)
-	sess.UI.Done(summaryString(sess))
+	// No StageDone / UI.Done here: the outer round loop owns the
+	// end-of-scan summary (and may run a second round after this).
+	// / 这里不出 StageDone / UI.Done：扫描结束摘要由外层轮循环负责
+	//（且它可能在本轮之后再跑一轮）。
 	return 0, nil
 }
 
@@ -764,6 +866,14 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 // （256-host /24 × 6-port 的 crack 比旧代码少 1536 次冗余连接）。
 func runCrackPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	cfg := sess.Config
+
+	// v0.9 (需求A): crack mode identifies services too — TLS SANs from
+	// webtitle still need the tracker, so build it here as well.
+	// / v0.9（需求A）：crack 模式同样识别服务——webtitle 的 TLS SAN
+	// 仍需要追踪器，这里也构建。
+	if _, err := buildScopeTracker(sess); err != nil {
+		return 0, err
+	}
 
 	// Wire the bbolt batched writer (same as full pipeline — crack
 	// mode hits are exactly the thing worth persisting). / 接
@@ -918,6 +1028,88 @@ func targetAddrs(targets []types.Target) []string {
 	return out
 }
 
+// buildScopeTracker constructs the scope tracker (需求A) and wires it
+// into the session: in-scope predicate from the operator's target spec,
+// discovery sink from the output layer, hostname hook into the servers
+// inventory. A spec/matcher error aborts the pipeline BEFORE any probe
+// traffic. / buildScopeTracker 构建范围追踪器（需求A）并接入
+// session：范围内谓词来自操作员目标 spec，发现 sink 来自输出层，主
+// 机名钩子接进 servers 清单。spec/匹配器错误在任何探测流量之前中止
+// 管线。
+func buildScopeTracker(sess *session.Session) (*scope.Tracker, error) {
+	cfg := sess.Config
+	pred, err := scope.BuildInScopeMatcher(cfg.Host, cfg.HostsFile)
+	if err != nil {
+		return nil, fmt.Errorf("scope matcher: %w", err)
+	}
+	var sink func(types.DiscoveryEvent)
+	if sess.Out != nil {
+		sink = sess.Out.WriteDiscovery
+	}
+	t := scope.NewTracker(pred, sink)
+	sess.Scope = t
+	if sess.Out != nil {
+		sess.Out.SetHostnameLookup(t.Hostname)
+	}
+	return t, nil
+}
+
+// feedScopeTracker turns alive-probe protocol facts (NBNS name tables:
+// machine name, domain, adapter MAC, alias NIC IPs) into discovery
+// events. Out-of-scope sightings are recorded (time + source protocol +
+// attrs, streamed to fgqm_discovery.*); in-scope ones only enrich the
+// hostname cache. Alias NICs (multi-homed responders) get one event per
+// out-of-scope alias IP. / feedScopeTracker 把存活探测抓到的协议事实
+// （NBNS 名字表：机器名、域、适配器 MAC、别名网卡 IP）转成发现事件。
+// 范围外目击被记录（时间 + 来源协议 + 属性，流式写 fgqm_discovery.*）；
+// 范围内的只充实主机名缓存。别名网卡（多宿主响应者）每个范围外别名
+// IP 各记一条事件。
+func feedScopeTracker(t *scope.Tracker, hits map[string]alive.Hit) {
+	if t == nil {
+		return
+	}
+	for host, hit := range hits {
+		if len(hit.Attrs) == 0 {
+			continue
+		}
+		ev := types.DiscoveryEvent{
+			Time:           hit.Time,
+			IP:             host,
+			SourceProtocol: string(hit.Method),
+			Attributes:     map[string]string{},
+		}
+		ev.MAC = hit.Attrs["mac"]
+		ev.Hostname = hit.Attrs["name"]
+		if d := hit.Attrs["domain"]; d != "" {
+			ev.Attributes["domain"] = d
+		}
+		if ns := hit.Attrs["names"]; ns != "" {
+			ev.Attributes["names"] = ns
+		}
+		t.Record(ev)
+		// Alias NICs: entries whose registered IP differs from the
+		// responder — the "new NIC" case of 需求一. / 别名网卡：注册
+		// IP 不同于响应者的条目——需求一的"新网卡"场景。
+		for _, alias := range strings.Split(hit.Attrs["aliases"], ",") {
+			alias = strings.TrimSpace(alias)
+			if alias == "" {
+				continue
+			}
+			ip, name, ok := strings.Cut(alias, "=")
+			if !ok || ip == "" {
+				continue
+			}
+			t.Record(types.DiscoveryEvent{
+				Time:           hit.Time,
+				IP:             ip,
+				Hostname:       name,
+				SourceProtocol: string(hit.Method),
+				Attributes:     map[string]string{"via": host},
+			})
+		}
+	}
+}
+
 // summaryString builds a one-line summary printed at end of scan.
 // The identified=X/Y tail is the identification-coverage measure:
 // of the Y open ports that produced a Stage-0 result, X carry an
@@ -931,11 +1123,17 @@ func targetAddrs(targets []types.Target) []string {
 func summaryString(sess *session.Session) string {
 	c := sess.State.Snapshot()
 	stage0 := c.IdentHard + c.IdentSoft + c.IdentNone
-	return fmt.Sprintf(
+	s := fmt.Sprintf(
 		"[*] Done. alive=%d ports=%d results=%d creds=%d errors=%d identified=%d/%d (hard=%d soft=%d unknown=%d)",
 		c.Alive, c.Ports, c.Results, c.Creds, c.Errors,
 		c.IdentHard+c.IdentSoft, stage0,
 		c.IdentHard, c.IdentSoft, c.IdentNone)
+	// v0.9 (需求A): out-of-scope NIC discoveries seen during the scan.
+	// / v0.9（需求A）：扫描期间看到的范围外网卡身份。
+	if sess.Scope != nil && sess.Scope.Discovered() > 0 {
+		s += fmt.Sprintf(" discovered=%d", sess.Scope.Discovered())
+	}
+	return s
 }
 
 // (P2 dead-code purge: PluginsAll removed in v0.2 audit. Callers

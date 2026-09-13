@@ -109,7 +109,7 @@ magic 字节经 GCM AAD 与密文绑定。对 magic 字节的位翻转会被检�
 ## 凭据脱敏
 
 - `fgqm_creds.txt` **永远是明文**——这是操作员的工作文件。
-- `fgqm_result.txt`、`fgqm_result.json`、`fgqm_result.csv` 默认脱敏为
+- `fgqm_result.txt`、`fgqm_result.ndjson`、`fgqm_result.csv` 默认脱敏为
   仅长度指纹（如 `admin / ******** (len=8)`）。传 `--show-creds` 可让
   这些文件也嵌入明文。
 - TUI / stderr 遵循同一脱敏门控。

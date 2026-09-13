@@ -125,7 +125,7 @@ audit roadmap).
 
 - `fgqm_creds.txt` is **always cleartext** — this is the operator's
   working file.
-- `fgqm_result.txt`, `fgqm_result.json`, and `fgqm_result.csv` are redacted to
+- `fgqm_result.txt`, `fgqm_result.ndjson`, and `fgqm_result.csv` are redacted to
   a length-only fingerprint by default (e.g. `admin / ********
   (len=8)`). Pass `--show-creds` to embed cleartext in those files
   too.

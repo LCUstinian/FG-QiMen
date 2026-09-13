@@ -9,7 +9,7 @@
 
 > [English version](FLAGS.md)
 
-59 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
+62 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
 同一集合）。下表为机器校验的权威参考；新增 flag 请改 cmd/flags.go
 并在 internal/docgen/zh.go 配中文说明，然后跑 `just docs-gen`。
 
@@ -19,6 +19,7 @@
 |---|---|---|---|
 | — | `--exclude-hosts` | — | 从所有探测中排除的主机（逗号分隔）：精确 IP、CIDR（10.0.0.0/8）、范围（192.168.1.1-192.168.1.9 或 192.168.1.1-9）、主机名，或 RFC1918 快捷写法 192/172/10 |
 | — | `--exclude-hosts-file` | — | 从文件加载排除条目（每行一条，允许 # 注释；语法同 --exclude-hosts） |
+| — | `--expand-scope` | `off` | 协议交互（NetBIOS/NBNS、SMB、TLS SAN……）发现请求范围外主机时的处理：off（默认）把发现记录进 fgqm_discovery.ndjson/txt 并提示重跑；auto 对新主机加扫一轮有界扩展（仅 RFC1918 私网、与已扫目标同 /24 或在你给的 CIDR 内、--exclude-hosts 仍生效、上限 256 台） |
 | `-H` | `--host` | — | 目标 IP / CIDR / 范围 / 逗号列表（如 192.168.1.0/24） |
 | `-f` | `--hosts-file` | — | 从文件加载目标（每行一条） |
 
@@ -84,7 +85,7 @@
 |---|---|---|---|
 | — | `--alive-format` | `txt` | 存活主机列表文件的格式。可选：txt（每行一个主机，默认；便于管道接 `nmap -iL`）、json（NDJSON 每行一个对象：{host,port,service,time}）、csv（CSV 表头 + 每主机一行：host,port,service,time）。 |
 | `-oc` | `--output-csv` | — | CSV 结果文件路径（每条结果一行；列序稳定，便于 awk/pandas）。默认不写。未显式覆盖时与 fgqm_result.txt/json 落同一 <YYYY-MM-DD>/ 日桶。 |
-| `-oj` | `--output-json` | — | NDJSON 结果文件路径（默认 <project>/<YYYY-MM-DD>/fgqm_result.json 或 ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.json —— 按本地日期分桶，同日多次扫描互不覆盖。fgqm_ 前缀让该文件在混合目录里可识别为 fg-qimen 产物。） |
+| `-oj` | `--output-json` | — | NDJSON 结果文件路径（默认 <project>/<YYYY-MM-DD>/fgqm_result.ndjson 或 ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.ndjson —— 按本地日期分桶，同日多次扫描互不覆盖。fgqm_ 前缀让该文件在混合目录里可识别为 fg-qimen 产物。扩展名是 .ndjson 而非 .json：文件是每行一个 JSON 对象（NDJSON），按单文档校验 .json 的编辑器会报错。） |
 | — | `--output-sarif` | — | SARIF 2.1.0 JSON 文件路径（单文档，供 GitHub Code Scanning）。默认不写。 |
 | `-ot` | `--output-txt` | — | TXT 结果文件路径（默认 <project>/<YYYY-MM-DD>/fgqm_result.txt 或 ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt —— 按本地日期分桶，同日多次扫描互不覆盖。fgqm_ 前缀让该文件在混合目录里可识别为 fg-qimen 产物。） |
 | — | `--rotate-bytes` | `0` | 输出轮转的单文件字节上限（0 = 不轮转）。备注：v0.4 把 --output-rotate-bytes 缩短为 --rotate-bytes（rotate- 前缀的只有 output 这一组）。 |
@@ -105,11 +106,13 @@
 
 | 短参 | 长参 | 默认值 | 说明 |
 |---|---|---|---|
+| — | `--ftp-enum` | `false` | 开启只读 FTP 目录遍历（21 端口开放时）：先试匿名登录，再试凭据阶段的弱口令命中，记录目录树元数据。结果写入 fgqm_ftp.ndjson/txt，刻意与共享发现分开记录 |
 | — | `--no-batch` | `false` | 禁用 bbolt 批量写；回退为逐条写即 fsync |
 | — | `--no-icmp` | `false` | 跳过 ICMP 探测，仅用 TCP-ping 兜底 |
 | — | `--no-prescreen` | `false` | 禁用 /24 网段预筛（存活发现前跳过网关静默的网段；仅对大规模多 /24 输入生效，单网段输入永不过滤） |
 | — | `--no-tui` | `false` | 强制纯文本模式，即使 stdout 是 TTY |
 | — | `--plugins` | — | 要启用的插件名（逗号分隔，默认全部） |
+| — | `--share-enum` | `false` | 开启只读 SMB 匿名会话共享枚举（445 端口开放时）：列共享名，挂载匿名会话允许的共享，记录目录元数据（名/大小/修改时间）。仅取证——绝不下载文件内容。结果写入 fgqm_shares.ndjson/txt |
 | — | `--silent` | `false` | 不在控制台输出 info 日志；文件输出不受影响 |
 | `-v` | `--verbose` | `false` | 详细 debug 日志 |
 

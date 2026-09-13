@@ -294,16 +294,40 @@ stamp — the file is opened `O_APPEND` and the dedup is on the
 in-memory `State`).
 
 - `fgqm_result_HH-MM-SS.txt` — human-readable lines
-- `fgqm_result_HH-MM-SS.json` — NDJSON (one JSON object per line)
+- `fgqm_result_HH-MM-SS.ndjson` — NDJSON (one JSON object per line; the `.ndjson` extension is deliberate — editors that validate a whole `.json` file as a single document would flag multi-line output as invalid)
 - `fgqm_result_HH-MM-SS.csv` — RFC 4180, one row per result
 - `fgqm_creds.txt` — credential hits (cleartext; operator's working file)
-- `fgqm_rdp_HH-MM-SS.json` / `fgqm_rdp_HH-MM-SS.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
-- `fgqm_web_HH-MM-SS.json` / `fgqm_web_HH-MM-SS.txt` — structured web fingerprint per webtitle hit: URL, status, title, server, matched fingers, and — for https targets — the TLS leaf identity (subject, SANs, issuer, validity dates, protocol version). The SAN/CN fields routinely expose internal hostnames and domains that banner matching never sees.
+- `fgqm_rdp_HH-MM-SS.ndjson` / `fgqm_rdp_HH-MM-SS.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
+- `fgqm_web_HH-MM-SS.ndjson` / `fgqm_web_HH-MM-SS.txt` — structured web fingerprint per webtitle hit: URL, status, title, server, matched fingers, and — for https targets — the TLS leaf identity (subject, SANs, issuer, validity dates, protocol version). The SAN/CN fields routinely expose internal hostnames and domains that banner matching never sees.
 - `fgqm_alive_HH-MM-SS.txt` — one IP per line (dedup'd host list for `nmap -iL` / `masscan --targets` / `curl` loops). Same daily bucket (`YYYY-MM-DD/`) + `HH-MM-SS` filename stamp as the other timestamped sinks (`fgqm_result_*`, `fgqm_rdp_*`).
 - `fgqm_log_HH-MM-SS.txt` — the run's log archive (same `[*]`/`[+]`/`[!]` lines as the console stream, format `HH:MM:SS [level] message`). Same daily bucket + stamp as the result files; one is written per scan automatically. Text mode (`--no-tui`) tees to both console and file; TUI mode and `--silent` write file-only — the screen stays clean but logs are no longer lost. Since credential-hit lines carry cleartext passwords, the file is created `0600` (same policy as `fgqm_creds.txt`).
+- `fgqm_discovery_HH-MM-SS.ndjson` / `.txt` — out-of-scope host discoveries from protocol interactions (NBNS, SMB, TLS SAN, ...): address, hostname, source protocol, discovery time. Recorded on every run; scanning them is opt-in via `--expand-scope`.
+- `fgqm_shares_HH-MM-SS.ndjson` / `.txt` — SMB null-session share enumeration (`--share-enum`): share names, access level, directory metadata (names, sizes, mtimes). Evidence-only — file contents are never downloaded.
+- `fgqm_ftp_HH-MM-SS.ndjson` / `.txt` — FTP directory walks (`--ftp-enum`): anonymous or weak-credential logins, directory tree metadata. Deliberately separate from share findings.
+- `fgqm_servers_HH-MM-SS.ndjson` / `.txt` — aggregated important-server inventory (DC / file / backup / VPN / DB / ...): IP, hostname, roles, evidence ports.
 
 Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
 and the stamp.
+
+### Evidence, scope & server inventory
+
+Three v0.9 capabilities extend the "deliver evidence" promise beyond
+identification:
+
+- **Out-of-scope discoveries** — every protocol interaction that surfaces
+  a foreign host is recorded with time + source. `--expand-scope auto`
+  runs ONE bounded extra round over the new hosts (RFC1918 private IPs
+  only, same /24 as scanned targets, `--exclude-hosts` still applies,
+  ≤256 hosts). Default `off` = record + rerun hint; the scanner never
+  blocks on an interactive prompt.
+- **Read-only share/FTP enumeration** — null-session SMB share listings
+  and anonymous / weak-credential FTP walks, depth- and entry-capped,
+  metadata only: no file downloads, no writes, no post-auth actions.
+  Share and FTP findings land in separate files, never merged.
+- **Important-server inventory** — hosts matching infrastructure roles
+  (domain controller, file server, backup, VPN, database, ...) are
+  aggregated with NBNS hostname enrichment into `fgqm_servers.*` and
+  tagged `important` in the NDJSON stream.
 
 ### Plugins and credential coverage
 

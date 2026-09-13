@@ -423,7 +423,7 @@ func TestStampFileName(t *testing.T) {
 		want string
 	}{
 		{"fgqm_result.txt", "fgqm_result_14-30-22.txt"},
-		{"fgqm_result.json", "fgqm_result_14-30-22.json"},
+		{"fgqm_result.ndjson", "fgqm_result_14-30-22.ndjson"},
 		{"fgqm_result.sarif", "fgqm_result_14-30-22.sarif"},
 		{"fgqm_creds.txt", "fgqm_creds_14-30-22.txt"},
 		{"fgqm_alive.txt", "fgqm_alive_14-30-22.txt"},

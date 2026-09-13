@@ -13,6 +13,20 @@
 // 硬性原则（v0.1+）：Credential() 实现严禁调用任何认证后 API
 // （如 ssh.NewSession / Exec）。命中时返回带 Cred 字段的 *Result；
 // 管线只写入 creds.txt，不做任何其他动作。
+//
+// Enumeration boundary (v0.9): a plugin MAY additionally implement the
+// optional Enumerator interface for READ-ONLY, EnumLimits-bounded
+// evidence collection (share listings, directory walks). Enumerator is
+// the ONLY sanctioned post-auth surface; it must never read file
+// contents, write, delete or execute. Credential() keeps its
+// authentication-only contract unchanged — the two are dispatched from
+// separate call sites in core and never mixed.
+//
+// 枚举边界（v0.9）：插件可以额外实现可选的 Enumerator 接口做只读、
+// 受 EnumLimits 限制的取证（共享列表、目录遍历）。Enumerator 是唯一
+// 被认可的认证后动作面；绝不读取文件内容、写入、删除或执行。
+// Credential() 的"仅认证"契约保持不变——两者在 core 中由不同调用点
+// 分发，永不混合。
 package plugins
 
 import (
@@ -66,6 +80,39 @@ type Plugin interface {
 	// Credential 接收的 creds 列表由 core/pipeline.go 构造（笛卡尔积
 	// users × passes）；插件负责按服务的并发安全方式逐个测试。
 	Credential(ctx context.Context, host string, port int, creds []types.Cred) *types.Result
+}
+
+// Enumerator is an OPTIONAL capability interface: a Plugin that can
+// collect read-only, bounded evidence (SMB share listings, FTP directory
+// walks) implements it in addition to Plugin. Dispatch is flag-gated in
+// core (--share-enum / --ftp-enum) and strictly separated from
+// Credential — see the package enumeration-boundary note.
+//
+// The returned *Result carries the structured payload in Extra (e.g.
+// *types.ShareEnumResult / *types.FTPEnumResult) for the dedicated
+// evidence sinks. Enumerate returns nil when access is denied — negative
+// evidence produces no record, keeping the evidence files focused on
+// actual findings.
+//
+// Enumerator 是可选能力接口：能做只读、有界取证的 Plugin（SMB 共享列
+// 表、FTP 目录遍历）在 Plugin 之外额外实现它。分发在 core 中由 flag
+// 把关（--share-enum / --ftp-enum），与 Credential 严格分离——见包注
+// 释的枚举边界说明。
+//
+// 返回的 *Result 把结构化载荷放进 Extra（如
+// *types.ShareEnumResult / *types.FTPEnumResult）交给专用证据 sink。
+// 访问被拒时 Enumerate 返回 nil——负面证据不产生记录，让证据文件
+// 聚焦真实发现。
+type Enumerator interface {
+	// Enumerate performs ONE bounded, read-only evidence walk against
+	// host:port as the given user (empty user = unauthenticated probe).
+	// limits caps depth / total entries / wall clock; implementations
+	// must honor ctx and never read file contents or mutate anything.
+	//
+	// Enumerate 对 host:port 以给定用户执行一次有界、只读取证遍历
+	//（空 user = 未认证探测）。limits 限定深度 / 总条目 / 墙钟时间；
+	// 实现必须遵守 ctx 且绝不读取文件内容、不做任何修改。
+	Enumerate(ctx context.Context, host string, port int, user, pass string, limits types.EnumLimits) *types.Result
 }
 
 var (

@@ -142,9 +142,9 @@ fgqm_workspace/projects/<name>/
 ├── fgqm.db                # bbolt state
 ├── targets.txt            # hand-editable target list (no fgqm_ prefix — operators edit it directly)
 └── <YYYY-MM-DD>/
-    ├── fgqm_result_HH-MM-SS.txt / .json / .csv / .sarif
+    ├── fgqm_result_HH-MM-SS.txt / .ndjson / .csv / .sarif
     ├── fgqm_creds.txt     # always cleartext
-    └── fgqm_rdp.json / .txt   # RDP deep fingerprint
+    └── fgqm_rdp.ndjson / .txt   # RDP deep fingerprint
 ```
 
 The `HH-MM-SS` suffix (added in v0.5.1) is the local-time start

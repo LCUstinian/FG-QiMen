@@ -48,6 +48,13 @@ var (
 	flagExcludeHosts     string
 	flagExcludeHostsFile string
 
+	// v0.9 (需求A): out-of-scope discovery handling. "off" (default)
+	// records discoveries to fgqm_discovery only; "auto" runs one
+	// bounded extra scan round over the new hosts.
+	// / v0.9（需求A）：范围外发现处理。"off"（默认）仅把发现记录进
+	// fgqm_discovery；"auto" 对新主机加扫一轮有界扩展。
+	flagExpandScope string
+
 	// 2. Workspace / 工作区
 	flagProject    string
 	flagProjectKey string
@@ -130,6 +137,13 @@ var (
 	flagInsecureSSH   bool
 	flagKnownHosts    string
 	flagPlugins       string
+
+	// v0.9 (需求B): read-only enumeration gates. Both are evidence-
+	// only — no file downloads, no writes, no post-auth actions.
+	// / v0.9（需求B）：只读枚举开关。两者均仅取证——不下载文件、
+	// 不写入、不做认证后动作。
+	flagShareEnum bool
+	flagFTPEnum   bool
 )
 
 // registerGlobalFlags wires all persistent flags into pf (which is
@@ -230,6 +244,14 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"hosts to exclude from all probing (comma list): exact IP, CIDR (10.0.0.0/8), range (192.168.1.1-192.168.1.9 or 192.168.1.1-9), hostname, or RFC1918 shortcuts 192/172/10")
 	pf.StringVar(&flagExcludeHostsFile, "exclude-hosts-file", "",
 		"load exclude entries from a file (one per line, #-comments allowed; same syntax as --exclude-hosts)")
+	// v0.9 (需求A): out-of-scope discovery handling. The confirmation
+	// UX is the off-mode hint line ("rerun with --expand-scope auto")
+	// rather than an interactive prompt — a scanner must never block
+	// mid-run waiting on stdin. / v0.9（需求A）：范围外发现处理。
+	// 确认交互是 off 模式的提示行（"rerun with --expand-scope auto"）
+	// 而非交互式询问——扫描器绝不能中途阻塞等 stdin。
+	pf.StringVar(&flagExpandScope, "expand-scope", "off",
+		"what to do when a protocol interaction (NetBIOS/NBNS, SMB, TLS SAN, ...) surfaces a host OUTSIDE the requested scope: off (default) records the discovery to fgqm_discovery.ndjson/txt and hints a rerun; auto runs ONE bounded extra round over the new hosts (RFC1918 private IPs only, same /24 as a scanned target or inside your CIDR list, --exclude-hosts still applies, hard cap 256 hosts)")
 
 	// 2. Workspace / 工作区
 	// --project has no short flag. Use long form (`--project corp`)
@@ -326,7 +348,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.StringVar(&flagOutputTXT, "output-txt", "",
 		"path to TXT result file (default: <project>/<YYYY-MM-DD>/fgqm_result.txt or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
 	pf.StringVar(&flagOutputJSON, "output-json", "",
-		"path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.json or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.json — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.)")
+		"path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.ndjson or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.ndjson — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories. Extension is .ndjson, not .json: the file is one JSON object PER LINE (NDJSON), so editors that validate a whole .json file as a single document would flag it.)")
 	pf.StringVar(&flagOutputCSV, "output-csv", "",
 		"path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written. Falls under the same <YYYY-MM-DD>/ bucket as fgqm_result.txt/json unless explicitly overridden.")
 	pf.StringVar(&flagOutputSARIF, "output-sarif", "",
@@ -398,6 +420,16 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.StringVar(&flagPlugins, "plugins", "",
 		"comma-separated plugin names to enable (default: all)")
 
+	// v0.9 (需求B): read-only enumeration gates. Gated here so the
+	// default scan stays purely connect+identify — enumeration is an
+	// explicit operator decision on every run.
+	// / v0.9（需求B）：只读枚举开关。默认扫描保持纯连接+识别——
+	// 枚举是操作员每次运行时的显式决定。
+	pf.BoolVar(&flagShareEnum, "share-enum", false,
+		"enable read-only SMB null-session share enumeration on open port 445: list share names, mount what an anonymous session allows, record directory metadata (names, sizes, mtimes). Evidence-only — file contents are NEVER downloaded. Findings go to fgqm_shares.ndjson/txt")
+	pf.BoolVar(&flagFTPEnum, "ftp-enum", false,
+		"enable read-only FTP directory walks on open port 21: try anonymous login first, then any weak-credential hit from the credential stage, and record the directory tree metadata. Findings go to fgqm_ftp.ndjson/txt, deliberately kept separate from share findings")
+
 	// 9. Safety / 安全
 	pf.BoolVar(&flagShowCleartext, "show-creds", false,
 		"render discovered credentials in cleartext on TUI, stderr, result.txt, result.json, and result.csv (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword). NOTE: creds.txt is ALWAYS cleartext regardless of this flag — that's the operator's working file.")
@@ -415,7 +447,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	//
 	// 分组标注（root.go 的 SetUsageTemplate 用 "group" 注解渲染）。
 	// 这是单一真源——flag 名列表要与上面的 StringVarP/Var 调用对齐。
-	annotate(pf, []string{"host", "hosts-file", "exclude-hosts", "exclude-hosts-file"}, groupTarget)
+	annotate(pf, []string{"host", "hosts-file", "exclude-hosts", "exclude-hosts-file", "expand-scope"}, groupTarget)
 	annotate(pf, []string{"project", "project-key", "workspace", "mode", "resume", "no-state"}, groupWorkspace)
 	annotate(pf, []string{"ports", "exclude-ports", "udp", "udp-strict", "no-fp-probes", "alive-only"}, groupPorts)
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
@@ -423,7 +455,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "alive-format", "rotate-bytes", "rotate-files"}, groupOutput)
-	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "no-prescreen", "verbose", "plugins"}, groupBehavior)
+	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "no-prescreen", "verbose", "plugins", "share-enum", "ftp-enum"}, groupBehavior)
 	annotate(pf, []string{"at", "in", "cron", "tz", "daemon", "schedule-dry-run"}, groupSchedule)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

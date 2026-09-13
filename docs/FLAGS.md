@@ -9,7 +9,7 @@
 
 > [中文版本](FLAGS.zh-CN.md)
 
-59 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
+62 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
 authoritative machine-checked reference; add a flag by editing
 cmd/flags.go, then run `just docs-gen`.
 
@@ -19,6 +19,7 @@ cmd/flags.go, then run `just docs-gen`.
 |---|---|---|---|
 | — | `--exclude-hosts` | — | hosts to exclude from all probing (comma list): exact IP, CIDR (10.0.0.0/8), range (192.168.1.1-192.168.1.9 or 192.168.1.1-9), hostname, or RFC1918 shortcuts 192/172/10 |
 | — | `--exclude-hosts-file` | — | load exclude entries from a file (one per line, #-comments allowed; same syntax as --exclude-hosts) |
+| — | `--expand-scope` | `off` | what to do when a protocol interaction (NetBIOS/NBNS, SMB, TLS SAN, ...) surfaces a host OUTSIDE the requested scope: off (default) records the discovery to fgqm_discovery.ndjson/txt and hints a rerun; auto runs ONE bounded extra round over the new hosts (RFC1918 private IPs only, same /24 as a scanned target or inside your CIDR list, --exclude-hosts still applies, hard cap 256 hosts) |
 | `-H` | `--host` | — | target IP / CIDR / range / comma-list (e.g. 192.168.1.0/24) |
 | `-f` | `--hosts-file` | — | load targets from a file (one per line) |
 
@@ -84,7 +85,7 @@ cmd/flags.go, then run `just docs-gen`.
 |---|---|---|---|
 | — | `--alive-format` | `txt` | wire format of the alive-host list file. One of: txt (one host per line, default; pipeline-friendly for `nmap -iL`), json (NDJSON one object per line: {host,port,service,time}), csv (CSV header + one row per host: host,port,service,time). |
 | `-oc` | `--output-csv` | — | path to CSV result file (one row per result; column order stable for awk/pandas). Default: not written. Falls under the same <YYYY-MM-DD>/ bucket as fgqm_result.txt/json unless explicitly overridden. |
-| `-oj` | `--output-json` | — | path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.json or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.json — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.) |
+| `-oj` | `--output-json` | — | path to NDJSON result file (default: <project>/<YYYY-MM-DD>/fgqm_result.ndjson or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.ndjson — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories. Extension is .ndjson, not .json: the file is one JSON object PER LINE (NDJSON), so editors that validate a whole .json file as a single document would flag it.) |
 | — | `--output-sarif` | — | path to SARIF 2.1.0 JSON file (one document, for GitHub Code Scanning). Default: not written. |
 | `-ot` | `--output-txt` | — | path to TXT result file (default: <project>/<YYYY-MM-DD>/fgqm_result.txt or ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt — bucketed by local date so daily runs don't clobber each other. The fgqm_ prefix flags the file as fg-qimen's in mixed directories.) |
 | — | `--rotate-bytes` | `0` | per-file size cap in bytes for output rotation (0 = no rotation). Shorthand: v0.4 shortened --output-rotate-bytes → --rotate-bytes (output-* is the only rotate-prefixed flag). |
@@ -105,11 +106,13 @@ cmd/flags.go, then run `just docs-gen`.
 
 | Short | Long | Default | Meaning |
 |---|---|---|---|
+| — | `--ftp-enum` | `false` | enable read-only FTP directory walks on open port 21: try anonymous login first, then any weak-credential hit from the credential stage, and record the directory tree metadata. Findings go to fgqm_ftp.ndjson/txt, deliberately kept separate from share findings |
 | — | `--no-batch` | `false` | disable bbolt batched writes; fall back to per-write fsync |
 | — | `--no-icmp` | `false` | skip ICMP probe, use TCP-ping fallback only |
 | — | `--no-prescreen` | `false` | disable the /24 segment pre-screen that skips gateway-silent segments before host discovery (large multi-/24 scans only; single-segment inputs are never filtered) |
 | — | `--no-tui` | `false` | force plain-text mode even when stdout is a TTY |
 | — | `--plugins` | — | comma-separated plugin names to enable (default: all) |
+| — | `--share-enum` | `false` | enable read-only SMB null-session share enumeration on open port 445: list share names, mount what an anonymous session allows, record directory metadata (names, sizes, mtimes). Evidence-only — file contents are NEVER downloaded. Findings go to fgqm_shares.ndjson/txt |
 | — | `--silent` | `false` | suppress info log to console; file output still works |
 | `-v` | `--verbose` | `false` | verbose debug logging |
 

@@ -104,6 +104,16 @@ type Result struct {
 	// 说明来源。
 	FpProbe   string `json:"fp_probe,omitempty"`
 	FpPattern string `json:"fp_pattern,omitempty"`
+	// Important carries the infrastructure roles the result-sink rule
+	// table attributed to this host:port ("domain-controller",
+	// "backup-server", ...). Empty for ordinary services. It turns the
+	// "important server" classification into per-record evidence that
+	// survives into NDJSON instead of living only in the servers
+	// report. / Important 携带结果汇规则表给该 host:port 归类的基础
+	// 设施角色（"domain-controller"、"backup-server"……）。普通服务
+	// 为空。重要服务器分类因此成为随 NDJSON 存活的逐记录证据，而不
+	// 只活在 servers 报告里。
+	Important []string `json:"important,omitempty"`
 	// Schema is the NDJSON contract version of the record. 0 means
 	// legacy/unversioned (pre-schema files); the writer stamps
 	// SchemaNDJSON on every line it emits, so line-oriented consumers
@@ -120,10 +130,12 @@ type Result struct {
 
 // SchemaNDJSON is the current NDJSON record contract version.
 // History: 0 = pre-schema (no fingerprint evidence fields, no
-// schema); 1 = adds fp_probe / fp_pattern evidence fields.
+// schema); 1 = adds fp_probe / fp_pattern evidence fields; 2 = adds
+// the important (infrastructure roles) evidence field.
 // / SchemaNDJSON 是当前 NDJSON 记录契约版本。历史：0 = 无 schema
-// （无指纹证据字段）；1 = 新增 fp_probe / fp_pattern 证据字段。
-const SchemaNDJSON = 1
+// （无指纹证据字段）；1 = 新增 fp_probe / fp_pattern 证据字段；
+// 2 = 新增 important（基础设施角色）证据字段。
+const SchemaNDJSON = 2
 
 // Confidence vocabulary for Result.Confidence. / Result.Confidence 的
 // 置信度取值。
@@ -166,6 +178,7 @@ func PutResult(r *Result) {
 	r.Confidence = ""
 	r.FpProbe = ""
 	r.FpPattern = ""
+	r.Important = nil
 	r.Schema = 0
 	resultPool.Put(r)
 }

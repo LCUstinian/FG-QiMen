@@ -57,6 +57,13 @@ type Hit struct {
 	Method Method        // which probe succeeded
 	RTT    time.Duration // round-trip time of the successful probe
 	Time   time.Time     // when the hit was recorded
+	// Attrs carries optional protocol facts captured from the probe
+	// response (e.g. NBNS name-table entries, MAC address). Best-effort:
+	// a probe that fails to parse still returns a Hit. Empty for most
+	// probes. / Attrs 携带从探测响应中抓到的可选协议事实（如 NBNS 名
+	// 字表条目、MAC 地址）。best-effort：解析失败的探测仍返回 Hit。
+	// 大多数探测为空。
+	Attrs map[string]string
 }
 
 // ErrUnreachable is returned when a probe completes but the host does

@@ -34,8 +34,11 @@ package core
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
+	"github.com/LCUstinian/FG-QiMen/internal/core/roles"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -106,6 +109,29 @@ func persistResult(sess *session.Session, r *types.Result) {
 	if r == nil {
 		return
 	}
+	// v0.9: tag important-server roles BEFORE any sink writes so the
+	// NDJSON line carries the evidence and the servers inventory sees
+	// the tag. Positive share evidence (a null session that listed a
+	// share) upgrades the host to file-server. The per-host highlight
+	// logs once (MarkSeen dedup), the inventory aggregates silently.
+	// / v0.9：在任何 sink 写出之前打重要服务器角色标签，让 NDJSON 行
+	// 自带证据、servers 清单看得到标记。正面共享证据（null session 列
+	// 出了共享）把主机升格为 file-server。逐 host 高亮只打一次
+	//（MarkSeen 去重），清单静默聚合。
+	if roles := roles.Evaluate(r); len(roles) > 0 {
+		r.Important = roles
+		if sess.State.MarkSeen("important:" + r.Host) {
+			sess.Log.Info("[!] 重要服务器: %s:%d roles=%v", r.Host, r.Port, roles)
+		}
+	}
+	if shareFP, ok := r.Extra.(*types.ShareEnumResult); ok {
+		if fileRoles := roles.EvaluateShareEnum(shareFP); len(fileRoles) > 0 {
+			r.Important = appendUniqueRoles(r.Important, fileRoles)
+			if sess.State.MarkSeen("important:" + r.Host) {
+				sess.Log.Info("[!] 重要服务器: %s roles=%v (可匿名列出的共享)", r.Host, fileRoles)
+			}
+		}
+	}
 	if sess.Out != nil {
 		if err := sess.Out.WriteResult(r); err != nil {
 			sess.Log.Warn("output write result failed: %v", err)
@@ -148,6 +174,44 @@ func persistResult(sess *session.Session, r *types.Result) {
 		if webFP, ok := r.Extra.(*types.WebFingerprint); ok {
 			if err := sess.Out.WriteWeb(*webFP); err != nil {
 				sess.Log.Warn("output write web failed: %v", err)
+			}
+			// v0.9 (需求A): TLS SAN / CN routinely leak internal
+			// hostnames the operator never asked for — record each as a
+			// tls-san discovery event (hostname-only events cannot be
+			// probed but are evidence; the tracker decides in/out of
+			// scope). / v0.9（需求A）：TLS SAN/CN 常暴露操作员从未要求
+			// 的内网主机名——逐条记为 tls-san 发现事件（仅主机名的事件
+			// 无法探测但属证据；范围内外由追踪器判定）。
+			if sess.Scope != nil {
+				for _, san := range webFP.CertSANs {
+					if san == "" {
+						continue
+					}
+					ev := types.DiscoveryEvent{
+						Time:           r.Time,
+						SourceProtocol: "tls-san",
+						Attributes:     map[string]string{"via": r.Host},
+					}
+					if ip := net.ParseIP(strings.TrimSpace(san)); ip != nil {
+						ev.IP = ip.String()
+					} else {
+						ev.Hostname = strings.TrimSpace(san)
+					}
+					sess.Scope.Record(ev)
+				}
+			}
+		}
+		// v0.9 enumeration side-channels: SMB shares → shares.ndjson/txt,
+		// FTP walks → ftp.ndjson/txt. / v0.9 枚举旁路：SMB 共享 →
+		// shares.ndjson/txt，FTP 遍历 → ftp.ndjson/txt。
+		if shareFP, ok := r.Extra.(*types.ShareEnumResult); ok {
+			if err := sess.Out.WriteShares(*shareFP); err != nil {
+				sess.Log.Warn("output write shares failed: %v", err)
+			}
+		}
+		if ftpFP, ok := r.Extra.(*types.FTPEnumResult); ok {
+			if err := sess.Out.WriteFTP(*ftpFP); err != nil {
+				sess.Log.Warn("output write ftp failed: %v", err)
 			}
 		}
 	}
@@ -193,4 +257,23 @@ func pushStats(ctx context.Context, sess *session.Session, interval time.Duratio
 			sess.UI.Stats(sess.State)
 		}
 	}
+}
+
+// appendUniqueRoles merges extra role strings into base, preserving
+// order and skipping duplicates. / appendUniqueRoles 把附加角色串并入
+// base，保序去重。
+func appendUniqueRoles(base, extra []string) []string {
+	for _, e := range extra {
+		found := false
+		for _, b := range base {
+			if b == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			base = append(base, e)
+		}
+	}
+	return base
 }

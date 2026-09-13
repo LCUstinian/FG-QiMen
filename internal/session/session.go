@@ -17,6 +17,7 @@ package session
 import (
 	"context"
 
+	"github.com/LCUstinian/FG-QiMen/internal/core/scope"
 	"github.com/LCUstinian/FG-QiMen/internal/output"
 	"github.com/LCUstinian/FG-QiMen/internal/store"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
@@ -57,6 +58,14 @@ type Session struct {
 	// Out is the multi-format result sink.
 	// Out 是多格式结果汇。
 	Out *output.Output
+
+	// Scope tracks network identities discovered OUTSIDE the requested
+	// scan scope (NBNS name tables, TLS SANs, …) and caches IP→hostname
+	// sightings for the servers inventory. Nil until a pipeline builds
+	// it. / Scope 追踪在请求扫描范围之外发现的网络身份（NBNS 名字表、
+	// TLS SAN……）并缓存 IP→主机名目击，供 servers 清单用。管线构建
+	// 之前为 nil。
+	Scope *scope.Tracker
 
 	// UI is the user-facing event sink (TUI or plain text).
 	// UI 是面向用户的事件汇（TUI 或纯文本）。

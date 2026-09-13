@@ -79,6 +79,7 @@ func TestCodedError_CodeUniqueness(t *testing.T) {
 		CodeUnknownMode:        "E005",
 		CodeInvalidTimeout:     "E006",
 		CodeConflictingFlag:    "E007",
+		CodeInvalidFlagValue:   "E008",
 		CodeProjectNameInvalid: "E101",
 		CodeBboltOpenFailed:    "E102",
 		CodeBboltDecryptFailed: "E103",

@@ -57,6 +57,31 @@ const (
 	BannerMaxLength = 80
 )
 
+// v0.9 (需求B) enumeration constants / v0.9（需求B）枚举常量
+const (
+	// DefaultEnumMaxDepth bounds the read-only evidence walk: 1 = top
+	// level only, 2 = one subdirectory level deep. Deep trees are
+	// deliberately not traversed — enumeration is evidence collection,
+	// not a full mirror.
+	// / 只读取证遍历的深度上限：1 = 仅顶层，2 = 深入一层子目录。深层
+	// 目录树刻意不遍历——枚举是取证，不是完整镜像。
+	DefaultEnumMaxDepth = 2
+
+	// DefaultEnumMaxEntries caps TOTAL captured entries per host
+	// (across all shares / the whole FTP tree) so a huge NAS cannot
+	// balloon the evidence file or stall a plugin worker.
+	// / 每 host 捕获条目总数上限（跨全部共享 / 整棵 FTP 树），防巨型
+	// NAS 撑爆证据文件或拖住 plugin worker。
+	DefaultEnumMaxEntries = 200
+
+	// DefaultEnumHostTimeout bounds ONE host's whole enumeration
+	// (session + walk), independent of the TCP probe timeout — a
+	// directory walk legitimately takes longer than a connect probe.
+	// / 单 host 整次枚举（会话 + 遍历）的时间上限，独立于 TCP 探测超
+	// 时——目录遍历合法地比连接探测慢。
+	DefaultEnumHostTimeout = 30 * time.Second
+)
+
 // Scan pool constants / 扫描池常量
 const (
 	// DefaultScanTimeout is the default timeout for port scan.

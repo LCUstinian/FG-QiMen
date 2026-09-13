@@ -253,7 +253,7 @@ func TestWriteCredAppendsLine(t *testing.T) {
 func TestWriteRDPEmitsBoth(t *testing.T) {
 	dir := t.TempDir()
 	cfg := OutputConfig{
-		RDPJSONPath: filepath.Join(dir, "fgqm_rdp.json"),
+		RDPJSONPath: filepath.Join(dir, "fgqm_rdp.ndjson"),
 		RDPTXTPath:  filepath.Join(dir, "fgqm_rdp.txt"),
 	}
 	o, err := OpenOutput(cfg)
@@ -312,7 +312,7 @@ func TestWriteRDPEmitsBoth(t *testing.T) {
 func TestWriteWebEmitsBoth(t *testing.T) {
 	dir := t.TempDir()
 	cfg := OutputConfig{
-		WebJSONPath: filepath.Join(dir, "fgqm_web.json"),
+		WebJSONPath: filepath.Join(dir, "fgqm_web.ndjson"),
 		WebTXTPath:  filepath.Join(dir, "fgqm_web.txt"),
 	}
 	o, err := OpenOutput(cfg)
@@ -434,9 +434,9 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 	dir := t.TempDir()
 	cfg := OutputConfig{
 		ResultTXTPath:  filepath.Join(dir, "fgqm_r.txt"),
-		ResultJSONPath: filepath.Join(dir, "fgqm_r.json"),
+		ResultJSONPath: filepath.Join(dir, "fgqm_r.ndjson"),
 		CredsPath:      filepath.Join(dir, "fgqm_creds.txt"),
-		RDPJSONPath:    filepath.Join(dir, "fgqm_rdp.json"),
+		RDPJSONPath:    filepath.Join(dir, "fgqm_rdp.ndjson"),
 		RDPTXTPath:     filepath.Join(dir, "fgqm_rdp.txt"),
 	}
 	o, err := OpenOutput(cfg)
@@ -527,7 +527,7 @@ func TestOutput_ConcurrentWritesDifferentSinks(t *testing.T) {
 	// JSON / NDJSON files: each line is one JSON object, no
 	// interleaving means no line is invalid JSON. / JSON 文件每行一
 	// 个 JSON 对象，无交错意味着没有非法 JSON 行。
-	for _, p := range []string{filepath.Join(dir, "fgqm_r.json"), filepath.Join(dir, "fgqm_rdp.json")} {
+	for _, p := range []string{filepath.Join(dir, "fgqm_r.ndjson"), filepath.Join(dir, "fgqm_rdp.ndjson")} {
 		f, err := os.Open(p)
 		if err != nil {
 			t.Fatalf("open %s: %v", p, err)

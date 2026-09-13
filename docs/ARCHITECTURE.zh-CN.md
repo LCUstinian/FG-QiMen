@@ -128,9 +128,9 @@ fgqm_workspace/projects/<name>/
 ├── targets.txt            # 手编目标列表（不加 fgqm_ 前缀——操作员
 │                          # 直接编辑）
 └── <YYYY-MM-DD>/
-    ├── fgqm_result_HH-MM-SS.txt / .json / .csv / .sarif
+    ├── fgqm_result_HH-MM-SS.txt / .ndjson / .csv / .sarif
     ├── fgqm_creds.txt     # 始终明文
-    └── fgqm_rdp.json / .txt   # RDP 深度指纹
+    └── fgqm_rdp.ndjson / .txt   # RDP 深度指纹
 ```
 
 `HH-MM-SS` 后缀（v0.5.1 加入）是本地时间的开始时间戳，scan 启动时
