@@ -31,9 +31,12 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	// Register all credential authenticators via their init() funcs.
 	// 通过 init() 注册所有凭据测试器。
@@ -84,7 +87,7 @@ from the plugin workers (consumer) via a Go channel pipeline. It supports
 three run modes (scan / crack / linked) and two work modes (ephemeral
 oneshot or persistent project workspace with bbolt state).
 
-Examples / 用例:
+Examples:
   fg-qimen -H 192.168.1.0/24                            # ephemeral scan
   fg-qimen --project corp -H 10.0.0.0/24 --mode linked  # project mode
   fg-qimen --project corp -H 10.0.0.0/24 -r            # resume
@@ -108,6 +111,20 @@ func Execute() error {
 	// 前重写为长形式。pflag v1.0.9 在注册时拒绝多字符 shorthand
 	// 会 panic，所以重写放在这里。详见 cmd/multishort.go。
 	rootCmd.SetArgs(expandMultiCharShorts(os.Args[1:]))
+
+	// Management subcommands opt back into the stock cobra template:
+	// the inherited 60+ scan flags drown `projects --help` / `version
+	// --help`. Capture the stock template BEFORE replacing root's —
+	// rootCmd.UsageTemplate() returns the custom one once set.
+	// / 管理子命令回退 cobra 原生模板：继承的 60+ 扫描 flags 会
+	// 淹没 `projects --help` / `version --help`。必须在替换 root
+	// 模板之前取原生模板——rootCmd.UsageTemplate() 一旦设置返回
+	// 的是自定义版。
+	stock := rootCmd.UsageTemplate()
+	projectsCmd.SetUsageTemplate(stock)
+	versionCmd.SetUsageTemplate(stock)
+	rootCmd.SetUsageTemplate(buildUsageTemplate())
+
 	return rootCmd.Execute()
 }
 
@@ -119,44 +136,81 @@ func init() {
 
 	// Subcommands are registered from their own files via init().
 	// 子命令由各自文件的 init() 注册。
-
-	// Custom usage template adds a "Flag Groups" reference section
-	// above the default alphabetical flags list. This is opt-in:
-	// callers wanting the stock template can call
-	// rootCmd.SetUsageTemplate(rootCmd.UsageTemplate()).
 	//
-	// 自定义 usage 模板在默认字母序 flag 列表之上加了"Flag Groups"
-	// 参考小节。这是 opt-in：需要默认模板的调用方可以
-	// rootCmd.SetUsageTemplate(rootCmd.UsageTemplate())。
-	rootCmd.SetUsageTemplate(usageTemplate)
+	// Usage templates are composed in Execute() (buildUsageTemplate +
+	// stock-template opt-out for management subcommands) — all init()
+	// funcs have run by then, so command registration order across
+	// files does not matter.
+	// / usage 模板在 Execute() 中组装（buildUsageTemplate + 管理子
+	// 命令回退原生模板）——届时所有 init() 已跑完，跨文件注册顺序
+	// 无关紧要。
 }
 
-// usageTemplate adds a grouped reference list above cobra's default
-// usage block. We render the same flag set twice on purpose: the
-// grouped list is the navigation aid, the alphabetical list is the
-// canonical one. Operators who only need to find a flag by name still
-// have the default lookup; operators who don't know the flag name
-// (e.g. "where do I set the proxy?") can scan the groups.
+// usageTemplateStr is the shape of the custom usage template. The
+// group summary (%s) is filled at build time by buildUsageTemplate.
+// NOTE: no {{.Long}} here — cobra's help template already prints
+// Long above the usage block; duplicating it here made every help
+// screen render the description twice.
 //
-// usageTemplate 在 cobra 默认 usage 块之上加了分组参考列表。我们故意
-// 渲染两次同一 flag 集：分组列表是导航辅助，字母序列表是规范的。
-// 只需按名找 flag 的操作员有默认查找；不知 flag 名（比如"代理在哪
-// 设？"）的操作员可扫分组。
-const usageTemplate = `Usage:
+// usageTemplateStr 是自定义 usage 模板的形状。分组摘要（%s）由
+// buildUsageTemplate 在构建期填入。注意：这里不放 {{.Long}}——
+// cobra 的 help 模板已经在 usage 块之上打印过 Long；在这里重复
+// 导致所有 help 页面把描述打印两遍。
+const usageTemplateStr = `Usage:
   {{.UseLine}}
-
-{{.Long}}
-
-Flag groups (alphabetical list below) / 分组参考（下方有字母序列表）:
-  Target       -H, -f / --host, --hosts-file
-  Workspace    --project, --project-key, --mode, -r / --resume, --no-state
-  Ports        --ports, --exclude-ports, --udp, --udp-strict, -a / --alive-only
-  Network      --proxy, --socks5, --iface, --port-timeout, --web-timeout
-  Concurrency  -t / --threads, --timeout, --shutdown-timeout, --max-workers
-  Credentials  -u / --user, -p / --pass, -uf / --user-file, -pf / --pass-file
-  Output       -ot / --output-txt, -oj / --output-json, -oc / --output-csv, --output-sarif
-  Behavior     --silent, --no-tui, --no-icmp, -v / --verbose, --plugins
-  Safety       --show-creds, --insecure-tls, --insecure-ssh, --known-hosts
+{{if .HasAvailableSubCommands}}
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding}} {{.Short}}{{end}}{{end}}
+{{end}}
+Flag groups (full alphabetical list below):
+%s
 
 {{.Flags.FlagUsages | trimTrailingWhitespaces}}
 `
+
+// buildUsageTemplate returns the custom usage template with the group
+// summary rendered from the live flag annotations. Must run AFTER
+// registerGlobalFlags (it reads the annotations annotate() wrote).
+// / buildUsageTemplate 返回填好分组摘要的自定义 usage 模板，摘要
+// 从活的 flag 注解渲染。必须在 registerGlobalFlags 之后运行
+// （要读 annotate() 写入的注解）。
+func buildUsageTemplate() string {
+	return fmt.Sprintf(usageTemplateStr, flagGroupSummary(rootCmd.PersistentFlags()))
+}
+
+// flagGroupSummary renders the grouped flag reference from the
+// "group" annotations written by flags.go. Groups with no annotated
+// flags are skipped; flags within a group come out in alphabetical
+// order (pflag sorts by default). Rendering lives here so adding a
+// flag + its annotate() line is all it takes to appear in --help.
+// / flagGroupSummary 按 flags.go 写入的 "group" 注解渲染分组参考。
+// 无标注 flag 的组跳过；组内 flag 按字母序（pflag 默认排序）。
+// 渲染放这里，新增 flag 只需加 annotate() 一行就会出现在 --help。
+func flagGroupSummary(pf *pflag.FlagSet) string {
+	order := []string{
+		groupTarget, groupWorkspace, groupPorts, groupNetwork,
+		groupConcurrency, groupCreds, groupOutput, groupBehavior,
+		groupSchedule, groupSafety,
+	}
+	byGroup := make(map[string][]string, len(order))
+	pf.VisitAll(func(f *pflag.Flag) {
+		g, ok := f.Annotations["group"]
+		if !ok || len(g) == 0 {
+			return
+		}
+		name := "--" + f.Name
+		if f.Shorthand != "" {
+			name = "-" + f.Shorthand + " / " + name
+		}
+		byGroup[g[0]] = append(byGroup[g[0]], name)
+	})
+	var b strings.Builder
+	for _, g := range order {
+		names := byGroup[g]
+		if len(names) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "  %-12s %s\n", g, strings.Join(names, ", "))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}

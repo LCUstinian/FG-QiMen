@@ -190,6 +190,15 @@ var (
 //	--output-sarif。旧 -p/-M/-X/-o/-j/-U/-W 要么是冲突 workaround，
 //	要么是随意的随机大写字母，要么是命名空间里易撞车的单字母。
 //
+// PersistentFlagSet exposes the root command's persistent flag set for
+// tooling (the docs generator renders it into docs/FLAGS.md). Treat the
+// returned set as read-only.
+// / PersistentFlagSet 把根命令的持久化 flag 集暴露给工具链（文档生成
+// 器将其渲染进 docs/FLAGS.md）。返回值视为只读。
+func PersistentFlagSet() *pflag.FlagSet {
+	return rootCmd.PersistentFlags()
+}
+
 // annotate flags with their group for --help output. Cobra renders
 // annotations["cobra_annotation_group_name"] as section headers.
 //
@@ -390,9 +399,9 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	pf.BoolVar(&flagShowCleartext, "show-creds", false,
 		"render discovered credentials in cleartext on TUI, stderr, result.txt, result.json, and result.csv (default: redacted to length-only fingerprint — see types.RedactUser / types.RedactPassword). NOTE: creds.txt is ALWAYS cleartext regardless of this flag — that's the operator's working file.")
 	pf.BoolVar(&flagInsecureTLS, "insecure-tls", false,
-		"disable TLS certificate verification (chain + hostname) on HTTPS probes (P1#3). Default verifies — opt in only for known-trusted self-signed test environments.")
+		"disable TLS certificate verification (chain + hostname) on HTTPS probes. Default verifies — opt in only for known-trusted self-signed test environments.")
 	pf.BoolVar(&flagInsecureSSH, "insecure-ssh", false,
-		"disable SSH host-key verification (accept any key) (P1#4). Default is v0.2-compatible insecure-ignore with a stderr warning; use -o KnownHostsFile=<path> for real verification.")
+		"disable SSH host-key verification (accept any key). Default is v0.2-compatible insecure-ignore with a stderr warning; use --known-hosts for real verification.")
 	pf.StringVar(&flagKnownHosts, "known-hosts", "",
 		"path to SSH known_hosts file for host-key verification (sets transport.KnownHostsFile; takes precedence over --insecure-ssh when set)")
 

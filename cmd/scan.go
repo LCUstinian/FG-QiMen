@@ -46,9 +46,15 @@ var scanCmd = &cobra.Command{
 	Use:   "scan [target]",
 	Short: "Run a scan (default action of fg-qimen)",
 	Long: `Run a scan. By default this is ephemeral (oneshot) mode, writing
-results to ./fgqm_workspace/default/<YYYY-MM-DD>/fgqm_result.txt and the corresponding
-.json in the current directory. Pass --project <name> to switch into
+results to <workspace>/default/<YYYY-MM-DD>/fgqm_result.txt and the
+corresponding .json (workspace root: --workspace flag > FGQI_WORKSPACE
+env > ./fgqm_workspace). Pass --project <name> to switch into
 persistent project mode.
+
+Besides result.txt/.json, scan writes automatically when hits exist:
+fgqm_web.txt/.json (web fingerprints with TLS certificate identity),
+rdp.json/.txt (RDP security flags), alive.txt (discovered hosts), and
+creds.txt (discovered credentials, always cleartext).
 
 The target may be given as a positional argument (fg-qimen scan
 192.168.1.0/24) or via --host/-H; --host wins when both are set.`,
