@@ -343,18 +343,32 @@ smoke cidr="" max="":
         CLICOLOR_FORCE=1 TERM=xterm-256color FGQI_SMOKE_CIDR={{ cidr }} \
         go test -tags smoke -run TestSmokeLiveTUIOnTarget -v -timeout 15m ./internal/tui/
 
+# Fingerprint quality harness (方向1 先测量): golden-dataset
+# identification metrics + silent-drop parse census + deterministic
+# garbage sweep (false-positive guard). Run before/after any
+# fingerprint-engine or probe-file change; the printed CENSUS and
+# SUMMARY lines are the baseline of record.
+# / 指纹质量度量（方向1 先测量）：golden 数据集识别率指标 + 静默丢
+# 弃普查 + 确定性垃圾字节扫描（误报守卫）。改动指纹引擎或探针文件
+# 前后各跑一次；输出的 CENSUS / SUMMARY 行是基准记录。
+golden:
+    CGO_ENABLED=0 go test -v -run "TestGolden" ./internal/portscan/fingerprint/
+
 # Regenerate the generated-docs artifacts — the bilingual pair of
-# docs/FLAGS(.zh-CN).md and docs/PLUGINS(.zh-CN).md — from the live
-# flag + plugin registries. Must run from the repo root. Guarded by
-# internal/docgen's TestGeneratedDocsUpToDate — CI fails when a
-# flag/plugin change lands without running this; a flag without a
-# Chinese usage translation in internal/docgen/zh.go fails earlier,
-# inside this recipe.
+# docs/FLAGS(.zh-CN).md and docs/PLUGINS(.zh-CN).md, plus the stats
+# strips between the gendocs:stats markers of both root READMEs —
+# from the live flag + plugin + fingerprint registries. Must run from
+# the repo root. Guarded by internal/docgen's TestGeneratedDocsUpToDate
+# and TestREADMEStatsUpToDate — CI fails when a flag/plugin/fingerprint
+# change lands without running this; a flag without a Chinese usage
+# translation in internal/docgen/zh.go fails earlier, inside this
+# recipe.
 # / 重新生成文档产物——docs/FLAGS(.zh-CN).md 与 docs/PLUGINS(.zh-CN).md
-# 的双语对——从源码内的 flag + 插件 registry。必须在仓库根运行。由
-# internal/docgen 的 TestGeneratedDocsUpToDate 守卫——改了 flag/插件
-# 没跑这个，CI 会红；flag 缺 internal/docgen/zh.go 中文说明则在本
-# recipe 内提前失败。
+# 的双语对，外加两份根 README 的 gendocs:stats 标记之间的统计条——
+# 从源码内的 flag + 插件 + 指纹 registry。必须在仓库根运行。由
+# internal/docgen 的 TestGeneratedDocsUpToDate 与 TestREADMEStatsUpToDate
+# 守卫——改了 flag/插件/指纹没跑这个，CI 会红；flag 缺
+# internal/docgen/zh.go 中文说明则在本 recipe 内提前失败。
 docs-gen:
     @go run ./tools/gendocs
 

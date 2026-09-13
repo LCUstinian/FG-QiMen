@@ -1,0 +1,260 @@
+[
+  {
+    "id": "ssh-openssh-ubuntu",
+    "source": "synthetic",
+    "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.4\r\n",
+    "service": "ssh",
+    "product": "OpenSSH",
+    "tier": "strict",
+    "note": "Ubuntu-packaged OpenSSH; $N version expansion covered by TestVScan_MatchBanner_SSH"
+  },
+  {
+    "id": "ssh-openssh-debian",
+    "source": "synthetic",
+    "banner": "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u1\r\n",
+    "service": "ssh",
+    "product": "OpenSSH",
+    "tier": "strict",
+    "note": "Debian-packaged OpenSSH"
+  },
+  {
+    "id": "ssh-1.99-openssh",
+    "source": "synthetic",
+    "banner": "SSH-1.99-OpenSSH_6.6.1\r\n",
+    "service": "ssh",
+    "product": "OpenSSH",
+    "tier": "strict",
+    "note": "legacy dual-protocol banner"
+  },
+  {
+    "id": "ssh-dropbear",
+    "source": "synthetic",
+    "banner": "SSH-2.0-dropbear_2022.83\r\n",
+    "service": "ssh",
+    "product": "Dropbear sshd",
+    "version": "2022.83",
+    "tier": "strict",
+    "note": "product/version as observed from upstream rule"
+  },
+  {
+    "id": "ssh-libssh",
+    "source": "synthetic",
+    "banner": "SSH-2.0-libssh_0.9.6\r\n",
+    "service": "ssh",
+    "product": "libssh",
+    "version": "0.9.6",
+    "tier": "strict",
+    "note": "library banner"
+  },
+  {
+    "id": "http-nginx",
+    "source": "synthetic",
+    "banner": "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nContent-Type: text/html\r\n\r\n",
+    "service": "http",
+    "product": "nginx",
+    "version": "1.24.0",
+    "tier": "strict",
+    "note": "nginx Server-header product extraction"
+  },
+  {
+    "id": "http-apache-plain",
+    "source": "synthetic",
+    "banner": "HTTP/1.1 200 OK\r\nServer: Apache/2.4.57 (Debian)\r\n\r\n",
+    "service": "http",
+    "product": "Apache httpd",
+    "version": "2.4.57",
+    "tier": "strict",
+    "note": "covered by a generic Apache rule among the 645 revived by the header-loop RE2 rewrite — the earlier 'no plain-Apache rule upstream' assessment was wrong"
+  },
+  {
+    "id": "http-apache-php",
+    "source": "synthetic",
+    "banner": "HTTP/1.1 200 OK\r\nServer: Apache/2.4.57\r\nX-Powered-By: PHP/8.2.1\r\n\r\n",
+    "service": "http",
+    "product": "Apache httpd",
+    "version": "2.4.57",
+    "tier": "strict",
+    "note": "upstream rule 10688 (header-loop lookaround construct) revived by the RE2 rewrite; pins Apache+PHP identification"
+  },
+  {
+    "id": "http-cherokee",
+    "source": "synthetic",
+    "banner": "HTTP/1.0 200 OK\r\nServer: Cherokee/0.99.30\r\n\r\n",
+    "service": "http",
+    "product": "Cherokee httpd",
+    "version": "0.99.30",
+    "tier": "strict",
+    "note": "upstream rule 6800 (header-loop construct, Server as first header — zero loop iterations) revived by the RE2 rewrite"
+  },
+  {
+    "id": "http-iis",
+    "source": "synthetic",
+    "banner": "HTTP/1.1 200 OK\r\nServer: Microsoft-IIS/10.0\r\n\r\n",
+    "service": "http",
+    "product": "Microsoft IIS httpd",
+    "version": "10.0",
+    "tier": "strict",
+    "note": "IIS product/version extraction"
+  },
+  {
+    "id": "http-404-no-server",
+    "source": "synthetic",
+    "banner": "HTTP/1.0 404 Not Found\r\n\r\n",
+    "service": "http",
+    "tier": "report",
+    "note": "service-level hit is correct, but upstream rule (probes line 12400) attributes ANY bare 404 to 'XBT BitTorrent tracker http interface' — upstream-inherited over-broad signature, product not asserted"
+  },
+  {
+    "id": "ftp-vsftpd",
+    "source": "synthetic",
+    "banner": "220 (vsFTPd 3.0.3)\r\n",
+    "service": "ftp",
+    "product": "vsftpd",
+    "version": "3.0.3",
+    "tier": "strict",
+    "note": "classic vsftpd greeting"
+  },
+  {
+    "id": "ftp-proftpd-modern",
+    "source": "synthetic",
+    "banner": "220 ProFTPD Server (ftp.example.com) [::ffff:192.168.1.10]\r\n",
+    "service": "ftp",
+    "tier": "report",
+    "note": "KNOWN GAP: modern ProFTPD greeting format predates/escapes upstream rules (they cover '220 ProFTPD x.y Server' and hostname variants only)"
+  },
+  {
+    "id": "ftp-hostname-ready",
+    "source": "synthetic",
+    "banner": "220 ftp.example.com FTP server ready\r\n",
+    "service": "ftp",
+    "tier": "report",
+    "note": "upstream rule attributes hostname 'FTP server ready' greetings to ProFTPD by heuristic — service asserted, product not asserted"
+  },
+  {
+    "id": "smtp-postfix",
+    "source": "synthetic",
+    "banner": "220 mail.example.com ESMTP Postfix\r\n",
+    "service": "smtp",
+    "product": "Postfix smtpd",
+    "tier": "strict",
+    "note": "Postfix greeting"
+  },
+  {
+    "id": "smtp-exchange",
+    "source": "synthetic",
+    "banner": "220 mail.example.com Microsoft ESMTP MAIL Service ready at Sun, 13 Sep 2026 00:00:00 +0000\r\n",
+    "service": "smtp",
+    "product": "Microsoft Exchange smtpd",
+    "tier": "strict",
+    "note": "Exchange greeting"
+  },
+  {
+    "id": "smtp-sendmail",
+    "source": "synthetic",
+    "banner": "220 example.com ESMTP Sendmail 8.17.1/8.17.1; Sun, 13 Sep 2026 00:00:00 GMT\r\n",
+    "service": "smtp",
+    "product": "Sendmail",
+    "version": "8.17.1/8.17.1",
+    "tier": "strict",
+    "note": "Sendmail greeting"
+  },
+  {
+    "id": "pop3-dovecot",
+    "source": "synthetic",
+    "banner": "+OK Dovecot (Ubuntu) ready.\r\n",
+    "service": "pop3?",
+    "soft": true,
+    "tier": "report",
+    "note": "KNOWN GAP: upstream covers Dovecot imap greetings (probes 1626-1632) but has no Dovecot pop3 rule; generic '^[+]+OK' softmatch fires — correct soft-demotion behaviour"
+  },
+  {
+    "id": "imap-dovecot",
+    "source": "synthetic",
+    "banner": "* OK [CAPABILITY IMAP4rev1 LITERAL+] Dovecot ready.\r\n",
+    "service": "imap",
+    "product": "Dovecot imapd",
+    "tier": "strict",
+    "note": "Dovecot IMAP greeting (capability-bracket variant, probes 1631)"
+  },
+  {
+    "id": "vnc-rfb",
+    "source": "public-protocol",
+    "banner": "RFB 003.008\n",
+    "service": "vnc",
+    "product": "VNC",
+    "tier": "strict",
+    "note": "RFC 6143 handshake — wire format uses bare LF, no CR"
+  },
+  {
+    "id": "mysql-greeting",
+    "source": "public-protocol",
+    "banner": "\u0024\u0000\u0000\u0000\u000a5.7.40\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+    "service": "mysql",
+    "product": "MySQL",
+    "version": "5.7.40",
+    "tier": "strict",
+    "note": "MySQL initial handshake: 4-byte packet header then 0x0a + version (upstream rule 2255 requires the header)"
+  },
+  {
+    "id": "telnet-cisco-exact",
+    "source": "public-protocol",
+    "banner_esc": "\\xff\\xfb\\x01\\xff\\xfb\\x03\\xff\\xfd\\x18\\xff\\xfd\\x1f",
+    "service": "telnet",
+    "product": "Cisco router telnetd",
+    "tier": "strict",
+    "note": "exact IAC sequence from upstream rule 3872 (anchored $); banner_esc used because bytes >=0x80 cannot survive JSON \\u00XX UTF-8 encoding"
+  },
+  {
+    "id": "telnet-iac-partial",
+    "source": "public-protocol",
+    "banner_esc": "\\xff\\xfb\\x01\\xff\\xfb\\x03\\xff\\xfd\\x18",
+    "service": "telnet?",
+    "soft": true,
+    "tier": "strict",
+    "note": "generic IAC sequence soft-hits telnet (loose protocol hint); hard matches remain exact-product-sequence only"
+  },
+  {
+    "id": "daytime-soft",
+    "source": "rfc-867",
+    "banner": "12:34:56 2026/09/12\n",
+    "service": "daytime?",
+    "soft": true,
+    "tier": "strict",
+    "note": "RFC 867 sample; softmatch demotion pinned by TestVScan_MatchBanner_SoftmatchDemoted"
+  },
+  {
+    "id": "tls-server-hello-fragment",
+    "source": "public-protocol",
+    "banner": "\u0016\u0003\u0003\u0000J\u0002",
+    "service": "",
+    "tier": "report",
+    "note": "passive grab sees only the first TLS record fragment; passive identification of TLS is a known limitation"
+  },
+  {
+    "id": "redis-passive-empty",
+    "source": "synthetic",
+    "banner": "",
+    "needs_probe": true,
+    "service": "",
+    "tier": "report",
+    "note": "Redis sends no banner until PING; passive path structurally blind, needs active probe"
+  },
+  {
+    "id": "memcached-passive-empty",
+    "source": "synthetic",
+    "banner": "",
+    "needs_probe": true,
+    "service": "",
+    "tier": "report",
+    "note": "memcached responds only to commands like 'version'; passive path blind"
+  },
+  {
+    "id": "postgres-passive-startup-pkt",
+    "source": "public-protocol",
+    "banner": "\u0000\u0000\u0000\u000a",
+    "needs_probe": true,
+    "service": "",
+    "tier": "report",
+    "note": "PostgreSQL waits for a StartupMessage; the 8-byte length prefix is all a passive grab sees"
+  }
+]

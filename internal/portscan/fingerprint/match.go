@@ -227,7 +227,19 @@ func (p *Probe) parseMatchDirective(data, prefix string, isSoft bool) (Match, er
 	// / 用转义保真的方式编译 pattern——见 patternToGoRegex：这里
 	// 不能用 DecodePattern（把 \x7c 解码成裸 '|' 会把正则切成多分支，
 	// jrpgt 因此能匹配任意 banner）。
-	compiled, err := regexp.Compile(patternToGoRegex(pattern))
+	//
+	// Apply the RE2-safe rewrite (lookahead.go) BEFORE compiling: it
+	// revives the 645 upstream rules sharing the header-loop
+	// lookaround construct, which Go's RE2 engine cannot compile.
+	// m.Pattern keeps the ORIGINAL upstream text so evidence stays
+	// faithful to the source file. Only rules that previously failed
+	// to compile can be affected — working rules pass through
+	// byte-identical.
+	// / 编译前先做 RE2 安全改写（lookahead.go）：救活共享头块跳行
+	// 前瞻构造的 645 条上游规则——Go 的 RE2 引擎无法编译它们。
+	// m.Pattern 保留上游原文，证据与源文件保持一致。只有此前编译
+	// 失败的规则受影响——已工作的规则逐字节透传。
+	compiled, err := regexp.Compile(patternToGoRegex(rewriteLookaheadHeaderLoop(pattern)))
 	if err != nil {
 		return m, err
 	}
