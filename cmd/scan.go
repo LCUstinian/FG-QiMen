@@ -334,6 +334,7 @@ func buildConfig(pf *pflag.FlagSet) (*types.Config, error) {
 		Ports:            flagPorts,
 		ExcludePorts:     flagExcludePorts,
 		UDP:              flagUDP,
+		UDPStrict:        flagUDPStrict,
 		Proxy:            flagProxy,
 		Socks5:           flagSocks5,
 		Iface:            flagIface,

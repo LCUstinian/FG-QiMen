@@ -78,6 +78,59 @@ func TestUDPServiceProbe_SilentPortIsOpenEmpty(t *testing.T) {
 	if res.State != StateOpen && res.State != StateClosed {
 		t.Errorf("State = %v, want Open or Closed", res.State)
 	}
+	// Silent-Open must carry RTT=0: the adaptive sampler treats RTT>0
+	// as "the host answered", and the elapsed full-wait is not an RTT.
+	// / 静默 Open 必须带 RTT=0：自适应采样器把 RTT>0 当"主机应答了"，
+	// 而等满的时间不是 RTT。
+	if res.State == StateOpen {
+		if res.Banner != "" {
+			t.Errorf("silent-Open Banner = % x, want empty", res.Banner)
+		}
+		if res.RTT != 0 {
+			t.Errorf("silent-Open RTT = %v, want 0 (no response, no RTT)", res.RTT)
+		}
+	}
+}
+
+// TestUDPServiceProbe_StrictSilentIsFiltered: under Strict, a silent
+// port must never come back Open — Filtered when the kernel stays
+// silent, Closed when ICMP refusal surfaces. The consumer drops both,
+// which keeps firewalled segments out of the output.
+// / TestUDPServiceProbe_StrictSilentIsFiltered：Strict 下静默端口绝不
+// 得以 Open 返回——内核静默时 Filtered，ICMP 拒绝浮出时 Closed。消费
+// 方两者都丢弃，防火墙网段由此不进输出。
+func TestUDPServiceProbe_StrictSilentIsFiltered(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	// Degraded (probeOnce) path. / 退化（probeOnce）路径。
+	probe := NewUDPServiceProbe(nil)
+	probe.Strict = true
+	res, err := probe.Probe(context.Background(), "127.0.0.1", port, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	if res.State != StateFiltered && res.State != StateClosed {
+		t.Errorf("degraded path: State = %v, want Filtered or Closed, never Open", res.State)
+	}
+
+	// Payload path: hints exist but the port stays silent.
+	// / payload 路径：有 hint 但端口静默。
+	probe2 := NewUDPServiceProbe(func(int) [][]byte {
+		return [][]byte{{0xDE, 0xAD}}
+	})
+	probe2.Strict = true
+	res2, err := probe2.Probe(context.Background(), "127.0.0.1", port, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	if res2.State != StateFiltered && res2.State != StateClosed {
+		t.Errorf("payload path: State = %v, want Filtered or Closed, never Open", res2.State)
+	}
+	if res2.State == StateFiltered && res2.RTT != 0 {
+		t.Errorf("payload path: silent-Filtered RTT = %v, want 0", res2.RTT)
+	}
 }
 
 // TestUDPServiceProbe_RefusedIsClosed: a listener that binds and CLOSES

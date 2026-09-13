@@ -453,6 +453,19 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 				BackoffMultiplier: 2.0,
 				TrackStats:        true,
 			})
+		// RTT-sampled adaptive timeout (borrowed from fscan's
+		// mean+4σ): refines the env-tuned base DURING the scan.
+		// Disabled when the operator set --timeout explicitly — the
+		// adaptive value is clamped to the base either way, so an
+		// explicit timeout still acts as a hard ceiling.
+		// / RTT 采样的自适应超时（借鉴 fscan 的 mean+4σ）：在扫描过
+		// 程中持续精修环境画像调优后的 base。操作员显式设置 --timeout
+		// 时禁用——无论开关，自适应值都被 clamp 在 base 之内，显式超
+		// 时始终是硬上限。
+		var adaptive *scan.AdaptiveTimeout
+		if !cfg.TimeoutExplicit {
+			adaptive = scan.NewAdaptiveTimeout(cfg.Timeout)
+		}
 		sc := scan.NewScanner(scan.ScanOptions{
 			// Banner grabbing is wired (FirstBanner) so the Stage-0
 			// nmap-style fingerprint in the plugin worker has raw
@@ -465,6 +478,7 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			// 死代码。
 			Probe:      rp,
 			Timeout:    cfg.Timeout,
+			Adaptive:   adaptive,
 			Threads:    cfg.Threads,
 			MinThreads: DefaultMinThreads,
 			MaxThreads: DefaultMaxThreads,
@@ -551,16 +565,37 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		// RetryableProbe——UDP probe 失败返回的是 Result 不是 error，
 		// 没有可重试的东西。
 		if len(udpPorts) > 0 && ctx.Err() == nil {
-			sess.Log.Info("[*] udp: probing %d port(s) on %d host(s) (timeout %s)",
-				len(udpPorts), len(targets), min(cfg.Timeout, DefaultUDPProbeTimeout))
+			udpBase := min(cfg.Timeout, DefaultUDPProbeTimeout)
+			strictNote := ""
+			if cfg.UDPStrict {
+				strictNote = " strict"
+			}
+			sess.Log.Info("[*] udp: probing %d port(s) on %d host(s) (timeout %s%s)",
+				len(udpPorts), len(targets), udpBase, strictNote)
 			udpRes := make(chan scan.Result, DefaultChannelBuffer)
 			udpDone := make(chan struct{})
 			udpProbe := scan.NewUDPServiceProbe(func(port int) [][]byte {
 				return udpPayloads[port]
 			})
+			// Strict mode (--udp-strict): silent ports report filtered
+			// and the consumer drops them — no open|filtered noise on
+			// firewalled segments.
+			// / strict 模式（--udp-strict）：静默端口报 filtered，消费方
+			// 直接丢弃——防火墙网段上没有 open|filtered 噪声。
+			udpProbe.Strict = cfg.UDPStrict
+			// Same adaptive-timeout policy as the TCP pool: refines the
+			// base from real response RTTs; silent probes report RTT=0
+			// and never feed it. Skipped on explicit --timeout.
+			// / 与 TCP 池同一自适应超时策略：用真实响应 RTT 精修 base；
+			// 静默探测报 RTT=0 永不喂入。显式 --timeout 时跳过。
+			var udpAdaptive *scan.AdaptiveTimeout
+			if !cfg.TimeoutExplicit {
+				udpAdaptive = scan.NewAdaptiveTimeout(udpBase)
+			}
 			us := scan.NewScanner(scan.ScanOptions{
 				Probe:      udpProbe,
-				Timeout:    min(cfg.Timeout, DefaultUDPProbeTimeout),
+				Timeout:    udpBase,
+				Adaptive:   udpAdaptive,
 				Threads:    DefaultUDPThreads,
 				MaxThreads: DefaultUDPMaxThreads,
 				OnProbeError: func(_ scan.Item, err error) {

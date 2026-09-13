@@ -70,6 +70,17 @@ type PoolOptions struct {
 	// OpenGrowRatio：若超过这个比例的近期 probe 是 open，
 	// 并发升 25%（到 MaxThreads 为止）。
 	OpenGrowRatio float64
+
+	// Adaptive, when non-nil, replaces the fixed Timeout with the
+	// RTT-derived mean+4σ value per probe, and is fed RTT samples
+	// from every probe that actually reached a host (open / closed).
+	// Probes that only waited out a deadline (filtered, or silent
+	// UDP with RTT=0) never feed it. Nil = fixed timeout (default).
+	// / Adaptive 非 nil 时，把固定 Timeout 替换为按 RTT 推导的
+	// mean+4σ 值（每个 probe 各取一次），并由每个真正到达主机的
+	// probe（open / closed）喂 RTT 样本。只等满超时的探测（filtered、
+	// 静默 UDP 的 RTT=0）绝不喂入。nil = 固定超时（默认）。
+	Adaptive *AdaptiveTimeout
 }
 
 // DefaultPoolOptions returns a PoolOptions with sensible defaults.
@@ -302,7 +313,15 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 					}
 				}
 			}()
-			res, err := p.opts.Probe.Probe(ctx, item.Host, item.Port, p.opts.Timeout)
+			// Per-probe timeout: adaptive (mean+4σ of real-host RTT
+			// samples) when wired, otherwise the fixed pool timeout.
+			// / 每个 probe 的超时：接线了自适应（真实主机 RTT 样本的
+			// mean+4σ）就用自适应，否则用固定池超时。
+			timeout := p.opts.Timeout
+			if p.opts.Adaptive != nil {
+				timeout = p.opts.Adaptive.Timeout()
+			}
+			res, err := p.opts.Probe.Probe(ctx, item.Host, item.Port, timeout)
 			if err != nil {
 				// (P3 / F12 in the v0.2 audit) the previous code
 				// discarded the probe error with `_`, which let
@@ -324,6 +343,21 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				return
 			}
 			p.record(res)
+			// Feed the adaptive timeout only with samples that
+			// actually reached a host: open (handshake / response)
+			// and closed (refused RST) both prove a round trip.
+			// Filtered results waited out the full deadline — their
+			// "RTT" is the timeout itself and would poison the ring;
+			// RTT ≤ 0 covers probes that report "no response"
+			// (silent UDP) with a zero RTT.
+			// / 只把真正到达主机的样本喂给自适应超时：open（握手/
+			// 响应）与 closed（拒绝 RST）都证明了一个往返。filtered
+			// 是等满超时——它的"RTT"就是超时本身，会毒化采样环；
+			// RTT ≤ 0 覆盖以零 RTT 报告"无响应"的探测（静默 UDP）。
+			if p.opts.Adaptive != nil && res.RTT > 0 &&
+				(res.State == StateOpen || res.State == StateClosed) {
+				p.opts.Adaptive.Record(res.RTT)
+			}
 			select {
 			case out <- res:
 			case <-ctx.Done():

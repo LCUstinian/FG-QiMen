@@ -25,6 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TCP-handshake plugin loop; banner display sanitizes binary bytes to
   `.` (nmap convention).
 
+- **RTT-sampled adaptive probe timeout** — the pool now refines its
+  timeout DURING the scan (borrowed from fscan's mean+4σ): every probe
+  that actually reached a host (open handshake, refused RST) records
+  its RTT into a 64-sample ring buffer and the per-probe timeout
+  becomes `mean + 4σ`, clamped to `[max(500ms, base/5), base]`. On a
+  fast LAN this collapses the 3s filtered-port wait to ~600ms (≈5×
+  faster sweeps); on slow paths the ceiling stays at the operator's
+  (possibly env-tuned) timeout. Silent UDP probes report `RTT=0` and
+  never feed the sampler. Disabled when the operator sets `--timeout`
+  explicitly (same isExplicit convention as the env profiler), and
+  the value is clamped to the base either way, so an explicit timeout
+  remains a hard ceiling. Wired into both the TCP and UDP pools.
+
+- **`--udp-strict`** — changes the UDP silence verdict: a port that
+  answered nothing within its budget is reported filtered and dropped
+  by the plugin consumer instead of the open|filtered Open convention
+  that emitted one noise result per host×port on firewalled segments.
+  Trades recall of idle-but-open services for a clean output stream;
+  the default (non-strict) semantics are unchanged.
+
 - **fscan-inspired scan intelligence** — host exclusion (`--exclude-hosts`
   / `--exclude-hosts-file`: exact IP, CIDR, range, hostname, or the
   RFC1918 shortcuts `192`/`172`/`10`, applied before any probe traffic),

@@ -68,6 +68,14 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 		btimeout = 2 * time.Second
 	}
 	banner, state, rtt := probeOnce(ctx, host, port, payload, timeout, btimeout)
+	if state == StateOpen && len(banner) == 0 {
+		// Silent open|filtered: no response, no RTT. Zeroing keeps
+		// the adaptive sampler (pool AdaptiveTimeout) free of
+		// degenerate full-wait samples.
+		// / 静默 open|filtered：无响应即无 RTT。置零让自适应采样器
+		// （池 AdaptiveTimeout）免受"等满"退化样本污染。
+		rtt = 0
+	}
 	return Result{
 		Host: host, Port: port, State: state,
 		Method: MethodUDP, Banner: string(banner),

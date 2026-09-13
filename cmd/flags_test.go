@@ -44,6 +44,7 @@ var expectedFlagGroups = map[string]string{
 	"ports":         "Ports",
 	"exclude-ports": "Ports",
 	"udp":           "Ports",
+	"udp-strict":    "Ports",
 	"alive-only":    "Ports",
 	// Network
 	"proxy":           "Network",

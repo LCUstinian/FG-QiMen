@@ -21,6 +21,13 @@ type ScanOptions struct {
 	Threads    int // initial threads; pool adapts up/down
 	MinThreads int
 	MaxThreads int
+	// Adaptive, when non-nil, enables the RTT-sampled per-probe
+	// timeout (see AdaptiveTimeout). The wiring site (core/scanner.go)
+	// disables it when the operator set --timeout explicitly.
+	// / Adaptive 非 nil 时启用 RTT 采样的逐 probe 超时（见
+	// AdaptiveTimeout）。操作员显式设置 --timeout 时由接线点
+	// （core/scanner.go）禁用。
+	Adaptive *AdaptiveTimeout
 	// OnProbeError forwards the pool's per-probe error signal to
 	// the caller. Same contract as PoolOptions.OnProbeError.
 	//
@@ -51,6 +58,9 @@ func NewScanner(opts ScanOptions) *Scanner {
 	}
 	if opts.OnProbeError != nil {
 		pOpts.OnProbeError = opts.OnProbeError
+	}
+	if opts.Adaptive != nil {
+		pOpts.Adaptive = opts.Adaptive
 	}
 	return &Scanner{pool: NewPool(pOpts)}
 }

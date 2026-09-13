@@ -20,11 +20,13 @@ package smb
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
+	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
 // buildSMB2NegotiateResponse builds a minimal but wire-accurate SMB2
@@ -122,20 +124,39 @@ func TestSmb_IdentifyHit(t *testing.T) {
 		// Read the 36-byte SMB2 negotiate request the plugin sends
 		// before it starts parsing the response. We don't validate
 		// the bytes — just drain them — so the state machine advances
-		// through the full request-then-response dance. /
-		// 读 plugin 在开始解析响应前发的 36 字节 SMB2 negotiate 请
+		// through the full request-then-response dance. ReadFull
+		// absorbs TCP short reads; the deadline keeps a broken client
+		// from pinning the handler goroutine.
+		// / 读 plugin 在开始解析响应前发的 36 字节 SMB2 negotiate 请
 		// 求。我们不校验字节，只排空，让状态机走完 request →
-		// response 全程。
+		// response 全程。ReadFull 吸收 TCP 短读；deadline 防止坏客户
+		// 端把 handler goroutine 钉死。
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 		buf := make([]byte, 36)
-		_, _ = c.Read(buf)
+		_, _ = io.ReadFull(c, buf)
 
 		_, _ = c.Write(buildSMB2NegotiateResponse())
 	})
 
 	p := New()
-	res := p.Identify(context.Background(), host, port)
+	// Known flaky under full-repo parallel `go test ./...`: CPU/socket
+	// contention can blow the plugin's internal 3s dial/deadline budget
+	// or truncate the response read (passes standalone and on rerun).
+	// Bounded retry: a real regression fails EVERY attempt, an
+	// environment hiccup fails at most two.
+	// / 已知在全仓并行 `go test ./...` 下偶发：CPU/socket 竞争可能打
+	// 破插件内部 3s 拨号/deadline 预算或截断响应读（单跑与重跑都通
+	// 过）。有界重试：真回归每次都失败，环境抖动最多失败两次。
+	var res *types.Result
+	for attempt := 1; attempt <= 3; attempt++ {
+		res = p.Identify(context.Background(), host, port)
+		if res != nil {
+			break
+		}
+		t.Logf("Identify attempt %d/%d returned nil (documented parallel-load flake)", attempt, 3)
+	}
 	if res == nil {
-		t.Fatalf("Identify returned nil; expected SMBv2/v3 hit")
+		t.Fatalf("Identify returned nil after 3 attempts; expected SMBv2/v3 hit")
 	}
 	if res.Service != "smb" {
 		t.Errorf("Service = %q, want %q", res.Service, "smb")

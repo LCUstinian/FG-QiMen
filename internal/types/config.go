@@ -76,6 +76,15 @@ type Config struct {
 	// 等满读超时）且多数场景用不到。
 	UDP bool
 
+	// UDPStrict changes the UDP silence verdict: a silent port is
+	// reported filtered and dropped by the plugin consumer instead of
+	// the open|filtered Open convention that emits one noise result
+	// per host×port on firewalled segments. Only meaningful with UDP.
+	// / UDPStrict 改变 UDP 静默裁决：静默端口报 filtered 并被插件消
+	// 费方丢弃，而非 open|filtered 的 Open 约定（在防火墙网段上每个
+	// host×port 吐一条噪声结果）。仅在 UDP 开启时有意义。
+	UDPStrict bool
+
 	// Network / 网络
 	Proxy       string        // HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)
 	Socks5      string        // SOCKS5 proxy address (e.g. 127.0.0.1:1080)

@@ -45,6 +45,18 @@ type UDPServiceProbe struct {
 	// sent. Zero = 2s. / ReadTimeout 限制全部 payload 发出后等响应的
 	// 时间。零 = 2s。
 	ReadTimeout time.Duration
+
+	// Strict changes the silence verdict: a port that answered nothing
+	// within its budget is reported Filtered instead of the
+	// open|filtered Open convention. The plugin consumer drops
+	// non-open results, so strict mode keeps silent segments out of
+	// the output entirely — trading recall of idle-but-open services
+	// for a noise-free result stream on firewalled networks.
+	// / Strict 改变静默裁决：预算内没有任何应答的端口报 Filtered，
+	// 而非 open|filtered 的 Open 约定。插件消费方丢弃非 open 结果，
+	// 因此 strict 模式让静默网段完全不进入输出——用"漏掉空闲但开
+	// 放的服务"换防火墙网络上的零噪声结果流。
+	Strict bool
 }
 
 // NewUDPServiceProbe returns a UDPServiceProbe with the default 2s
@@ -76,6 +88,14 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 	if timeout > 0 && timeout < dialTimeout {
 		dialTimeout = timeout
 	}
+	// The pool timeout is the probe's WHOLE budget: cap the read too,
+	// or an adaptive shrink would still pay the full default read
+	// wait on every silent port.
+	// / 池超时是 probe 的总预算：读也要 cap，否则自适应收缩后每个
+	// 静默端口仍要付满默认读等待。
+	if timeout > 0 && timeout < readTimeout {
+		readTimeout = timeout
+	}
 
 	var payloads [][]byte
 	if p.Payloads != nil {
@@ -85,6 +105,16 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 		// No hint for this port: degrade to the generic 1-byte probe.
 		// / 该端口无提示：退化为通用单字节探测。
 		banner, state, rtt := probeOnce(ctx, host, port, []byte{0x00}, dialTimeout, readTimeout)
+		if state == StateOpen && len(banner) == 0 {
+			// Silence: no response, no RTT (zero keeps the adaptive
+			// ring clean); strict mode reports Filtered.
+			// / 静默：无响应即无 RTT（置零保持自适应采样环干净）；
+			// strict 模式报 Filtered。
+			rtt = 0
+			if p.Strict {
+				state = StateFiltered
+			}
+		}
 		return Result{
 			Host: host, Port: port, State: state,
 			Method: MethodUDP, Banner: string(banner),
@@ -144,9 +174,22 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 		}
 		if isTimeout(readErr) {
 			// Silence → open|filtered, marked Open so plugins get a
-			// chance. / 静默 → open|filtered，标 Open 给插件机会。
-			return Result{Host: host, Port: port, State: StateOpen, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
+			// chance (Filtered under Strict). No response, no RTT —
+			// the elapsed wait would poison the adaptive ring.
+			// / 静默 → open|filtered，标 Open 给插件机会（Strict 下报
+			// Filtered）。无响应即无 RTT——等满的时间会毒化自适应采样环。
+			state := StateOpen
+			if p.Strict {
+				state = StateFiltered
+			}
+			return Result{Host: host, Port: port, State: state, Method: MethodUDP, RTT: 0, Time: time.Now()}, nil
 		}
 	}
-	return Result{Host: host, Port: port, State: StateOpen, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
+	// Fallthrough: ambiguous, same verdict as the timeout branch.
+	// / 兜底：模糊，与超时分支同一裁决。
+	state := StateOpen
+	if p.Strict {
+		state = StateFiltered
+	}
+	return Result{Host: host, Port: port, State: state, Method: MethodUDP, RTT: 0, Time: time.Now()}, nil
 }
