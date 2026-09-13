@@ -117,6 +117,23 @@ type Counters struct {
 	IdentHard atomic.Int64
 	IdentSoft atomic.Int64
 	IdentNone atomic.Int64
+
+	// TCP active-probe economics, bumped at the Stage-0 probe site
+	// (core/pipeline_workers.go): ProbePorts counts every silent open
+	// TCP port that got probe payloads sent (the cost side — one dial
+	// + up to MaxTCPProbesPerPort payloads), ProbeHits counts the
+	// probes whose FIRST response produced an identity claim (the
+	// return side, hard or soft). The hit rate tells the operator
+	// whether active probing earns its keep on this network, and the
+	// cost side exposes how much extra traffic the feature generates.
+	// / TCP 主动探针经济账，在 Stage-0 探针点（core/pipeline_workers.go）
+	// 计数：ProbePorts 记每个被发送探针 payload 的沉默开放 TCP 端口
+	//（成本侧——一次拨号 + 至多 MaxTCPProbesPerPort 个 payload），
+	// ProbeHits 记首个响应产出了身份断言（hard 或 soft）的探针（回报
+	// 侧）。命中率告诉操作者主动探针在这个网络上值不值，成本侧暴露
+	// 该功能额外产生的流量。
+	ProbePorts atomic.Int64
+	ProbeHits  atomic.Int64
 }
 
 // CountersView is a plain-int64 snapshot of Counters for safe display/logging.
@@ -132,6 +149,8 @@ type CountersView struct {
 	IdentHard   int64 // identification quality: hard-match ports
 	IdentSoft   int64 // identification quality: softmatch-hint ports
 	IdentNone   int64 // identification quality: no-claim open ports
+	ProbePorts  int64 // active-probe economics: silent ports probed (cost)
+	ProbeHits   int64 // active-probe economics: probes yielding a claim (return)
 }
 
 // NewState creates a fresh State with counters zeroed.
@@ -191,6 +210,8 @@ func (s *State) Snapshot() CountersView {
 		IdentHard:   s.Counters.IdentHard.Load(),
 		IdentSoft:   s.Counters.IdentSoft.Load(),
 		IdentNone:   s.Counters.IdentNone.Load(),
+		ProbePorts:  s.Counters.ProbePorts.Load(),
+		ProbeHits:   s.Counters.ProbeHits.Load(),
 	}
 }
 

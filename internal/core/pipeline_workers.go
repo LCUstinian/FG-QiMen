@@ -159,9 +159,17 @@ func runPluginWorker(
 					}
 					return probeGeneric
 				})
+				sess.State.Counters.ProbePorts.Add(1)
 				if resp, perr := probe.ProbeBanner(ctx, item.Host, item.Port, sess.Config.Timeout); perr == nil && len(resp) > 0 {
 					probeBanner = string(resp)
 					bm, _ = vscan.MatchBanner(resp)
+					if bm.Service != "" {
+						// The probe paid off: its first response
+						// produced an identity claim (hard or soft).
+						// / 探针有回报：首个响应产出了身份断言
+						//（hard 或 soft）。
+						sess.State.Counters.ProbeHits.Add(1)
+					}
 				}
 			}
 			// Confidence: a hard nmap match is authoritative; the

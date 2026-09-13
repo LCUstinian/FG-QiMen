@@ -1,0 +1,70 @@
+[
+  {
+    "id": "memcache-stats-response",
+    "source": "public-protocol",
+    "via_probe": "Memcache",
+    "banner": "STAT pid 1\r\nSTAT version 1.6.22\r\nSTAT rusage_user 0\r\nEND\r\n",
+    "service": "memcached?",
+    "soft": true,
+    "tier": "strict",
+    "note": "memcached answers the stats probe with STAT lines; upstream grades this softmatch (stats responses vary too much for a hard fingerprint). Field-observed via the fake-service smoke."
+  },
+  {
+    "id": "redis-info-response",
+    "source": "public-protocol",
+    "via_probe": "redis-server",
+    "banner": "$96\r\n# Server\r\nredis_version:7.2.4\r\nredis_mode:standalone\r\nos:Linux 5.15.0 x86_64\r\nrun_id:0123456789abcdef\r\nEND\r\n",
+    "service": "redis",
+    "product": "Redis key-value store",
+    "version": "7.2.4",
+    "tier": "strict",
+    "note": "protected/unprotected Redis replies to the redis-server probe with an INFO bulk string; the upstream rule captures redis_version for product+version."
+  },
+  {
+    "id": "redis-noauth-response",
+    "source": "public-protocol",
+    "via_probe": "redis-server",
+    "banner": "-NOAUTH Authentication required.\r\n",
+    "service": "redis",
+    "tier": "strict",
+    "note": "a password-protected Redis answers any command with -NOAUTH; hard rule, no version capture."
+  },
+  {
+    "id": "redis-err-permitted-response",
+    "source": "public-protocol",
+    "via_probe": "redis-server",
+    "banner": "-ERR operation not permitted\r\n",
+    "service": "redis",
+    "tier": "strict",
+    "note": "Redis protected-mode refusal to the probe; hard rule."
+  },
+  {
+    "id": "http-getrequest-response",
+    "source": "rfc-7231",
+    "via_probe": "GetRequest",
+    "banner": "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n",
+    "service": "http",
+    "product": "nginx",
+    "version": "1.24.0",
+    "tier": "strict",
+    "note": "RFC 7231-shaped response with an nginx Server header; the http rule group captures product nginx + version verbatim."
+  },
+  {
+    "id": "ssh-protocol-mismatch-noise",
+    "source": "public-protocol",
+    "via_probe": "GenericLines",
+    "banner": "Protocol mismatch.\r\n",
+    "service": "",
+    "tier": "strict",
+    "note": "FALSE-POSITIVE GUARD: OpenSSH answers any non-SSH input with this line before dropping the connection. It must NOT fire any rule — the ssh rules anchor on ^SSH-, and a hard claim from this banner would poison every silent port 22."
+  },
+  {
+    "id": "smtp-no-conversation-noise",
+    "source": "public-protocol",
+    "via_probe": "GenericLines",
+    "banner": "554 5.5.1 Error: no SMTP conversation here.\r\n",
+    "service": "",
+    "tier": "strict",
+    "note": "FALSE-POSITIVE GUARD: Postfix answers non-SMTP input with 554; smtp rules anchor on greeting (2xx) banners, so this must stay silent."
+  }
+]
