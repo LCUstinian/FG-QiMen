@@ -4,6 +4,8 @@
 # Changelog
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-13
+
 ### Removed
 
 - **删除 `homebrew-tap.yml` workflow** —— 其一次性前置（同级

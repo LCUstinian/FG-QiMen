@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-13
+
 ### Removed
 
 - **`homebrew-tap.yml` workflow deleted** — its one-time
