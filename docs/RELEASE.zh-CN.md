@@ -2,14 +2,10 @@
 
 > [English version](RELEASE.md)
 
-当前状态——多平台自动发布流水线。
-> current — multi-platform automated release pipeline.
+> 当前状态——多平台自动发布流水线。
 
 本文档描述如何发布 FG-QiMen 新版本。流水线完全自动化；tag push
 是唯一的触发点。
-
-The document describes how to cut a release of FG-QiMen. The pipeline
-is fully automated; a tag push is the only manual trigger.
 
 ## 发布前检查清单
 
@@ -20,6 +16,9 @@ is fully automated; a tag push is the only manual trigger.
 4. `internal/version/version.go` 的 `Value` 已提升到发布版本。
    release.yml 的构建步骤会在构建时通过 `-ldflags` 覆盖它，所以
    这一步只是信息性的。
+5. **同步钉死的测试常量**：`internal/version/version_test.go` 的
+   `TestValueDefault` 必须与新 `Value` 一致——它是独立的字面量，
+   不会跟着 bump 走。（v0.8.0 的 tag CI 首次变红就是因为这个。）
 
 ## 发布步骤
 
@@ -35,11 +34,12 @@ head -30 CHANGELOG.md
 # 3. 打 tag。release.yml 的 `on.push.tags: - 'v*'` 匹配任意
 #    v 前缀的 semver tag。任一符合的 tag 都会触发发布，
 #    无需额外配置。
-git tag -a v0.3.1 -m "v0.3.1 — one-line description"
+git tag -a vX.Y.Z -m "vX.Y.Z — one-line description"
 
 # 4. 推送 tag。这会触发 release 流水线。
 #    流水线完成后在 Actions 页确认全绿。
-git push origin v0.3.1
+#    （remote 名是 `FG-QiMen`，不是 `origin`）
+git push FG-QiMen vX.Y.Z
 ```
 
 tag push 触发三个 GitHub Actions 工作流：
@@ -112,7 +112,7 @@ cosign verify-attestation \
 
 ## 预发布标签
 
-带 `-` 的 tag（如 `v0.3.1-rc1`、`v0.3.1-beta2`）会发布为
+带 `-` 的 tag（如 `vX.Y.Z-rc1`、`vX.Y.Z-beta2`）会发布为
 **prerelease** GitHub Release。用于正式发布前的候选版本冒烟测试。
 
 ## 手动 dry-run
@@ -129,11 +129,11 @@ dispatch 运行产出与正式 tag 发布相同的 13 个产物（11 个标准�
 ```bash
 SOURCE_DATE_EPOCH=1700000000 \
 go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v0.3.1" \
+  -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=vX.Y.Z" \
   -o fg-qimen-linux-amd64 .
 ```
 
-二进制的 `version` 子命令应输出 `v0.3.1`。
+二进制的 `version` 子命令应输出 `vX.Y.Z`。
 
 本地构建加固版请用加固脚本——它们跑与 CI 相同的 garble + UPX +
 strip 管线（garble 固定在 v0.17.0，版本号从
@@ -156,11 +156,11 @@ scripts\harden.ps1 [binary_path] [version]
 tag 推送、发布上线之后：
 
 - 把 `internal/version/version.go` 的 `Value` 提升到下一个开发
-  版本（如 `0.3.2-dev`）。
+  版本（如 `0.Y.(Z+1)-dev`）。
 - 在 `CHANGELOG.md` 开一个新的 `[Unreleased]` 小节。
 - 回到 `main` 继续正常开发。
 
-这样下一次发布时 `git log v0.3.1..main` 保持干净。
+这样下一次发布时 `git log vX.Y.Z..main` 保持干净。
 
 ## 故障排查
 
@@ -207,7 +207,7 @@ git checkout main && git pull --ff-only
 
 # 2. 打 tag
 git tag -a vX.Y.Z -m "vX.Y.Z — description"
-git push origin vX.Y.Z
+git push FG-QiMen vX.Y.Z
 
 # 3. 盯进度
 # https://github.com/LCUstinian/FG-QiMen/actions
@@ -228,6 +228,9 @@ cosign verify-blob --certificate ... --signature ...
 - 分批验证报告：`docs/verification/v0.3/first-batch-verification.md`、
   `docs/verification/v0.3/second-batch-verification.md`、
   `docs/verification/v0.4/verification.md`、
-  `docs/verification/v0.5/verification.md`
+  `docs/verification/v0.5/verification.md`、
+  `docs/verification/v0.5.1/verification.md`、
+  `docs/verification/v0.6.0/verification.md`、
+  `docs/verification/v0.7.0-tui-v2-bc/verification.md`
 - 发布说明：`CHANGELOG.md`
 - 基准测试：`docs/verification/v0.4/benchmarks.md`

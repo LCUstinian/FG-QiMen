@@ -1,4 +1,4 @@
-> [English version](CHANGELOG.md)
+﻿> [English version](CHANGELOG.md)
 
 
 # Changelog
@@ -344,107 +344,398 @@ CI 门槛提升：全局覆盖率地板 60% → 70%，`scripts/ci-coverage-check
   突；注册 `t.Cleanup` 关 listener 所以测试进程不泄漏。引入前每个 plugin
   测试要内联 ~20 行相同的 listener plumbing；集中后每个 plugin 测试只需
   "写协议 handler + 断言 Identify/Credential 返回"。
-- applySchedule 单元测试（cmd/schedule_test.go，含
-daemon-loops 12 个 case）。v0.5 时该函数 0% 覆盖，现
-**100%**。覆盖 ModeNone 早返、9 个 Resolve 错误路径（at
-格式错 / 过去、in 格式错 / 0 / 负、cron 格式错、at+in
-互斥、daemon 无 cron、tz 错）、3 种 mode 的 dry-run、等
-未来时间、等 in 时长、daemon ctx 取消、cron 无 daemon、
-并发调用 sanity、daemon 循环跑 ≥2 次（验证 post-Wait
-代码）。互斥 case 用 errors.Is(ErrInvalidCombination)
-钉死。
-- 更多 cmd/ 测试（cmd/cmd_test.go、cmd/schedule_test.go）。
-加 applyTransport（nil + flag 传递 + 空 KnownHosts 保护）、
-applyHTTPForm（空 + 填）、detectScheduleMode（4 种 mode +
-优先级）、loadScheduleTZ（空 / UTC / 非法 IANA 不 panic）
-测试。cmd/ 单元可测代码 59.6% → 64.4%。总覆盖率仍 ~60.5%
-因 30+ adapted plugin 0% 覆盖——需要 fake-server 基础
-设施（v0.6 目标）。
 
 ### Changed
 
-- 覆盖率门槛从 60% 抬到 70%（scripts/ci-coverage-check.py）。
-  v0.5.1 设的目标 80% 通过 fake-server 覆盖推进后达到
-  70.8%。80% 全局目标仍是 v0.6.x 的方向——per-plugin 70%
-  walk 同时引入，让 CI 能抓住任何单 plugin 包的回归（之前
-  30 个 plugin 全 0% 拖累 60% 全局地板，现在每个 plugin 都
-  要单独 ≥ 60%）。modbus（plugin 端 readFullMBP bug）放
+- 覆盖率门槛 60% → 70%（scripts/ci-coverage-check.py）。
+  v0.5.1 时代的 60% 地板被 30+ 0% 覆盖的 adapted plugin 卡
+  住；上面的 fake-server 覆盖推进填上缺口，门槛相应抬升。
+  同时引入 per-plugin 60% walk，让 CI 能抓住任何单 plugin
+  包自己的回归。modbus（plugin 端 readFullMBP bug）放
   FLOOR_EXEMPT，跟踪为 v0.6.1 follow-up。
-- 6 字段 cron 表达式（internal/scheduler/cron.go）。解析器
-从 cron.ParseStandard（5 字段）改为 cron.NewParser
-(SecondOptional | ...)，5 或 6 字段都支持。文档化的 5
-字段形式（`0 9 * * *` 等）仍可用；6 字段（`* * * * * *`
-= 每秒）现在合法，用于快速测试和短间隔 daemon 任务。
-- 二进制内嵌 time/tzdata（main.go）。二进制 +~400 KB（压
-缩后）让 --tz 在精简容器镜像（没 /usr/share/zoneinfo）
-上也能工作。少了这个，系统 tz DB 缺失会静默回退
-time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时间静默错。v0.5.1 改为默认开启，消除"我机器行 CI 挂"
-的尴尬。
-
-### Changed
-
-- 短参全面重构（cmd/flags.go、cmd/multishort.go、cmd/multishort_test.go、
-cmd/{root,resume,scan,schedules}.go、internal/core/credential/pool.go、
-README*）。单字母短参全部小写 + mnemonic；2 字母短参用于命名空
-间 / 配对（output-* 和 user/pass-file，nmap `-oN/-oX/-oG/-oA`
-先例）；无语义的大写短参（`-M`、`-X`、`-U`、`-W`、`-P`）删
-除。**迁移表**（v0.5.0 → v0.5.1）：见上。无 deprecated
-alias 保留——硬切。实现备注：pflag v1.0.9 在注册时拒绝多字
-母 shorthand 会 panic，所以 `-ot` / `-oj` / `-oc` / `-uf` /
-`-pf` 走 cmd/multishort.go 的 50 行预解析 hook，在 cobra 看
-到 args 前改写为 `--output-txt` 等。flag-value 启发式（上
-一个 arg 是 flag 形态则跳过重写）确保字面密码如 `-p "-ot"`
-通过长形式能正确往返。
 - **CI 卫生**：.gitattributes 锁 `*.go text eol=lf`，Windows checkout（core.autocrlf=true）不会再把源文件翻 CRLF 触发 gofmt -l。顺手解掉 internal/tui/ 里 4 个已有 golangci-lint 阻塞（Stage 比较的 truncateCmp、top-N slice 的 prealloc、renderErrorCategoriesRow 里多余的 ineffectual width、ETA docstring 注释续行对齐）。TestApplySchedule_WaitCronNoDaemon 的 minute-boundary flake 也修了：测试 cron 从 `*/1 * * * *`（每分钟）换成 `0 0 1 1 *`（每年），保证 1.2s ctx 超时永远先赢。
 - **TUI 信息密度面板**（internal/tui/render.go、internal/tui/tui.go、internal/tui/styles.go、internal/types/state.go）。Header 行新增按阶段的 `[ ▶ STAGE ]` 徽章（ETA 右对齐）、扫描速率（hits/s 和 ports/s，EWMA 平滑）、每次渲染的预算。types.State 加 CountersView 投影，让视图层读稳定契约而不是改共享 map。ClassifyError（internal/core/errors.go）把扫描错误按 errors.Is/As 优先、子串 fallback 的方式路由到命名桶（timeout / refused / dns 等），TUI 底部以压缩汇总行展示 top categories。scanner 配套改造驱动新 Stage 枚举转移并填充 PluginHits / ErrorCategories。8 个单元测试 + 1 个契约测试钉住 rate EWMA、top-N 抽取、ETA 估算和 bar 尺寸。
-- 全部结果文件加 `fgqm_` 前缀（cmd/scan.go、cmd/projects.go、
-cmd/flags.go、internal/output/*_test.go、README*、docs/ARCHITECTURE.md、
-docs/SECURITY.md）。七个默认结果文件名都带 `fgqm_` 前缀，混
-合目录里一眼能认出是 fg-qimen 的产物。`targets.txt` 不加前
-缀，因为操作员手编。-o / -j / --output-csv / --output-sarif 仍
-可覆盖文件名（和路径），现有脚本管线传显式文件名继续可用。
-- 同日多次 run 文件名加 HH-MM-SS 时间戳（cmd/scan.go、
-cmd/cmd_test.go）。同日两次 run 现在产出不同文件名，不再
-互相覆盖。目录仍按 YYYY-MM-DD 分桶，时间戳打在文件名上
-（fgqm_result_14-30-22.txt 而非 fgqm_result.txt）。格式
-HH-MM-SS 本地时间（连字符分隔，兼容 Windows 文件名，且
-与 YYYY-MM-DD 风格一致）。-o / -j / --output-csv /
---output-sarif 仍可跳过时间戳——操作员传显式路径就是要精
-确路径，不自动加缀。时间戳在 scan 开始时一次性抓取，单
-次 run 的所有 sink 共享同一后缀。
-- 结果文件按日分桶（cmd/scan.go、cmd/cmd_test.go、cmd/flags.go）。
-默认结果路径现在带本地日期 YYYY-MM-DD 段，跨日扫描不会互相
-覆盖。即扫即走模式新布局（项目模式同形，在 runs/projects/<name>/
-下）：fg.db（持久化状态 / 去重 DB）保持在项目根，跨日共享；
-只有结果产物分桶。-o / -j / --output-csv / --output-sarif 仍
-接显式路径，跳过分桶（操作员传这些就是要精确路径）。桶名在
-scan 开始时一次性抓取，跨午夜扫描落到单一日桶，不会拆分结果。
 
 ### Fixed
 
 - **TUI mid-alive-sweep 计数实时更新**（internal/core/alive/cmd.go、internal/core/alive/probe.go、internal/tui/tui.go、internal/types/state.go）。原来 header 的 "alive N/M" 在 alive 阶段完成前一直停在 0/M；现在随 probe 完成即时增长。alive.Progress() 是供外部调用方观察中途探测数的公共 API。
 - **mssql plugin 真正修了一个 bug**（internal/plugins/adapted/database/mssql/mssql.go）。原 DSN `server=127.0.0.1:12345;port=...` 把端口塞进 server= 字段，go-mssqldb 的 tcpParser 不会剥离端口后缀，ParseIP 返 nil，dial 永远失败。改成 `server=127.0.0.1;port=12345;...`（host 和 port 拆成两个独立 DSN key）后驱动正确解析。Fake-server 测试在修前发现这个 bug——它不需要连真 mssql server 就暴露了"plugin 写错了"这个事实。
-## [0.5.0] - 2026-09-01
+
+## [0.5.1] - 2026-09-04
+
+v0.5.0 与 v0.6.0 之间打包发布的增量硬化：输出/文件/UX 硬化、
+短参重构、`applySchedule` 测试补齐。
+
+完整验证：`docs/verification/v0.5.1/verification.md`
+
 ### Added
+
+- **默认 `fgqm_alive.txt` 存活主机列表 sink**（cmd/scan.go、
+  internal/output/output.go、internal/output/output_test.go、
+  README.md）。一行一个 IP，内存内经 `aliveMu` 去重，并发
+  worker 不会重复写。路径为
+  `runs/<default|projects/<name>>/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt`
+  ——与其他带时间戳 sink 同一套日桶 + 时间戳方案。空 `Host`
+  是 no-op（避免会产生弄坏 `nmap -iL` 的杂散空行）。6 个单测
+  （2 路径 + 4 行为）钉住契约。
+- **`applySchedule` 单元测试**（cmd/schedule_test.go，含
+  daemon-loops 共 12 个 case）。v0.5 时该函数 0% 覆盖，现
+  **100%**。覆盖 ModeNone 早返、9 个 Resolve 错误路径（--at
+  格式错 / 过去、--in 格式错 / 0 / 负、--cron 格式错、
+  --at+--in 互斥、--daemon 无 --cron、--tz 错）、3 种 mode
+  的 dry-run、等未来时间、等 in 时长、daemon ctx 取消、
+  cron 无 daemon、并发调用 sanity。互斥 case 用
+  `errors.Is(..., scheduler.ErrInvalidCombination)` 钉死。
+- **更多 cmd/ 测试**（cmd/cmd_test.go、cmd/schedule_test.go）。
+  加 applyTransport（nil + flag 传递 + 空 KnownHosts 保护）、
+  applyHTTPForm（空 + 填）、detectScheduleMode（4 种 mode +
+  优先级）、loadScheduleTZ（空 / UTC / 非法 IANA 不 panic）
+  测试。cmd/ 单元可测代码 59.6% → 64.4%。总覆盖率仍 ~60.5%，
+  因 30+ adapted plugin 0% 覆盖——需要 fake-server 基础
+  设施（v0.6 目标）。
+
 ### Changed
-### Test coverage
-### Compatibility
-## [0.4.0] - 2026-08-30
-### Added
-### Changed
-### CI
-## [0.4.0] - 2026-08-30
-### Added
-### Coverage
-### CI
-## [0.3.1] - 2026-08-19 (original entry)
-### Security
+
+- **短参全面重构**（cmd/flags.go、cmd/multishort.go、
+  cmd/multishort_test.go、cmd/{root,resume,scan,schedules}.go、
+  internal/core/credential/pool.go、README*）。单字母短参
+  全部小写 + mnemonic；2 字母短参用于命名空间 / 配对
+  （output-* 和 user/pass-file，nmap `-oN/-oX/-oG/-oA`
+  先例）；无语义的大写短参（`-M`、`-X`、`-U`、`-W`、`-P`）
+  删除。**迁移表**（v0.5.0 → v0.5.1）：
+
+  | 旧 | 新 |
+  |---|---|
+  | `-p corp` | `--project corp` |
+  | `-M scan` | `--mode scan` |
+  | `-X http://proxy:8080` | `--proxy http://proxy:8080` |
+  | `-U users.txt` | `-uf users.txt` |
+  | `-W pass.txt` | `-pf pass.txt` |
+  | `-P admin,root` | `-p admin,root` |
+  | `-o result.txt` | `-ot result.txt` |
+  | `-j result.json` | `-oj result.json` |
+  | (无) | `-oc result.csv` (新增) |
+  | (无) | `-r` (`--resume` 短参新增) |
+
+  无 deprecated alias 保留——硬切。实现备注：pflag v1.0.9
+  在注册时拒绝多字母 shorthand 会 panic，所以 `-ot` / `-oj` /
+  `-oc` / `-uf` / `-pf` 走 cmd/multishort.go 的 50 行预解析
+  hook，在 cobra 看到 args 前改写为 `--output-txt` 等。
+  flag-value 启发式（上一个 arg 是 flag 形态则跳过重写）
+  确保字面密码如 `-p "-ot"` 通过长形式能正确往返。
+
+- **结果文件按日分桶**（cmd/scan.go、cmd/cmd_test.go、
+  cmd/flags.go）。默认结果路径现在带本地日期 YYYY-MM-DD 段，
+  跨日扫描不会互相覆盖。即扫即走模式新布局（项目模式同形，
+  在 runs/projects/<name>/ 下）：
+  ```
+  runs/default/2026-09-02/fgqm_result.txt
+  runs/default/2026-09-02/fgqm_result.json
+  runs/default/2026-09-02/fgqm_creds.txt
+  runs/default/2026-09-02/fgqm_rdp.json
+  runs/default/2026-09-02/fgqm_rdp.txt
+  ```
+  fg.db（持久化状态 / 去重 DB）保持在项目根，跨日共享；
+  只有结果产物分桶。`-ot` / `-oj` / `-oc` / `--output-sarif`
+  仍接显式路径，跳过分桶（操作员传这些就是要精确路径）。
+  桶名在 scan 开始时一次性抓取，跨午夜扫描落到单一日桶，
+  不会拆分结果。
+
+- **同日多次 run 文件名加 HH-MM-SS 时间戳**（cmd/scan.go、
+  cmd/cmd_test.go）。同日两次 run 现在产出不同文件名，不再
+  互相覆盖。目录仍按 YYYY-MM-DD 分桶，时间戳打在文件名上
+  （fgqm_result_14-30-22.txt 而非 fgqm_result.txt）。格式
+  HH-MM-SS 本地时间（连字符分隔，兼容 Windows 文件名，且
+  与 YYYY-MM-DD 风格一致）。`-ot` / `-oj` / `-oc` /
+  `--output-sarif` 仍可跳过时间戳——操作员传显式路径就是
+  要精确路径，不自动加缀。时间戳在 scan 开始时一次性抓取，
+  单次 run 的所有 sink 共享同一后缀。
+
+- **全部结果文件加 `fgqm_` 前缀**（cmd/scan.go、cmd/projects.go、
+  cmd/flags.go、internal/output/*_test.go、README*、
+  docs/ARCHITECTURE.md、docs/SECURITY.md）。七个默认结果
+  文件名都带 `fgqm_` 前缀，混合目录里一眼能认出是 fg-qimen
+  的产物。`targets.txt` 不加前缀，因为操作员手编。`-ot` /
+  `-oj` / `-oc` / `--output-sarif` 仍可覆盖文件名（和路径），
+  现有脚本管线传显式文件名继续可用。
+
+- **覆盖率地板维持 60%**（scripts/ci-coverage-check.py）。
+  原 A2 目标是 65%，但 30+ adapted plugin 0% 覆盖把总量拖
+  到 60.5%——不投入 plugin fake-server 夹具（v0.6 工作）
+  就到不了 65%。地板维持 60%，脚本 docstring 详述推迟原因。
+  cmd/ 单元可测代码已 64.4%。（v0.6.0 抬到 70% 并引入
+  per-plugin walk。）
+
+- **6 字段 cron 表达式**（internal/scheduler/cron.go）。解析器
+  从 cron.ParseStandard（5 字段）改为 cron.NewParser
+  (SecondOptional | ...)，5 或 6 字段都支持。文档化的 5
+  字段形式（`0 9 * * *` 等）仍可用；6 字段（`* * * * * *`
+  = 每秒）现在合法，用于快速测试和短间隔 daemon 任务。
+
+- **二进制内嵌 time/tzdata**（main.go）。二进制 +~400 KB
+  （压缩后）让 `--tz` 在精简容器镜像（没 /usr/share/zoneinfo）
+  上也能工作。少了这个，系统 tz DB 缺失会静默回退
+  time.Local（很多最小容器是 UTC 偏移 0）→ cron 触发时间
+  静默错。默认开启，消除"我机器行 CI 挂"的尴尬。
+
 ### Fixed
-### Docs
-## [0.3.0] - 2026-07-15
-### Security
-### Performance
+
+- **硬退出丢结果**（cmd/scan.go、cmd/cmd_test.go）。硬退出
+  路径（第二次 SIGINT 或 drain 超时）上 os.Exit(1) 跳过
+  runScan 里 defer 的 sess.Out.Close()，导致每 sink 最多
+  4 KB（默认 bufio.Writer）缓冲写入加上整个 SARIF 文档
+  不落盘。preHardExit 现在在 Quit TUI 前调
+  closeOutputForHardExit(sessOut)，让最后一行结果和完整
+  SARIF 文档在进程死前都落到磁盘。三个回归测试覆盖 nil、
+  流式（txt）、SARIF 单文档场景。
+
+## [0.5.0] - 2026-09-01
+
+跨时区定时扫描。用户经常从与目标不同时区发起扫描，需要不依赖宿主机
+cron 的调度方式。v0.5 新增 `--at` / `--in` / `--cron` / `--tz` /
+`--daemon` 做带内调度，新增 `fg-qimen schedules add | list | remove`
+子命令做存项目 DB 的持久化调度。
+
+完整验证：`docs/verification/v0.5/verification.md`
+
 ### Added
+
+- **定时扫描 flags**（`--at`、`--in`、`--cron`、`--tz`、`--daemon`、
+  `--schedule-dry-run`）：见 [CLI 参考](README.zh-CN.md#cli-reference)。
+  扫描在到达目标时间前不打开任何 socket 或文件，配置错误的调度会
+  快速失败。
+- **`fg-qimen schedules add | list | remove` 子命令**：持久化调度存
+  项目 DB（`schedules` bbolt bucket，由 `internal/scheduler/store.go`
+  惰性打开）。`add` 在解析期校验 cron 表达式，坏记录不会落库。
+- **`internal/scheduler` 包**：独立、无 cobra 依赖、可单测。持有
+  cron 解析包装、带倒计时 + ctx 取消的等待循环、bbolt store。
+
+### Changed
+
+- **新外部依赖：`github.com/robfig/cron/v3`**（二进制约 +50 KB）。
+  分类器第一轮拦下了这个依赖，按用户明确要求引入；备选方案是自写
+  约 150 行的 cron 解析器。最终选 robfig/cron/v3，因为它处理了
+  自写版本必然要重新踩坑的边界情况（DST 切换、秒字段、`@daily` /
+  `@hourly` 描述符语法）。
+
+### Test coverage
+
+`internal/scheduler/` 与 `cmd/schedule_test.go` 新增 16 个单测：
+
+- cron：合法 / 非法 / 描述符（`@hourly`、`@daily`、`@midnight`）/
+  时区加载
+- 等待：成功 / 取消 / dry-run
+- bbolt store：add / get / list / remove / 幂等 remove / 覆盖时保留
+  CreatedAt
+- CLI：detectScheduleMode（3 模式 + 空）、loadScheduleTZ（3 变体）、
+  `schedules add → list → remove` 全链路
+
+总覆盖率 60.4%（v0.4.0 时为 60.0%）。
+
+### Compatibility
+
+- `--output-rotate-bytes` / `--output-rotate-files` 更名为
+  `--rotate-bytes` / `--rotate-files`（v0.4.1 更名；`output-` 前缀
+  冗余）。无其他破坏性变更。
+- 早期 README 的"v0.4 核心改进"内容移入本 changelog；各插件的
+  `(added v0.X)` 标注也移入本 changelog。README 只描述当前行为，
+  不再按版本罗列。
+
+## [0.4.0] - 2026-08-30
+
+v0.4 周期：质量基础 + 四项核心管线改进。合并 v0.4.0-rc1 质量阶段
+（CI 绿、覆盖率 60%）与下列四项 Phase 2 功能。
+
+逐功能验证见
+`docs/verification/v0.4/verification.md`
+与 `docs/verification/v0.4/benchmarks.md`。
+
+### Added
+
+- **Phase 2.1 — Crack 模式重构**（`core.RunScan`）：RunScan 改为薄
+  派发。ModeScan / ModeLinked 走 runFullPipeline（与之前相同
+  alive → scan → identify → 可选 credential）。ModeCrack 走
+  runCrackPipeline，完全跳过 alive + 端口扫描，直接把已知的
+  host:port 列表喂给 plugin worker 池。256 主机 /24 × 6 端口的
+  crack 场景省掉旧代码多发的约 1536 次冗余 TCP 连接。
+
+- **Phase 2.2 — 代理统一**（`credential.DialTCPAddr`）：新增
+  DialTCPAddr 接收预拼的 `host:port` 字符串，走与 DialTCP 同一全局
+  proxy manager，让 `--proxy` / `--socks5` 在整个 auth 树上统一
+  生效。telnet、vnc、ssh 已从 raw `net.Dialer` 迁到新 helper。其他
+  插件（modbus、bacnet、ipmi）保留 raw `net.Dialer`——它们需要
+  UDP / 自定义协议的传输路径，统一 TCP dialer 覆盖不了。
+
+- **Phase 2.3 — 输出轮转**（`--output-rotate-bytes N`、
+  `--output-rotate-files M`）：新增 `rotatingWriter`，当
+  TXT / NDJSON / CSV / SARIF sink 跨过字节阈值时滚动。文件滚
+  `<path>` → `<path>.1` → `<path>.2` → ... 至多保留 M 个总文件。
+  `flushCloser` 重构为包装新类型。4 个单测覆盖 under-cap / at-cap /
+  beyond-cap / zero-cap。
+
+- **Phase 2.4 — `.fgq` 项目导入/导出**（`projects export` /
+  `projects import`）：单文件可移植项目转储。格式：4 字节 magic
+  `FGQ1` + 4 字节 LE uint32 header 长度 + JSON header（version、
+  project、created_at、db_bytes）+ 原始 bbolt 数据，逐字节一致。
+  CLI：`fg-qimen projects export <name> <out.fgq>` /
+  `fg-qimen projects import <in.fgq> <name>`。import 拒绝覆盖已有
+  项目，除非先 `delete`。`internal/workspace` 4 个单测 +
+  `cmd/projects_test.go` 2 个 CLI 测试。
+
+- **MQTT 插件**（1883 / 8883）：面向 MQTT 3.1.1 / 5.0 broker 的
+  Identify 插件。
+
+### Coverage
+
+- 覆盖率门槛本周期 50% → 60%（实际 ~60.0%）。
+- 本周期新增单测 9 个（`internal/workspace` 5 个、`internal/output`
+  轮转 4 个，另加 `internal/version` 1 个防 const→var ldflag 回归）。
+
+### CI
+
+- v0.4.0-rc1 的 CI exit-126 / exit-127 修复延续：actionlint 走真实
+  文件下载（不再 `bash <(curl)`）；覆盖率检查改用 Python 脚本
+  （确定性，`tail -1` 不会再吃 SIGPIPE）。
+
+## [0.3.1] - 2026-08-19（原始条目）
+
+第二批审计驱动的正确性、安全与可靠性修复。全部十个 commit 记录在
+`docs/verification/v0.3/second-batch-verification.md`；
+此处只列用户可见变更。
+
+### Security
+
+- **P1-3 — 七个 TCP 类 authenticator 的 per-attempt 读超时**
+  （telnet、rsync、vnc、modbus、nfs、rabbitmq、smb）。此前一个
+  接受 TCP 但永不回包的慢/挂服务器能把 worker 卡死整整一个
+  `cfg.Timeout`。每个 authenticator 现在在每轮凭据迭代开头调
+  `conn.SetDeadline(time.Now().Add(timeout))` —— 与 `redis.go:133`、
+  `mongo.go:97` 同一模式。
+- **P2-7 — `Output.Close()` 中 `f.Sync()`**：`flushCloser.Close()`
+  现在在 close 前 fsync 底层文件，掉电 / OOM-kill 时最后约 200ms
+  的缓冲写入不再无声丢失。
+- **P2-5 — `creds.txt` 去重**：`--resume` 或重试后重复派发的
+  `(host, port, user, pass)` 命中不再追加重复行。闸门是管线 sink
+  的 `sess.State.MarkSeen(chash)`。（bbolt 的 `PutCred` 本就幂等。）
+
+### Fixed
+
+- **P2-2 — `workersWG` 并入外层 `wg`**（`RunScan`）：此前生产者的
+  `defer close(items)` 一旦漂移，`wg.Wait()` 可能永远挂在仍活跃的
+  worker 池上。closer goroutine 现在注册到外层 `wg`，生产者挂死
+  表现为 RunScan 返回变慢，而非永久 hang。
+- **sink 错误传播（残留项）**：`persistResult` 现在检查每个
+  Output / Store 错误并经 `sess.Log.Warn` 上报，不再无声丢弃。
+- **P3-1 — BatchWriter `pendingBytes` 死代码删除**：每 op 64 KiB
+  上限恒等于一个 op，字节阈值与条数阈值在同一 op 触发，实际不可达。
+- **P3-3 — 自适应 goroutine join 延迟**：`Pool.adaptiveLoop` 改用
+  50ms 唤醒 ticker（原 `opts.AdjustInterval` 默认 500ms），循环能
+  及时看到 `stopAdj` 关闭。`adjust()` 仍经时间戳守卫节流到
+  `opts.AdjustInterval`。
+- **P3-5 — MySQL `sqlcache` 失效策略**：现在只在 MySQL 错误 1045
+  （`ER_ACCESS_DENIED`）时失效缓存。网络错误（拒绝 / 超时 /
+  server-gone）保留缓存的 `*sql.DB`，网络抖动下 Phase 1.9 热池
+  不受损。
+- **P3-7 — Pool 忙等 CPU 打满**：生产者退避改为有上限的指数退避
+  （1ms → 50ms）。饱和下 CPU 降约 50×；空槽释放的响应仍在 50ms 内。
+
+### Docs
+
+- **README 供应链验证章节**：SHA256SUMS、cosign keyless 签名、
+  CycloneDX SBOM、源码可复现性与差异上报的双语操作指引。
+- `docs/SECURITY.md` 收编完整的"无漏洞利用"硬性规则契约（从
+  README 移入）；README 保留 1 段 TL;DR。
+- `docs/` 重组：18 份历史进度 / 审计报告移入 `docs/archive/`；
+  顶层 docs 目录只留现行指南（ARCHITECTURE / CONFIGURATION /
+  PLUGIN_GUIDE / SECURITY / FIRST_BATCH_VERIFICATION /
+  SECOND_BATCH_VERIFICATION / RELEASE_NOTES_v0.2）。
+
+## [0.3.0] - 2026-07-15
+
+第一批审计驱动的正确性、性能与安全修复（7 个 commit）。全部七个
+commit 记录在
+`docs/verification/v0.3/first-batch-verification.md`；
+此处只列用户可见变更。
+
+### Security
+
+- **P0 — 项目 DB 静态加密**：`internal/store/crypto.go` 为
+  `PutResult` / `PutCred` 加值级 AES-256-GCM 加密。新 `--project-key`
+  flag（及 `FG_QIMEN_PROJECT_KEY` 环境变量）可选启用。v0.2.x 明文
+  bbolt 文件继续正常读取（前向兼容 magic bytes）。
+- **P0 — workspace 加密接线**：`workspace.AsStoreWithKey` 把派生的
+  32 字节 key 接入 `Store` 构造器；seen-set bucket 保持明文
+  （只存非机密哈希）。
+- **P1 — magic-byte AAD 绑定**：`store/crypto.go` 用 GCM AAD 把
+  magic byte 与密文绑定。magic byte 翻位会被识别为
+  `ErrDecryptFailed`，而不是把加密行静默当"明文"。
+- **P1 — host flag 注入防护**：alive `cmd` 探针拒绝以 `-` 开头的
+  host 值（否则会被解析成 `ping` 的 flag）。
+- **P1 — 优雅 resume 降级**：`--resume` 遇到损坏 bbolt 记警告并以
+  空 seen-set 继续，不再中止。
+- **P1 — 输入校验**：`--ports 99999` / `--ports abc` 现在传播解析
+  错误，不再静默跑 0 个端口。
+
+### Performance
+
+- **bbolt 批量写**：新 `store.BatchWriter` + `PutMany` 把每条结果
+  一次 fsync 摊薄成每批一次（32 ops 或 200ms）。新 `--no-batch`
+  flag 回退逐条写语义。
+- **Output per-sink 锁拆分**：`Output` 改用 6 把 per-sink 锁
+  （txt / json / creds / rdp.json / rdp.txt / csv），慢 sink 不再
+  队头阻塞其他 sink。`csv.Writer` 提升为字段，避免每行分配。
+- **`RawTCPIdentify` helper**：共享 TCP-dial 样板收敛到
+  `internal/plugins/rawtcp.go`。5 个插件（redis、memcached、
+  postgresql、mongodb、socks5）完成重构。
+- **HTTP Transport 复用**：elasticsearch 与 web 插件改用进程级
+  `http.Client`，不再每次 Identify 分配新 `http.Transport`。
+
+### Added
+
+- **CSV 输出**：新 `--output-csv` flag 写 RFC-4180 单行一结果的
+  CSV，列序稳定。脱敏策略与 `result.txt` / `result.json` 一致。
+- **稳定错误码**：`internal/types/errors.go` 定义带稳定 4 字符码的
+  `CodedError`（E001..E999）。接入 `workspace.ValidateProjectName`
+  与 `bolt.Open` 失败路径。
+- **Flag 分组**：持久 flag 携带 `group` annotation，由
+  `cmd/root.go` 的自定义 `usageTemplate` 渲染（Target、Workspace、
+  Ports、Network、Concurrency、Credentials、Output、Behavior、
+  Safety）。
+- **golangci-lint 集成**：`.golangci.yml` 启用 errcheck、govet、
+  staticcheck、revive、gocritic、gosec、errorlint、prealloc、
+  misspell。CI workflow 增加 `lint` job 跑 `only-new-issues`。
+- **CI**：govulncheck job + 覆盖率上传（仅 Linux）；`go mod tidy`
+  作为 CI 门槛；release workflow tag 触发构建，带 `cosign` keyless
+  签名与 CycloneDX SBOM 生成。
+
 ### Tests
+
+本批次测试覆盖大幅上升。要点数字（完整矩阵见
+`docs/verification/v0.3/first-batch-verification.md`）：
+
+- `internal/network/proxy`：**0% → 86.3%**
+- `internal/store`：**N/A → 61.3%**
+- `internal/output`：**86.8% → 89.5%**
+- `internal/types`：**80.2% → 80.6%**
+- `cmd`：**47.4% → 50.0%**
+
+另加约 70 个新测试用例，覆盖 FTP authenticator、BatchWriter、
+magic-byte AAD 篡改检测、alive flag 注入防护、输出并发写、
+`RawTCPIdentify` helper。
+
 ## [0.2.0] - 2026-06-15
+
+首次公开发布（v0.1 审计修复）。完整清单见
+`docs/verification/v0.2/release-notes.md`。
+
 ### Highlights
+
+- 四阶段管线（alive → 端口扫描 → 插件识别 → 凭据喷洒）。
+- 7 大类 26 个协议插件（database、email、file-storage、messaging、
+  network、remote、web）。
+- Bubbletea TUI 仪表盘，带 LIVE EVENTS 列与状态栏。
+- bbolt 项目工作区，支持 resume。
+- 多格式输出（TXT、NDJSON、creds、RDP JSON+TXT）。
+- 多平台交叉构建（justfile 5 个 OS/arch 目标）。
+- Garble 混淆 + UPX 压缩管线。
+- 每目标节流、关停排水、context 取消传播到 goroutine。

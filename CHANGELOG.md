@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 > [中文版本](CHANGELOG.zh-CN.md)
 
@@ -417,102 +417,16 @@ new per-plugin 60% walk in `scripts/ci-coverage-check.py`.
   ~20 lines of identical listener plumbing per test file before
   this; centralising it shrinks each per-plugin test to "write the
   protocol handler + assert Identify/Credential returns".
-- **`applySchedule` unit tests** (`cmd/schedule_test.go`,
-  12 cases including daemon-loops). The function was at 0%
-  coverage in v0.5; now at **100%**. Covers ModeNone early-
-  return, all 9 Resolve error paths (--at malformed / past,
-  --in malformed / zero / negative, --cron invalid,
-  --at+--in mutex, --daemon without --cron, invalid --tz),
-  dry-run for all 3 modes,
-  wait-for-future-time, wait-for-in, daemon ctx-cancel,
-  cron-without-daemon, and concurrent-call sanity. Pinned via
-  `errors.Is(..., scheduler.ErrInvalidCombination)` for
-  the mutex cases.
-
-- **More cmd/ tests** (`cmd/cmd_test.go`,
-  `cmd/schedule_test.go`). Added tests for `applyTransport`
-  (nil + flag propagation + empty-KnownHosts protection),
-  `applyHTTPForm` (empty + populated), `detectScheduleMode`
-  (all 4 mode + precedence), and `loadScheduleTZ` (empty /
-  UTC / invalid-IANA no-panic). cmd/ coverage 59.6% → 64.4%
-  on unit-testable code. The total coverage stays around 60.5%
-  because of 30+ adapted plugins (jenkins/ssh/ftp/kafka/mqtt
-  etc.) at 0% — those need fake-server infrastructure
-  (tracked as v0.6 goal).
-
-- **Default `fgqm_alive.txt` alive-host list sink**
-  (`cmd/scan.go`, `internal/output/output.go`,
-  `internal/output/output_test.go`, `README.md`,
-  `docs/verification/v0.5.1/verification.md`). One IP per line,
-  in-memory dedup'd under `aliveMu` so concurrent workers can't
-  double-write. Path is `runs/<default|projects/<name>>/<YYYY-MM-DD>/
-  fgqm_alive_<HH-MM-SS>.txt` — same daily-bucket + stamp scheme as
-  the other timestamped sinks. The empty-`Host` case is a no-op
-  (avoids stray blank lines that would break `nmap -iL`). The
-  README output-files list previously described the bare name
-  `fgqm_alive.txt`; this entry is the corresponding changelog
-  reference for that doc correction. 4 unit tests in
-  `internal/output/output_test.go` + 2 end-to-end path tests in
-  `cmd/cmd_test.go` pin the contract.
 
 ### Changed
 
-- **Coverage floor kept at 60%** (`scripts/ci-coverage-check.py`).
-  The original A2 goal was 65%, but the 30+ adapted plugins
-  at 0% coverage drag the total to 60.5% — 65% is
-  unreachable without investing in plugin fake-server
-  fixtures (v0.6 work). The floor stays at 60% with
-  extensive docstring explaining the 65% deferral. cmd/
-  unit-testable code is already at 64.4%.
-
-- **6-field cron expressions** (`internal/scheduler/cron.go`).
-  Changed parser from `cron.ParseStandard` (5-field) to
-  `cron.NewParser(SecondOptional | ...)` (5 or 6 fields). The
-  documented 5-field form (`0 9 * * *` etc.) still works; 6
-  fields (`* * * * * *` = every second) are now valid for
-  fast tests and short-interval daemon jobs.
-
-- **Embed `time/tzdata` in binary** (`main.go`). Adds ~400 KB
-  (compressed) to the binary so `--tz` works on stripped
-  container images that don't ship `/usr/share/zoneinfo`.
-  Without this, a missing system tz DB silently falls back
-  to `time.Local` (UTC offset 0 in many minimal containers),
-  producing wrong cron fire times. v0.5.1 makes this default-
-  on to eliminate the "works on my machine, breaks in CI"
-  surprise.
-
-### Changed
-
-- **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
-  `cmd/multishort_test.go`, `cmd/{root,resume,scan,schedules}.go`,
-  `internal/core/credential/pool.go`, `README*`). Single-letter
-  shorts are now all lowercase and mnemonic; 2-letter shorts
-  are used for namespaced / paired flags (output-* and
-  user/pass-file, nmap `-oN/-oX/-oG/-oA` precedent); awkward
-  uppercase shorts with no mnemonic (`-M`, `-X`, `-U`, `-W`,
-  `-P`) are removed. **Migration table** (v0.5.0 → v0.5.1):
-
-  | 旧 | 新 |
-  |---|---|
-  | `-p corp` | `--project corp` |
-  | `-M scan` | `--mode scan` |
-  | `-X http://proxy:8080` | `--proxy http://proxy:8080` |
-  | `-U users.txt` | `-uf users.txt` |
-  | `-W pass.txt` | `-pf pass.txt` |
-  | `-P admin,root` | `-p admin,root` |
-  | `-o result.txt` | `-ot result.txt` |
-  | `-j result.json` | `-oj result.json` |
-  | (无) | `-oc result.csv` (新增) |
-  | (无) | `-r` (`--resume` 短参新增) |
-
-  No deprecated aliases kept — clean break. Underlying impl
-  notes: pflag v1.0.9 panics on multi-char shorthands at
-  registration, so `-ot` / `-oj` / `-oc` / `-uf` / `-pf` go
-  through a 50-line pre-parse hook in `cmd/multishort.go`
-  that rewrites them to `--output-txt` etc. before cobra
-  sees the args. A flag-value heuristic (skip rewrite when
-  the previous arg is flag-shaped) ensures literal passwords
-  like `-p "-ot"` round-trip correctly via the long form.
+- **Coverage floor 60% → 70%** (`scripts/ci-coverage-check.py`).
+  The v0.5.1-era 60% floor was capped by 30+ adapted plugins
+  sitting at 0% coverage; the fake-server push above closes that
+  gap and the gate rises accordingly. A new per-plugin 60% floor
+  walk lets CI catch any single plugin package regressing on its
+  own. modbus (plugin-side `readFullMBP` bug) goes on
+  `FLOOR_EXEMPT`, tracked as a v0.6.1 follow-up.
 
 - **CI hygiene**: `.gitattributes` pins `*.go text eol=lf` so
   Windows checkouts (`core.autocrlf=true`) no longer flip
@@ -573,75 +487,6 @@ new per-plugin 60% walk in `scripts/ci-coverage-check.py`.
   映真实状态。8 个单元测试 + 1 个契约测试钉住 rate EWMA、
   top-N 抽取、ETA 估算和 bar 尺寸。
 
-- **In-process fake-server helpers for adapted-plugin
-  tests** (`internal/fakeserver/fakeserver.go`,
-  `internal/fakeserver/*_test.go`). A small shared
-  package that stands up a `httptest`-style fake for each
-  plugin family (HTTP, TCP, UDP, custom) so the adapted
-  plugins can drop their hardcoded test endpoints and be
-  exercised under deterministic, in-process I/O. This is
-  the foundation for the v0.6.0 80%-coverage goal (the
-  current 60% floor is capped by the 30+ plugins sitting at
-  0%).
-
-  适配 plugin 测试用 in-process fake-server helpers
-  （internal/fakeserver/fakeserver.go、
-  internal/fakeserver/*_test.go）。一个小型共享包，为各
-  plugin 家族（HTTP、TCP、UDP、custom）起一个 httptest 风
-  格的 fake，让适配 plugin 不用再依赖硬编码的测试端点，在
-  确定性的进程内 I/O 下被测试。这是 v0.6.0 80% 覆盖率目标
-  的底座（当前 60% 地板被 30+ 0% 覆盖的 plugin 卡住）。
-
-- **`fgqm_` prefix on all result files** (`cmd/scan.go`,
-  `cmd/projects.go`, `cmd/flags.go`, `internal/output/*_test.go`,
-  `README*`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`).
-  All seven default result filenames now carry the `fgqm_`
-  prefix so they're identifiable as fg-qimen's in mixed
-  directories (`fgqm_result.txt`, `fgqm_result.json`,
-  `fgqm_result.csv`, `fgqm_result.sarif`, `fgqm_creds.txt`,
-  `fgqm_rdp.json`, `fgqm_rdp.txt`). `targets.txt` stays
-  unprefixed because operators edit it by hand. The `-o` /
-  `-j` / `--output-csv` / `--output-sarif` flags still let
-  callers override the filename (and the path), so existing
-  scripted pipelines that pass an explicit filename continue
-  to work.
-
-- **Per-run HH-MM-SS stamp on filenames** (`cmd/scan.go`,
-  `cmd/cmd_test.go`). Two runs on the same day now produce
-  distinct filenames instead of overwriting each other. The
-  directory is still bucketed by `YYYY-MM-DD`; the timestamp
-  goes on the file (`fgqm_result_14-30-22.txt` rather than
-  `fgqm_result.txt`). Format is `HH-MM-SS` local-time
-  (dash-separated for Windows-filename compatibility and to
-  match the `YYYY-MM-DD` style). `-o` / `-j` /
-  `--output-csv` / `--output-sarif` still bypass the stamp —
-  operators who pass explicit paths want their exact path,
-  not an auto-decorated one. The stamp is captured once at
-  scan start, so all sinks in a single run share the same
-  suffix.
-
-- **Daily-bucketed result directories** (`cmd/scan.go`,
-  `cmd/cmd_test.go`, `cmd/flags.go`). Default result-file paths
-  now include a local-date `YYYY-MM-DD` segment so multi-day
-  scans against the same project don't clobber each other.
-  New layout (ephemeral mode shown, project mode is the same
-  shape under `runs/projects/<name>/`):
-  ```
-  runs/default/2026-09-02/result.txt
-  runs/default/2026-09-02/result.json
-  runs/default/2026-09-02/creds.txt
-  runs/default/2026-09-02/rdp.json
-  runs/default/2026-09-02/rdp.txt
-  ```
-  `fg.db` (the persistent state / dedup DB) stays at the
-  project root and is shared across days — only result
-  artifacts are bucketed. The `-o` / `-j` / `--output-csv` /
-  `--output-sarif` flags still take an explicit path and
-  bypass the bucketing (operators who pass these want their
-  exact path, not an auto-bucketed one). The bucket name is
-  captured once at scan start, so a run that crosses midnight
-  lands in a single folder rather than splitting its results.
-
 ### Fixed
 
 - **TUI mid-alive-sweep counter shows real progress**
@@ -662,6 +507,172 @@ new per-plugin 60% walk in `scripts/ci-coverage-check.py`.
   在 alive 阶段完成前一直停在 0/M；现在随 probe 完成即时
   增长。alive.Progress() 是供外部调用方观察中途探测数的
   公共 API，不用耦合到 scanner 的内部 channel 布局。
+
+- **mssql plugin DSN bug** (`internal/plugins/adapted/database/mssql/mssql.go`,
+  commit `45a19b3`). The old DSN `server=127.0.0.1:12345;port=...`
+  stuffed the port into the `server=` field; go-mssqldb's `tcpParser`
+  doesn't strip a port suffix, `ParseIP` returned nil and every dial
+  failed. Split into `server=127.0.0.1;port=12345;...` (host and port
+  as separate DSN keys) and the driver parses correctly. Surfaced by
+  the fake-server tests before they ever needed a real mssql server.
+
+  mssql 插件 DSN bug（internal/plugins/adapted/database/mssql/mssql.go，
+  commit `45a19b3`）。原 DSN `server=127.0.0.1:12345;port=...` 把端口
+  塞进 server= 字段，go-mssqldb 的 tcpParser 不会剥离端口后缀，
+  ParseIP 返 nil，dial 永远失败。改成 `server=127.0.0.1;port=12345;...`
+  （host 和 port 拆成两个独立 DSN key）后驱动正确解析。Fake-server
+  测试在不需要真 mssql server 的情况下就发现了这个 bug。
+
+## [0.5.1] - 2026-09-04
+
+Incremental hardening bundled between v0.5.0 and v0.6.0:
+output/file/UX hardening, the short-flag overhaul, and the
+`applySchedule` test push.
+
+Full verification: `docs/verification/v0.5.1/verification.md`
+
+### Added
+
+- **Default `fgqm_alive.txt` alive-host list sink**
+  (`cmd/scan.go`, `internal/output/output.go`,
+  `internal/output/output_test.go`, `README.md`). One IP per line,
+  in-memory dedup'd under `aliveMu` so concurrent workers can't
+  double-write. Path is
+  `runs/<default|projects/<name>>/<YYYY-MM-DD>/fgqm_alive_<HH-MM-SS>.txt`
+  — same daily-bucket + stamp scheme as the other timestamped
+  sinks. The empty-`Host` case is a no-op (avoids stray blank
+  lines that would break `nmap -iL`). 6 unit tests (2 path +
+  4 behaviour) pin the contract.
+
+- **`applySchedule` unit tests** (`cmd/schedule_test.go`,
+  12 cases including daemon-loops). The function was at 0%
+  coverage in v0.5; now at **100%**. Covers ModeNone early-
+  return, all 9 Resolve error paths (--at malformed / past,
+  --in malformed / zero / negative, --cron invalid,
+  --at+--in mutex, --daemon without --cron, invalid --tz),
+  dry-run for all 3 modes,
+  wait-for-future-time, wait-for-in, daemon ctx-cancel,
+  cron-without-daemon, and concurrent-call sanity. Pinned via
+  `errors.Is(..., scheduler.ErrInvalidCombination)` for
+  the mutex cases.
+
+- **More cmd/ tests** (`cmd/cmd_test.go`,
+  `cmd/schedule_test.go`). Added tests for `applyTransport`
+  (nil + flag propagation + empty-KnownHosts protection),
+  `applyHTTPForm` (empty + populated), `detectScheduleMode`
+  (all 4 mode + precedence), and `loadScheduleTZ` (empty /
+  UTC / invalid-IANA no-panic). cmd/ coverage 59.6% → 64.4%
+  on unit-testable code. The total coverage stays around 60.5%
+  because of 30+ adapted plugins (jenkins/ssh/ftp/kafka/mqtt
+  etc.) at 0% — those need fake-server infrastructure
+  (tracked as v0.6 goal).
+
+### Changed
+
+- **Short-flag overhaul** (`cmd/flags.go`, `cmd/multishort.go`,
+  `cmd/multishort_test.go`, `cmd/{root,resume,scan,schedules}.go`,
+  `internal/core/credential/pool.go`, `README*`). Single-letter
+  shorts are now all lowercase and mnemonic; 2-letter shorts
+  are used for namespaced / paired flags (output-* and
+  user/pass-file, nmap `-oN/-oX/-oG/-oA` precedent); awkward
+  uppercase shorts with no mnemonic (`-M`, `-X`, `-U`, `-W`,
+  `-P`) are removed. **Migration table** (v0.5.0 → v0.5.1):
+
+  | 旧 | 新 |
+  |---|---|
+  | `-p corp` | `--project corp` |
+  | `-M scan` | `--mode scan` |
+  | `-X http://proxy:8080` | `--proxy http://proxy:8080` |
+  | `-U users.txt` | `-uf users.txt` |
+  | `-W pass.txt` | `-pf pass.txt` |
+  | `-P admin,root` | `-p admin,root` |
+  | `-o result.txt` | `-ot result.txt` |
+  | `-j result.json` | `-oj result.json` |
+  | (无) | `-oc result.csv` (新增) |
+  | (无) | `-r` (`--resume` 短参新增) |
+
+  No deprecated aliases kept — clean break. Underlying impl
+  notes: pflag v1.0.9 panics on multi-char shorthands at
+  registration, so `-ot` / `-oj` / `-oc` / `-uf` / `-pf` go
+  through a 50-line pre-parse hook in `cmd/multishort.go`
+  that rewrites them to `--output-txt` etc. before cobra
+  sees the args. A flag-value heuristic (skip rewrite when
+  the previous arg is flag-shaped) ensures literal passwords
+  like `-p "-ot"` round-trip correctly via the long form.
+
+- **Daily-bucketed result directories** (`cmd/scan.go`,
+  `cmd/cmd_test.go`, `cmd/flags.go`). Default result-file paths
+  now include a local-date `YYYY-MM-DD` segment so multi-day
+  scans against the same project don't clobber each other.
+  New layout (ephemeral mode shown, project mode is the same
+  shape under `runs/projects/<name>/`):
+  ```
+  runs/default/2026-09-02/fgqm_result.txt
+  runs/default/2026-09-02/fgqm_result.json
+  runs/default/2026-09-02/fgqm_creds.txt
+  runs/default/2026-09-02/fgqm_rdp.json
+  runs/default/2026-09-02/fgqm_rdp.txt
+  ```
+  `fg.db` (the persistent state / dedup DB) stays at the
+  project root and is shared across days — only result
+  artifacts are bucketed. The `-ot` / `-oj` / `-oc` /
+  `--output-sarif` flags still take an explicit path and
+  bypass the bucketing (operators who pass these want their
+  exact path, not an auto-bucketed one). The bucket name is
+  captured once at scan start, so a run that crosses midnight
+  lands in a single folder rather than splitting its results.
+
+- **Per-run HH-MM-SS stamp on filenames** (`cmd/scan.go`,
+  `cmd/cmd_test.go`). Two runs on the same day now produce
+  distinct filenames instead of overwriting each other. The
+  directory is still bucketed by `YYYY-MM-DD`; the timestamp
+  goes on the file (`fgqm_result_14-30-22.txt` rather than
+  `fgqm_result.txt`). Format is `HH-MM-SS` local-time
+  (dash-separated for Windows-filename compatibility and to
+  match the `YYYY-MM-DD` style). `-ot` / `-oj` / `-oc` /
+  `--output-sarif` still bypass the stamp — operators who
+  pass explicit paths want their exact path, not an
+  auto-decorated one. The stamp is captured once at scan
+  start, so all sinks in a single run share the same suffix.
+
+- **`fgqm_` prefix on all result files** (`cmd/scan.go`,
+  `cmd/projects.go`, `cmd/flags.go`, `internal/output/*_test.go`,
+  `README*`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`).
+  All seven default result filenames now carry the `fgqm_`
+  prefix so they're identifiable as fg-qimen's in mixed
+  directories (`fgqm_result.txt`, `fgqm_result.json`,
+  `fgqm_result.csv`, `fgqm_result.sarif`, `fgqm_creds.txt`,
+  `fgqm_rdp.json`, `fgqm_rdp.txt`). `targets.txt` stays
+  unprefixed because operators edit it by hand. The `-ot` /
+  `-oj` / `-oc` / `--output-sarif` flags still let callers
+  override the filename (and the path), so existing scripted
+  pipelines that pass an explicit filename continue to work.
+
+- **Coverage floor stays at 60%** (`scripts/ci-coverage-check.py`).
+  The original A2 goal was 65%, but the 30+ adapted plugins
+  at 0% coverage drag the total to 60.5% — 65% is
+  unreachable without investing in plugin fake-server
+  fixtures (v0.6 work). The floor stays at 60% with
+  extensive docstring explaining the 65% deferral. cmd/
+  unit-testable code is already at 64.4%. (Raised to 70%
+  with a per-plugin walk in v0.6.0.)
+
+- **6-field cron expressions** (`internal/scheduler/cron.go`).
+  Changed parser from `cron.ParseStandard` (5-field) to
+  `cron.NewParser(SecondOptional | ...)` (5 or 6 fields). The
+  documented 5-field form (`0 9 * * *` etc.) still works; 6
+  fields (`* * * * * *` = every second) are now valid for
+  fast tests and short-interval daemon jobs.
+
+- **Embed `time/tzdata` in binary** (`main.go`). Adds ~400 KB
+  (compressed) to the binary so `--tz` works on stripped
+  container images that don't ship `/usr/share/zoneinfo`.
+  Without this, a missing system tz DB silently falls back
+  to `time.Local` (UTC offset 0 in many minimal containers),
+  producing wrong cron fire times. Default-on to eliminate
+  the "works on my machine, breaks in CI" surprise.
+
+### Fixed
 
 - **Hard-exit data loss on result sinks** (`cmd/scan.go`,
   `cmd/cmd_test.go`). On the hard-exit path — second SIGINT
@@ -697,7 +708,7 @@ project DB. / 跨时区定时扫描。用户经常从与目标不同时区发起
 `fg-qimen schedules add | list | remove` 子命令做存项目 DB
 的持久化调度。
 
-Full verification: [`docs/verification/v0.5/verification.md`](docs/verification/v0.5/verification.md)
+Full verification: `docs/verification/v0.5/verification.md`
 
 ### Added
 
@@ -751,52 +762,6 @@ Total coverage now 60.4% (was 60.0% in v0.4.0).
 
 ## [0.4.0] - 2026-08-30
 
-### Added
-
-- **Crack-mode refactor** (`core.RunScan`): `ModeCrack` now
-  skips the alive + port-scan stages and feeds a pre-known
-  host:port list straight into the plugin worker pool. A
-  256-host /24 × 6-port crack now skips ~1536 redundant TCP
-  connects vs. the previous mode-conditional path.
-- **Proxy unification** (`--proxy` / `--socks5`): all
-  auth-tree TCP dial sites route through
-  `credential.DialTCP` (or `credential.DialTCPAddr` for
-  pre-joined `host:port` strings), so the global proxy
-  manager applies uniformly. Telnet, VNC, SSH migrated;
-  remaining UDP / custom-protocol plugins to follow.
-- **Output rotation** (`--output-rotate-bytes N` +
-  `--output-rotate-files M`): size-based rolling-file for
-  TXT / NDJSON / CSV / SARIF sinks. Files rotate `<path>` →
-  `<path>.1` → `<path>.2` → ... up to M total. Both flags
-  must be > 0 to enable rotation; either 0 keeps the
-  pre-v0.4 single-file behavior.
-- **`.fgq` project import/export** (`projects export <name>
-  <out.fgq>` / `projects import <in.fgq> <name>`): portable
-  single-file project dump (4-byte magic `FGQ1` + JSON header
-  + raw bbolt data). Format is forward-compatible across
-  releases.
-- **MQTT plugin** (1883 / 8883): Identify plugin for
-  MQTT 3.1.1 / 5.0 brokers.
-- **CLI ergonomics** (v0.4.1): short aliases added — `-U`
-  (`--user-file`), `-W` (`--pass-file`), `-M` (`--mode`),
-  `-X` (`--proxy`). The two `--output-rotate-*` flags
-  shortened to `--rotate-*`. The audit added 10 missing
-  plugins to the README plugin table (snmpv3, rdpnla,
-  activemq, kafka, rocketmq, jenkins, kibana, weblogic,
-  aws, azure).
-
-### Changed
-
-- **Coverage gate 50% → 60%** (CI fails below 60%).
-
-### CI
-
-- Fixed exit-126 / exit-127 in actionlint + coverage step
-  (actionlint now downloads via a real file, not `bash
-  <(curl)`; coverage uses a Python script).
-
-## [0.4.0] - 2026-08-30
-
 v0.4 cycle: quality foundation + four core pipeline improvements.
 Combines the v0.4.0-rc1 quality pass (CI green, coverage 60%)
 with the four Phase 2 features below. / v0.4 周期：质量基础 + 四
@@ -804,8 +769,8 @@ with the four Phase 2 features below. / v0.4 周期：质量基础 + 四
 与下列四项 Phase 2 功能。
 
 Full per-feature verification lives in
-[`docs/verification/v0.4/verification.md`](docs/verification/v0.4/verification.md)
-and [`docs/verification/v0.4/benchmarks.md`](docs/verification/v0.4/benchmarks.md).
+`docs/verification/v0.4/verification.md`
+and `docs/verification/v0.4/benchmarks.md`.
 
 ### Added
 
@@ -860,6 +825,10 @@ and [`docs/verification/v0.4/benchmarks.md`](docs/verification/v0.4/benchmarks.m
   magic `FGQ1` + 4 字节 header 长度 + JSON header + 原始 bbolt
   数据。CLI 两条新命令。
 
+- **MQTT plugin** (1883 / 8883): Identify plugin for
+  MQTT 3.1.1 / 5.0 brokers. / MQTT 插件：面向 MQTT 3.1.1 / 5.0
+  broker 的 Identify 插件。
+
 ### Coverage
 
 - Coverage gate bumped 50% → 60% in this cycle (actual ~60.0%).
@@ -878,7 +847,7 @@ and [`docs/verification/v0.4/benchmarks.md`](docs/verification/v0.4/benchmarks.m
 
 Second batch of audit-driven correctness, security, and reliability
 fixes. All ten commits are documented in
-[`docs/verification/v0.3/second-batch-verification.md`](docs/verification/v0.3/second-batch-verification.md);
+`docs/verification/v0.3/second-batch-verification.md`;
 this entry lists the user-visible deltas only.
 
 ### Security
@@ -944,7 +913,7 @@ this entry lists the user-visible deltas only.
 
 First batch of audit-driven correctness, performance, and security
 fixes (7 commits). All seven commits are documented in
-[`docs/verification/v0.3/first-batch-verification.md`](docs/verification/v0.3/first-batch-verification.md);
+`docs/verification/v0.3/first-batch-verification.md`;
 this entry lists the user-visible deltas only.
 
 ### Security
@@ -1007,7 +976,7 @@ this entry lists the user-visible deltas only.
 ### Tests
 
 Test coverage rose materially in this batch. Headline numbers
-(see [`docs/verification/v0.3/first-batch-verification.md`](docs/verification/v0.3/first-batch-verification.md) for the full matrix):
+(see `docs/verification/v0.3/first-batch-verification.md` for the full matrix):
 
 - `internal/network/proxy`: **0% → 86.3%**
 - `internal/store`: **N/A → 61.3%**
@@ -1022,7 +991,7 @@ concurrent-writes, and the `RawTCPIdentify` helper.
 ## [0.2.0] - 2026-06-15
 
 Initial public release (audit fixes from v0.1).
-See [docs/verification/v0.2/release-notes.md](docs/verification/v0.2/release-notes.md) for the full list.
+See `docs/verification/v0.2/release-notes.md` for the full list.
 
 ### Highlights
 

@@ -1,18 +1,17 @@
 # FG-QiMen
 
-> **功能多 ≠ 好。** 纯扫描器 + 凭证测试器。漏洞利用、持久化、后认证动作——
-> 一概不做，这是设计原则。
+> **功能多 ≠ 更好。** 纯扫描器 + 凭据测试器。无漏洞利用、无持久化、无认证后动作——设计使然。
 
-> 一个带项目工作区的管道扫描器
+> 把扫描与识别做到极致：足够全、足够深、足够快、足够稳。
 
-FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫描（producer）**
-和**插件 worker（consumer）**解耦。支持三种运行模式（`scan` / `crack` /
-`linked`）和两种工作模式（即扫即走 vs 带 bbolt 状态的增量项目工作区）。
+FG-QiMen 是一个纯 CLI 扫描器，通过 Go channel 管线解耦**端口扫描器（生产者）**与
+**插件 worker（消费者）**。支持三种运行模式（`scan` / `crack` / `linked`）与两种工作
+模式（即扫即走 vs 带持久化 bbolt 状态的项目工作区）。
 
-[English](README.md) · [发行版](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
+[English](README.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
-┌─ FG-QIMEN 0.7.0-dev ── project: corp-intranet ── mode: linked ─┐
+┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ─┐
 │  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 18/24  ports ▓▓░░░░░░░░░░░░░░░░░░░░ 142/8000  rate 142 pps · 28 hits/s  ▁▂▃▅▇▅▃▂▁
 ├────────────────────────────────────────────────────────────────┤
 │ LIVE EVENTS                                                     │
@@ -37,10 +36,64 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 
 ---
 
-## 纯扫描器
+## 纯扫描器定位
 
-扫描器 + 凭证测试器——可用于授权红队 recon。项目本身不带漏洞利用、无后认证动作、
-不留持久化。完整契约见 [`docs/SECURITY.md`](docs/SECURITY.zh-CN.md)。
+扫描器 + 凭据测试器，用于授权场景。FG-QiMen 止步于扫描、识别与凭据
+验证——无漏洞利用、无认证后动作、无持久化。这是战术选择，不是功能
+缺失：
+
+- **攻击流量是最显眼的流量。** 在有防护的内网，最容易触发告警的恰恰
+  是未授权访问尝试与 POC 投放；纯扫描可以在防守方察觉之前安静跑完。
+  噪声预算留给下一步那一次有针对性的动作。
+- **现成的攻击天然价值有限。** 对随机目标投放通用 exploit，几乎总是
+  输给人工读完结构化结果后挑出的那一个目标。
+- **交付物是决策级数据。** 结构化服务身份、Web/TLS 指纹、凭据命中
+  ——机器负责测绘地形，人负责瞄准下一步动作。
+
+完整契约见 [`docs/SECURITY.zh-CN.md`](docs/SECURITY.zh-CN.md)。
+
+---
+
+## 为什么是 FG-QiMen
+
+一个二进制，两种姿态：既是日常资产盘点用的**普通内网扫描器**，也是
+实战中的**低噪声、高自由度红队/APT 侦察工具**——后者场景下每一包
+流量都要"物有所值"。支撑两者的不是"功能更多"，而是三项承诺：
+
+1. **先测量，再扫描。** 环境画像先对目标集采样 RTT 与丢包，再从活数据
+   推导超时与并发：64 样本 RTT 环的 mean+4σ 超时、慢启动 + AIMD 拥塞控制
+   线程池。快速局域网把 3s 等待压到 ~600ms（**≈5× 提速**）；丢包严重的
+   广域网主动退避，而不是陷入重试风暴。你显式设置的值永远赢。
+2. **识别，而不只是连通。** 每个服务命中都带结构化
+   `product`/`version`/`confidence` 身份三元组——TCP 默认开启，UDP
+   （`--udp`）探测可选，payload 来自 nmap。Web 命中额外给出状态码/标题/
+   Server/命中指纹；HTTPS 再加 **TLS 叶子证书身份**（SAN/CN 字段经常
+   暴露 banner 匹配永远看不到的内网主机名）；RDP 给出 build/NLA/OS 姿态。
+3. **交付证据，而不是承诺。** 每个发布都带 cosign 无密钥签名、CycloneDX +
+   SPDX SBOM、SLSA L2 来源证明——运行前可验证，也可从 tag 重建后逐字节
+   比对哈希。
+
+### 正面对比
+
+| 维度 | 固定参数扫描器 | FG-QiMen |
+|---|---|---|
+| **超时** | 单一静态单次探测值——filtered 端口每台主机都白等一遍 | 64 样本 RTT 环的 mean+4σ：快速局域网 3s → ~600ms（**≈5× 提速**），慢路径保留操作员上限 |
+| **并发** | 固定线程数；一个拥塞网段拖垮整轮扫描 | AIMD 线程池——慢启动、健康时加性增长、拥塞/RTT 信号触发乘性回退；`--threads` 始终是硬上限 |
+| **死目标浪费** | 每个网段每台主机都探 | 两阶段 /24 网关预筛 + 主机排除（CIDR、范围、`192`/`172`/`10` RFC1918 快捷方式）——死网段零流量 |
+| **服务覆盖** | 仅 TCP | 可选 UDP 探测（nmap payload 库），与 TCP 同构的结构化身份（`--udp`、`--udp-strict`） |
+| **身份深度** | "端口开放" + 原始 banner | 结构化 product/version/confidence；Web：状态码/标题/Server/指纹 + TLS SAN/CN；RDP：build/NLA/OS |
+| **状态与恢复** | 一次成型；Ctrl+C 意味着整轮重来 | bbolt 项目工作区：resume、prune、export/import、cron 调度 |
+| **操作员体验** | 日志行刷屏滚过 | 实时 TUI（阶段 ETA、命中流、插件榜、错误分类）或干净纯文本；txt/json/csv sink + 日桶 |
+| **供应链** | 裸二进制 | cosign 签名、双 SBOM、SLSA L2 来源证明、CI action 锁定 SHA——先验证再运行 |
+
+### 实际收益
+
+- **健康的 /24 局域网**：画像收紧超时预算，线程池爬满并发，一轮扫描
+  秒级完成——产出结构化 JSON，可直接喂给其他工具。
+- **丢包的 VPN/广域网**：线程池乘性退避而不是硬打——更少的假"不可达"
+  结论，更少的重试风暴。
+- **被打断的扫描**：Ctrl+C 排空管线并落盘状态；`resume` 接着跑，
+  而不是从零再来。
 
 ---
 
@@ -50,19 +103,19 @@ FG-QiMen 是一个**纯 CLI 扫描器**，通过 Go channel 管道把**端口扫
 # 即扫即走
 fg-qimen -H 192.168.1.0/24
 
-# 项目模式 + bbolt 状态
+# 持久化项目（bbolt 状态）
 fg-qimen --project corp -H 10.0.0.0/24 --mode linked
 
-# 续传项目
+# 恢复暂停的项目
 fg-qimen resume --project corp
 
-# 列出所有项目
+# 列出项目
 fg-qimen projects list
 ```
 
 ### 构建
 
-需要 Go 1.22+ 和 [`just`](https://github.com/casey/just)。
+需要 Go 1.26+ 与 [`just`](https://github.com/casey/just)。
 
 ```bash
 just build         # → release/fg-qimen[.exe]
@@ -73,7 +126,7 @@ just --list
 ### 基本扫描
 
 ```bash
-# 扫 /24 网段，使用默认端口
+# /24 网段 + 默认端口
 fg-qimen -H 192.168.1.0/24
 
 # 指定端口
@@ -83,26 +136,16 @@ fg-qimen -H 192.168.1.0/24 --ports 22,80,443,3389,8080
 fg-qimen -H 10.0.0.5 --ports 22,80,3306,6379,8080 -t 50
 
 # 自定义输出路径
-fg-qimen -H 10.0.0.5 -o myscan.txt -j myscan.json
+fg-qimen -H 10.0.0.5 -ot myscan.txt -oj myscan.json
 ```
 
-> **提示 — 别让扫描输出污染仓库根**：默认工作区（结果 sink、
-> bbolt 状态、日桶）建在相对 cwd 的 `./fgqm_workspace`。用
-> `--workspace <dir>` 或环境变量 `FGQI_WORKSPACE`（flag 优先）把它
-> 指到别处，调试 run 和临时扫描就不会弄脏项目目录。
-> / **Tip — keep scan output out of the repo root:** by default the
-> workspace (result sinks, bbolt state, daily buckets) is created at
-> `./fgqm_workspace` relative to the cwd. Point it elsewhere with
-> `--workspace <dir>` or the `FGQI_WORKSPACE` env var (flag wins) so
-> debug runs and scratch scans never litter the project directory.
+> **提示 — 别让扫描输出污染仓库根**：默认工作区（结果 sink、bbolt 状态、日桶）
+> 建在相对 cwd 的 `./fgqm_workspace`。用 `--workspace <dir>` 或环境变量
+> `FGQI_WORKSPACE`（flag 优先）把它指到别处，调试 run 和临时扫描就不会弄脏项目目录。
 
-> **提示 — Windows 下加速存活探测**：非管理员无法打开 ICMP raw
-> socket，存活探测会退化为逐主机 spawn `ping.exe`（可用但较慢）。
-> 用管理员终端运行扫描器即可启用快速 ICMP 路径。
-> / **Tip — faster alive discovery on Windows:** without elevation
-> the ICMP prober cannot open a raw socket, so alive detection falls
-> back to spawning `ping.exe` per host (works, but slower). Run the
-> scanner from an elevated shell to enable the fast ICMP path.
+> **提示 — Windows 下加速存活探测**：非管理员无法打开 ICMP raw socket，存活探测
+> 会退化为逐主机 spawn `ping.exe`（可用但较慢）。用管理员终端运行扫描器即可启用
+> 快速 ICMP 路径。
 
 ### 项目模式
 
@@ -110,41 +153,49 @@ fg-qimen -H 10.0.0.5 -o myscan.txt -j myscan.json
 # 一次性创建项目
 fg-qimen projects create corp-intranet
 
-# 录入目标
+# 填入目标
 echo "10.0.0.0/24"   >  fgqm_workspace/projects/corp-intranet/targets.txt
 echo "10.0.1.0/24"   >> fgqm_workspace/projects/corp-intranet/targets.txt
 
-# linked 模式（扫描 + 凭据测试 一把过）
+# linked 模式（扫描 + 凭据测试一轮完成）
 fg-qimen --project corp-intranet -f fgqm_workspace/projects/corp-intranet/targets.txt --mode linked \
     -u root,admin -p 123456,admin P@ssw0rd
 
-# 续传 / 查看信息
+# 恢复 / 详情
 fg-qimen resume --project corp-intranet
 fg-qimen projects info corp-intranet
 
-# 保留策略：删除早于截止时间的续传状态（已见 hash）。
-# results / creds 永不触碰。--yes 跳过确认提示。
+# 保留策略：删除早于截止日期的恢复状态（seen-hashes）。
+# 结果 / 凭据文件永不触碰。--yes 跳过确认提示。
 fg-qimen projects prune corp-intranet --before 2026-09-01 --compact --yes
 ```
 
-### TUI 模式
+### TUI
 
-TUI 在 stdout 是 TTY 时**默认开启**。强制纯文本：
+stdout 为 TTY 时 TUI **默认开启**。用 `--no-tui` 强制纯文本输出。
 
-```bash
-fg-qimen -H 127.0.0.1 --no-tui
-```
+仪表盘由 3 断点响应式布局（窄 <80 / 中 80–119 / 宽 ≥120 列）驱动的六个区域
+组成；宽终端把 STAGE 与 TOP PLUGINS 并排放，窄终端堆叠：
 
-仪表盘由六个区域组成，按 3 断点响应式布局排布（narrow <80 / medium 80–119 / wide ≥120 列）；宽终端把 STAGE 和 TOP PLUGINS 并排放置，窄终端堆叠：
+- **Header**：右侧带 ETA 的分阶段 `[ ▶ STAGE ]` 徽标（`[ ▶ ALIVE ]   ETA ~12s`）；
+  扫描速率 hits/s 与 ports/s（EWMA 平滑）加 60 样本 hits/s 迷你走势图；
+  alive 扫描进行中 "alive N/M" 计数随探测完成实时跳动（不再是直到 alive
+  阶段结束才从 0 跳变）。
+- **LIVE EVENTS**：固定环形缓冲的最后 20 条事件（永不增长），按严重度着色
+  （`✓` 凭据命中、`✗` 错误、`⚠` 警告）；每条命中红色闪烁约 200ms。窄终端隐藏；
+  `L` 叠层显示最近 5 条。
+- **STAGE**（左/上）：alive 与 ports 以 `▓/░` 进度条对照总量渲染；
+  results / creds / errors 保持纯计数。
+- **TOP PLUGINS**（右/下）：本轮命中最多的 5 个插件，固定宽度条形图，左侧
+  `[plugin N]` 名称 + `████░░` 占比条。
+- **ERRORS**（底部）：紧凑的 `ERRORS: timeout 42  refused 15` 一行；`e` 展开为
+  top-4 分类条形，`E` 收回。分类来自 `core.ClassifyError`（先 errors.Is /
+  errors.As，退化为子串匹配）。
+- **Footer**：按键提示——`[q] quit  [p] pause  e errors panel
+  L live overlay  ? toggle help`（`?` 打开完整帮助叠层）。
 
-- **Header**：按阶段的 `[ ▶ STAGE ]` 徽章，ETA 右对齐（如 `[ ▶ ALIVE ]   ETA ~12s`）；扫描速率（hits/s、ports/s，EWMA 平滑）+ 60 样本 hits/s sparkline；mid-alive-sweep 的 "alive N/M" 计数随探测完成即时增长（不再卡在 0/M 直到 alive 阶段结束）。
-- **LIVE EVENTS**：最近 20 条事件存放在固定 ring buffer（永不增长），按 severity 着色（`✓` 凭据命中、`✗` 错误、`⚠` 警告）；每次命中红色闪高 ~200ms。窄终端默认隐藏，`L` 键 overlay 显示最近 5 条。
-- **STAGE**（左 / 上）：alive 与 ports 按总数渲染成 `▓/░` 进度条；results / creds / errors 保持纯计数。
-- **TOP PLUGINS**（右 / 下）：本次 run 命中最多的 5 个 plugin，定宽条形图渲染，名字在左、`████░░` 占比条在右。
-- **ERRORS**（底部）：压缩的 `ERRORS: timeout 42  refused 15` 汇总行；`e` 展开为 top-4 类别条形图，`E` 折叠回汇总。类别来自 `core.ClassifyError`（errors.Is / errors.As 优先、子串 fallback）。
-- **Footer**：按键提示——`[q] quit  [p] pause  e errors panel  L live overlay  ? toggle help`（`?` 打开完整帮助浮层）。
-
-所有这些都从 `internal/types.State` 的 `CountersView` 投影读，让视图层与 scanner 内部 channel 布局解耦。
+以上全部读取 `internal/types.State` 上的 `CountersView` 投影，视图层与扫描器
+内部 channel 布局解耦。
 
 ### 字典文件
 
@@ -158,7 +209,7 @@ postgres
 ```
 
 ```text
-# pass.txt（每行一个密码；以 # 开头的行跳过）
+# pass.txt（每行一个密码；`#` 行跳过）
 # top-10 worst passwords
 123456
 password
@@ -169,7 +220,7 @@ qwerty
 
 ```bash
 fg-qimen -H 10.0.0.0/24 --ports 22,3306 -uf users.txt -pf pass.txt
-fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project corp
+fg-qimen scan --mode crack -f targets.txt -uf users.txt -pf pass.txt --project corp
 ```
 
 ---
@@ -178,214 +229,144 @@ fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project c
 
 ### 架构
 
-- **管道解耦**：端口扫描 (producer) → `chan ScanItem` → 插件 worker (consumer)。
-  所有阶段遵循 `context.Context` 实现取消。
+- **管线解耦**：端口扫描（生产者）→ `chan ScanItem` → 插件 worker（消费者）。
+  所有阶段遵循 `context.Context` 取消语义。
 - **三种运行模式**：`scan` / `crack` / `linked`（见 [CLI 参考](#cli-参考)）。
 - **项目工作区**：每个项目独立目录 + bbolt DB。
-- **增量追踪**：基于 SHA-1 的去重，可选 bbolt 持久化；`--resume` 重载已见集合。
-- **TUI**：Bubbletea + Lipgloss 赛博朋克配色（黑底绿/琥珀/红）；非 TTY
-  自动降级纯文本。
+- **增量追踪**：SHA-1 去重 + 可选 bbolt 持久化；`--resume` 重载 seen-set。
+- **TUI**：Bubbletea + Lipgloss 赛博朋克主题（黑底绿/琥珀/红）；非 TTY 自动
+  回退纯文本。
 
-完整架构文档：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.zh-CN.md)。
+完整架构文档：[`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
 
 ### 输出格式
 
-- `fgqm_result.txt` — 人类可读
-- `fgqm_result.json` — NDJSON（每行一个 JSON 对象）
-- `fgqm_result.csv` — RFC 4180，每条结果一行
-- `fgqm_creds.txt` — 凭据命中（明文；操作员的工作文件）
-- `fgqm_rdp.json` / `fgqm_rdp.txt` — RDP 深度指纹（hostname、build、NLA 标志、OS）
-- `fgqm_web.json` / `fgqm_web.txt` — 结构化 Web 指纹（webtitle 每次命中一行）：URL、状态码、标题、Server、命中指纹，以及——https 目标——TLS 叶子证书身份（subject、SAN、issuer、有效期、协议版本）。SAN/CN 字段常能暴露 banner 匹配看不到的内网机器名与域名。
-- `fgqm_alive_HH-MM-SS.txt` — 每行一个 IP（去重后的存活主机列表，供 `nmap -iL` / `masscan --targets` / `curl` 循环使用）。与其他带时间戳的 sink（`fgqm_result_*`、`fgqm_rdp_*`）使用相同的日分桶（`YYYY-MM-DD/`）+ `HH-MM-SS` 文件名时间戳。
-- `fgqm_log_HH-MM-SS.txt` — 本次扫描的运行日志（与控制台相同的 `[*]`/`[+]`/`[!]` 行，格式 `HH:MM:SS [级别] 消息`）。与结果文件同日分桶 + 同时间戳，每次扫描自动归档一份。文本模式（`--no-tui`）下控制台与文件同步输出（tee）；TUI 模式与 `--silent` 下仅写文件——屏幕不打印日志，但日志不再丢失。因凭据命中行含明文口令，文件以 `0600` 权限创建（与 `fgqm_creds.txt` 同策略）。
+结果文件名携带本地时间 `HH-MM-SS` 启动戳（v0.5.1 新增），同日多次 run 不会互相
+覆盖。目录按 `YYYY-MM-DD` 分桶；时间戳放在文件名上。示例：
+`fgqm_result_14-30-22.txt`；`fgqm_creds.txt` 无戳——该文件以 `O_APPEND` 打开，
+去重靠内存 `State`。
 
-### 插件（44 个插件 / 认证器）
+- `fgqm_result_HH-MM-SS.txt` — 人类可读行
+- `fgqm_result_HH-MM-SS.json` — NDJSON（每行一个 JSON 对象）
+- `fgqm_result_HH-MM-SS.csv` — RFC 4180，每条结果一行
+- `fgqm_creds.txt` — 凭据命中（明文；操作员工作文件）
+- `fgqm_rdp_HH-MM-SS.json` / `fgqm_rdp_HH-MM-SS.txt` — RDP 深度指纹（主机名、build、NLA 标志、OS）
+- `fgqm_web_HH-MM-SS.json` / `fgqm_web_HH-MM-SS.txt` — 每个 webtitle 命中的结构化 Web 指纹：URL、状态码、标题、Server、命中指纹，以及 https 目标的 TLS 叶子证书身份（Subject、SAN、Issuer、有效期、协议版本）。SAN/CN 字段经常暴露 banner 匹配永远看不到的内网主机名与域名。
+- `fgqm_alive_HH-MM-SS.txt` — 每行一个 IP（去重后的主机清单，可直接喂 `nmap -iL` / `masscan --targets` / `curl` 循环）。与其他带时间戳 sink（`fgqm_result_*`、`fgqm_rdp_*`）相同的日桶（`YYYY-MM-DD/`）+ `HH-MM-SS` 文件名戳。
+- `fgqm_log_HH-MM-SS.txt` — 本次 run 的日志归档（与控制台流相同的 `[*]`/`[+]`/`[!]` 行，格式 `HH:MM:SS [level] message`）。与结果文件相同的日桶 + 时间戳；每次扫描自动写一份。纯文本模式（`--no-tui`）同时 tee 到控制台与文件；TUI 模式与 `--silent` 只写文件——屏幕保持干净，日志不再丢失。凭据命中行含明文密码，文件以 `0600` 创建（与 `fgqm_creds.txt` 同策略）。
 
-| 插件 | 默认端口 | 探测 | 凭据测试 |
-|---|---|---|---|
-| `ssh` | 22, 2222, 2200, 22222 | ✅ | ✅（仅密码；不调 Session/Exec） |
-| `http` | 80, 443, 8080, 8443, 8000, 8888 | ✅ | – (v0.2+) |
-| `webtitle` | 80, 443, 8080, 8443 | ✅（FingerprintHub 3139 规则 + favicon） | – |
-| `redis` | 6379, 6380 | ✅（PING / PONG） | ✅（RESP AUTH） |
-| `mongodb` | 27017, 27018 | ✅（OP_MSG hello） | ✅（SCRAM-SHA-256 via OP_MSG） |
-| `postgresql` | 5432, 5433, 5434 | ✅（StartupMessage） | ✅（lib/pq via `db.PingContext`） |
-| `mssql` | 1433, 1434, 2433 | ✅（TDS via go-mssqldb） | ✅（TDS Login7 via go-mssqldb） |
-| `smb` | 445, 139 | ✅（SMB magic） | ✅（SMB2 Session Setup NTLMv2） |
-| `smtp` | 25, 465, 587, 2525 | ✅（EHLO） | – (v0.2+) |
-| `snmp` | 161, 162 | ✅（sysDescr.0 原文） | – (v0.2+) |
-| `snmpv3` | 161, 162 | ✅（GetRequest v3） | |
-| `ldap` | 389, 636 | ✅（BindRequest + SearchRequest） | – (v0.2+) |
-| `memcached` | 11211, 11212 | ✅（text "version\r\n"） | ✅（ASCII "auth" 探针） |
-| `elasticsearch` | 9200, 9300 | ✅（HTTP GET /） | ✅（HTTP Basic） |
-| `rdp` | 3389 | ✅（TPKT/X.224/MCS 四步） | |
-| `rdpnla` | 3389 | ✅（RDP NLA 状态 HYBRID/SSL/旧版） | |
-| `vnc` | 5900–5905 | ✅（RFB 003.x banner） | ✅（RFB 握手 + DES 挑战） |
-| `telnet` | 23, 2323 | ✅（IAC-stripped banner） | ✅（IAC + 提示符 + user/pass 流） |
-| `oracle` | 1521, 1526, 2483 | ✅（TNS Connect/Accept） | ✅（TNS 握手 via go-ora） |
-| `winrm` | 5985, 5986 | ✅（GET /wsman） | ✅（HTTP Basic + WSMan SOAP） |
-| `pop3` | 110, 995 | ✅（+OK 问候） | ✅（RFC 1939 USER/PASS） |
-| `imap` | 143, 993 | ✅（`* OK` 问候） | ✅（RFC 3501 LOGIN） |
-| `socks5` | 1080 | ✅（SOCKS5 VER 5） | ✅（RFC 1928/1929 user/pass） |
-| `rsync` | 873, 8873 | ✅（`@RSYNCD:` 问候） | ✅（USERNAME + MD5 挑战） |
-| `docker` | 2375, 2376 | ✅（GET /_ping + /info） | ✅（HTTP Basic to /images/json） |
-| `rabbitmq` | 5672 | ✅（AMQP 0-9-1 header + Start） | ✅（AMQP PLAIN） |
-| `mqtt` | 1883, 8883 | ✅（MQTT 3.1.1 / 5.0 CONNECT/CONNACK） | |
-| `activemq` | 61616 | ✅（OpenWire stub） | |
-| `kafka` | 9092 | ✅（ApiVersions v0+） | |
-| `rocketmq` | 9876 | ✅（RemotingCommand stub） | |
-| `modbus` | 502 | ✅（Read Device Identification） | ✅（仅读设备 ID；不写线圈/寄存器） |
-| `ipmi` | 623 (UDP) | ✅（RMCP+ Session Open） | ✅（RAKP v2.0 HMAC-SHA1） |
-| `bacnet` | 47808 (UDP) | ✅（BACnet/IP Who-Is → I-Am） | ✅（可达性探针） |
-| `ntp` | 123 (UDP) | ✅（NTPv4 client, Mode=4） | |
-| `tftp` | 69 (UDP) | ✅（RRQ → DATA/ERROR） | |
-| `dns` | 53 (UDP) | ✅（CHAOS version.bind + root A） | |
-| `nfs` | 2049 | ✅（ONC RPC NULL call） | ✅（RPC NULL；无 AUTH_GSS） |
-| `jenkins` | 8080, 8443, 50000 | ✅（Jenkins crumb + version） | |
-| `kibana` | 5601 | ✅（Kibana status API） | |
-| `weblogic` | 7001, 7002, 8443 | ✅（WebLogic console 登录页） | |
-| `aws` | 80（云元数据） | ✅（IMDSv1 + IMDSv2 指纹） | |
-| `azure` | 80（云元数据） | ✅（Azure IMDS 指纹） | |
+通过 `-ot` / `-oj` / `-oc` 显式指定路径会同时绕过日桶与时间戳。
 
-凭据测试覆盖 **21 个服务**（SSH + Redis + MongoDB + PostgreSQL + MSSQL + SMB +
-Memcached + Elasticsearch + VNC + Telnet + Oracle + WinRM + POP3 + IMAP +
-SOCKS5 + Rsync + Docker + RabbitMQ + Modbus + IPMI v2.0 + BACnet + NFS），均
-强制不做漏洞利用（`fgqm_creds.txt` 是唯一副作用）。
+### 插件与凭据覆盖
 
-IPv6 是一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规则集通过
-`--web-fingerprint <path-or-url>` 加载（本地文件或 HTTP URL，可从规则服务
-器 live-update）。RDP NLA 状态（HYBRID / SSL / 旧版）由 `rdp-nla` 插件
-探测；完整 CredSSP 认证延期。
+完整插件名册——名称、默认端口、Identify/Credential 能力——直接从二进制的活体
+registry 生成，并在 CI 中机器校验：
+
+- [`docs/PLUGINS.md`](docs/PLUGINS.md) — 每个已注册插件的默认端口与能力矩阵
+- [`docs/FLAGS.md`](docs/FLAGS.md) — 每个 CLI flag 的分组与默认值
+
+凭据测试覆盖 `PLUGINS.md` 中每个标 ✅ 的服务（authenticator registry），全部在
+无漏洞利用强制约束下运行（`fgqm_creds.txt` 是唯一副作用）。
+
+IPv6 一等公民（单 IP / CIDR / 逗号列表）。自定义 Web 指纹规则集经
+`--web-fingerprint <path>` 加载（FG-QiMen 原生 JSON 或 EHole 格式；与内置规则
+合并）。RDP NLA 姿态（HYBRID / SSL / 传统）由 `rdp-nla` 插件检测；完整 CredSSP
+认证暂缓。
 
 ---
 
 ## CLI 参考
 
 ```
-fg-qimen [flags]
-fg-qimen scan [flags]                            # 显式 scan
-fg-qimen resume --project <name>                 # 续传项目
-fg-qimen projects list                           # 列出项目
-fg-qimen projects create <n>                     # 创建项目
-fg-qimen projects delete <n>                     # 删除项目
-fg-qimen projects info <n>                       # 查看项目详情
-fg-qimen projects export <n> <out.fgq>           # 导出项目到单 .fgq 文件
-fg-qimen projects import <in.fgq> <n>           # 从 .fgq 文件导入
-fg-qimen projects prune <n> --before <date>      # 删除早于 <date> 的已见 hash（--compact 回收磁盘）
-fg-qimen version                                 # 显示版本
-fg-qimen completion bash                         # 生成 shell 补全
+fg-qimen [flags]                             # 隐式 scan
+fg-qimen scan [target] [flags]               # 显式 scan；target 可为 CIDR/范围/主机
+fg-qimen resume --project <name>             # 恢复项目
+fg-qimen projects list                       # 列出项目
+fg-qimen projects create <n>                 # 创建项目
+fg-qimen projects delete <n>                 # 删除项目
+fg-qimen projects info <n>                   # 项目详情
+fg-qimen projects export <n> <out.fgq>       # 导出项目为单个 .fgq 文件
+fg-qimen projects import <in.fgq> <n>        # 从 .fgq 文件导入
+fg-qimen projects prune <n> --before <date>  # 删除早于 <date> 的 seen-hashes（--compact 回收磁盘）
+fg-qimen schedules add <name> --cron "<expr>" # 在项目 DB 中持久化调度
+fg-qimen schedules list                      # 查看已排队调度
+fg-qimen schedules remove <name>             # 删除调度
+fg-qimen version                             # 显示版本
+fg-qimen completion bash                     # 生成 shell 补全
 ```
 
-### 6 个最常用 flag（覆盖 ~90% 场景）
+### 快速上手（6 个核心 flag）
 
-| 短 | 长 | 例子 | 用途 |
+约 90% 的扫描只需要这 6 个 flag：
+
+| 短参 | 长参 | 示例 | 用途 |
 |---|---|---|---|
 | `-H` | `--host` | `-H 10.0.0.0/24` | 目标 IP / CIDR / 范围 / 逗号列表 |
-| — | `--project` | `--project corp` | 命名项目（持久化到 bbolt；省则即扫即走） |
+| — | `--project` | `--project corp` | 命名项目（持久化到 bbolt；省略即即扫即走） |
 | `-u` | `--user` | `-u root,admin` | 内联用户名（多个用逗号分隔） |
 | `-p` | `--pass` | `-p admin,root` | 内联密码（多个用逗号分隔） |
 | `-uf` | `--user-file` | `-uf users.txt` | 用户名字典文件（每行一个） |
 | `-pf` | `--pass-file` | `-pf pass.txt` | 密码字典文件（每行一个） |
 
-四个最常用搭配：
+最常见的四种搭配：
 
 ```bash
--H 1.0.0.0/8 -u admin -p root,toor            # 目标 + 内联凭据
--H 1.0.0.0/8 -uf users.txt -pf passes.txt    # 目标 + wordlist
--H 1.0.0.0/8 -f targets.txt -a               # hosts file + alive-only
--H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv   # 三个输出 sink
+-H 1.0.0.0/8 -u admin -p root,toor              # 主机 + 内联凭据
+-H 1.0.0.0/8 -uf users.txt -pf passes.txt       # 主机 + 字典
+-H 1.0.0.0/8 -f targets.txt -a                  # 主机文件 + 仅存活
+-H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv      # 三种输出 sink 全开
 ```
 
-实用命令：
+具体配方：
 
 ```bash
-# 最小：256-host /24 扫默认端口
+# 最小扫描：256 主机 /24 对默认端口
 fg-qimen -H 10.0.0.0/24
 
-# 命名项目 + 字典 + 小并发
+# 命名项目 + 字典 + 小线程数
 fg-qimen --project corp -H 10.0.0.0/24 -uf users.txt -pf pass.txt -t 50
 
-# 续传已有项目
+# 对已保存项目先前见过的主机再次攻击
 fg-qimen resume --project corp
 
-# 仅凭据测试：跳过 alive + 端口扫描
+# 纯爆破：跳过存活 + 端口扫描，直接试凭据
 fg-qimen scan --project corp --mode crack -uf users.txt -pf pass.txt
 
-# 走 HTTP 代理（自动套到所有插件的拨号器）
+# 走 HTTP 代理（所有插件的 dialer 链式生效）
 fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 ```
 
-> **短参约定**（v0.5.1+）：全小写，mnemonic 优先，命名空间用 2 字母（output-* / user-pass-file）。`-H` 是唯一大写（避 `-h`/`--help` 冲突）。从 v0.5.0 的迁移表见 [CHANGELOG](CHANGELOG.zh-CN.md)。
+> **短参约定**（v0.5.1 起）：全小写、助记符式，命名空间用 2 字母
+> （output-* / user-pass-file）。`-H` 是唯一大写（避开 cobra 保留的
+> `-h`/`--help` 冲突）。从 v0.5.0 迁移的对照表见
+> [更新日志](CHANGELOG.zh-CN.md)。
 
-### 完整 flag 参考（v0.5.1 — 45 个 flag，14 个有短选项）
+### 完整 flag 参考
 
-| 短 | 长 | 默认 | 分组 | 含义 |
-|---|---|---|---|---|
-| `-H` | `--host` | （空） | Target | 目标 IP / CIDR / 范围 / 逗号列表（如 `10.0.0.0/24,192.168.1.0/24`） |
-| `-f` | `--hosts-file` | （空） | Target | 从文件加载目标（每行一个 host；`#` 开头的行跳过） |
-|     | `--project` | （空） | Workspace | 项目名；空 = 即扫即走（无 bbolt）。无短参（用长形式 `--project corp`）。 |
-|     | `--project-key` | （空） | Workspace | 加密项目 DB 用的 passphrase（AES-256-GCM，v0.4+ 走 Argon2id 派生）。空 = 明文（v0.2.x 兼容）。环境变量：`FG_QIMEN_PROJECT_KEY` |
-|     | `--mode` | `scan` | Workspace | `scan`（alive→scan→identify）/ `crack`（仅凭据测试）/ `linked`（scan + 凭据） |
-| `-r` | `--resume` | `false` | Workspace | 从 bbolt seen-set 续传（跳过已见过 host:port 对）。v0.5.1 新增。 |
-|     | `--no-state` | `false` | Workspace | 禁用 bbolt，纯内存；项目退出时清空 |
-|     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | 逗号分隔端口列表 |
-|     | `--exclude-ports` | （空） | Ports | 从解析后的端口列表中排除 |
-|     | `--udp` | `false` | Ports | 在 TCP 扫描之后追加探测常见 UDP 服务（DNS、NetBIOS、SNMP、NTP……），发送 nmap 风格服务 payload 并对响应做指纹识别。显式给了 `--ports` 时取"用户端口 ∩ probe 提示端口"；否则用全部提示端口（约 70 个）。每个静默端口要等满读超时（快速网络下自适应收缩，基准约 2s）；UDP 端口仍会被常规 TCP connect 扫一遍。crack 模式无效。 |
-|     | `--udp-strict` | `false` | Ports | 配合 `--udp`：静默 UDP 端口报 filtered 并从结果中丢弃，不再产生 open\|filtered 噪声——用"漏掉空闲但开放的服务"换防火墙网段上的干净输出 |
-|     | `--no-icmp` | `false` | Ports | 跳过 ICMP alive 探活（敌对网络下的纯 TCP 模式） |
-|     | `--proxy` | （空） | Network | HTTP/HTTPS 代理 URL（如 `http://127.0.0.1:8080`）。通过 `credential.DialTCP` / `DialTCPAddr` 在所有 TCP 拨号站点生效（Phase 2.2）。无短参。 |
-|     | `--socks5` | （空） | Network | SOCKS5 代理 URL（如 `socks5://user:pass@127.0.0.1:1080`） |
-|     | `--iface` | （空） | Network | 出站连接绑定的本地 IP |
-| `-t` | `--threads` | `200` | Concurrency | 扫描池 AIMD 的目标并发与 plugin 池的 worker 数。扫描池以其 1/4 慢启动翻倍至此值，健康时向内置上限（500）加性增长，过载信号（资源耗尽/RTT 恶化）上乘性回退；显式指定时该值即硬上限，环境画像只在未显式指定时自动调优。 |
-|     | `--max-workers` | `16` | Concurrency | `--threads` 的硬上限（给自动缩放器加 cap） |
-|     | `--timeout` | `3s` | Concurrency | 单次操作超时（覆盖 alive 探活、端口扫描 connect、插件握手） |
-| `-a` | `--alive-only` | `false` | Concurrency | alive 后就停；不跑 scan / identify / credential |
-| `-u` | `--user` | （空） | Credentials | 内联用户名（逗号分隔） |
-| `-p` | `--pass` | （空） | Credentials | 内联密码（逗号分隔）。v0.5.1：短参从 `-P` 改为 `-p`（Unix 标准 mnemonic，与 sshpass / passwd / openssl 一致）。 |
-| `-uf` | `--user-file` | （空） | Credentials | 用户名字典文件（每行一个）。v0.5.1：短参从 `-U` 改为 `-uf`（nmap 风格 2 字母）。 |
-| `-pf` | `--pass-file` | （空） | Credentials | 密码字典文件（每行一个）。v0.5.1：短参从 `-W` 改为 `-pf`。 |
-| `-ot` | `--output-txt` | （空） | Output | TXT 结果文件路径。v0.5.1：短参从 `-o` 改为 `-ot`（output 命名空间）。 |
-| `-oj` | `--output-json` | （空） | Output | NDJSON 结果文件路径。v0.5.1：短参从 `-j` 改为 `-oj`。 |
-| `-oc` | `--output-csv` | （空） | Output | CSV 结果文件路径（每条结果一行，列序稳定便于 awk / pandas）。v0.5.1 新增。 |
-|     | `--output-sarif` | （空） | Output | SARIF 2.1.0 JSON 路径（单文档，给 GitHub Code Scanning）。无短参（小众）。 |
-|     | `--rotate-bytes` | `0` | Output | 单文件大小阈值触发轮转（0 = 不轮转）。v0.4.1 从 `--output-rotate-bytes` 改名——`output-` 前缀冗余，因为 `rotate` 在整个 flag 空间里唯一归属输出子系统。 |
-|     | `--rotate-files` | `0` | Output | 保留总文件数（含现行，0 = 不轮转）。v0.4.1 从 `--output-rotate-files` 改名。 |
-|     | `--show-creds` | `false` | Output | 在 `fgqm_result.txt` 强制明文凭据（`fgqm_creds.txt` 始终明文） |
-|     | `--plugins` | （空） | Output | 逗号分隔插件白名单（如 `--plugins ssh,redis,vnc`）；空 = 全部 |
-|     | `--web-fingerprint` | （空） | Output | 额外 FingerprintHub 风格 web 规则文件或 URL |
-|     | `--http-form-url` | （空） | Output | HTTP form-brute 插件的目标 URL（opt-in） |
-|     | `--http-form-fields` | `user=$user$,pass=$pass$` | Output | form-brute 插件的字段模板 |
-|     | `--http-form-success` | （空） | Output | 命中响应的子串特征 |
-|     | `--http-form-failure` | `invalid` | Output | 失败响应的子串特征 |
-|     | `--http-form-redirect` | （空） | Output | 设置时跟随重定向，并用此子串在最终响应中判断命中 |
-|     | `--silent` | `false` | Behavior | 抑制 banner / 实时事件日志 |
-|     | `--no-tui` | `false` | Behavior | 即使 stdout 是 TTY 也强制纯文本输出 |
-|     | `--no-batch` | `false` | Behavior | 禁用 bbolt 批量写（每次 Put 都 fsync 而非批量） |
-| `-v` | `--verbose` | `false` | Behavior | 详细日志（来自插件的 debug 级） |
-|     | `--insecure-tls` | `false` | Safety | 跳过 TLS 证书校验（探测用；不安全——见 HARD 规则） |
-|     | `--insecure-ssh` | `false` | Safety | 跳过 SSH 主机密钥校验（不安全——见 HARD 规则） |
-|     | `--known-hosts` | （空） | Safety | `known_hosts` 文件路径（设为非空后 `InsecureIgnoreHostKey` 自动转 false） |
+完整 flag 表在 [`docs/FLAGS.md`](docs/FLAGS.md)——它**从二进制实际使用的同一份
+registry 生成**，因此永远不会与 `fg-qimen --help` 漂移（一旦漂移，CI 守卫测试
+会让构建变红）。`fg-qimen --help` 仍是权威的终端渲染。
 
-完整 CLI 用法模板（按工作流分类）见
-[`docs/CONFIGURATION.md`](docs/CONFIGURATION.zh-CN.md)。当前 `fg-qimen --help`
-输出是权威参考。
+每种常见工作流的完整 CLI 用法模板在
+[`docs/CONFIGURATION.zh-CN.md`](docs/CONFIGURATION.zh-CN.md)。
 
 ---
 
-## 验证发布
+## 发布物校验
 
-每个 GitHub Release 都会发布 **11 个标准版平台二进制 + 2 个加固版**
-（linux-amd64、windows-amd64——garble + UPX，刻意不可复现），外加每个
-二进制的 cosign 签名、签名证书、CycloneDX SBOM：
+每个 GitHub Release 附带 **11 个标准平台二进制 + 2 个加固版**
+（linux-amd64、windows-amd64——garble + UPX，刻意不可复现）以及每个二进制的
+cosign 签名、签名证书与 CycloneDX SBOM：
 
 | 文件 | 用途 |
 |---|---|
-| `fg-qimen-<platform>` | 标准版二进制（Linux/macOS/BSD 无 `.exe`） |
-| `fg-qimen-<platform>-hardened` | 加固版二进制（garble 混淆 + UPX 压缩；Windows 带 `.exe` 后缀） |
-| `SHA256SUMS` | 所有二进制的 sha256 校验和（13 条） |
-| `*.sig` | cosign keyless 签名（OIDC、Sigstore） |
-| `*.pem` | 含 OIDC 身份的签名证书 |
-| `*.sbom.json` | 平台级 CycloneDX SBOM |
-| `FG-QiMen-release.spdx.json` | 覆盖全部发布产物的全量 SPDX SBOM |
+| `fg-qimen-<platform>` | 编译的标准二进制（Linux/macOS/BSD 无 `.exe`） |
+| `fg-qimen-<platform>-hardened` | 加固二进制（garble 混淆 + UPX 压缩；Windows 带 `.exe` 后缀） |
+| `SHA256SUMS` | 每个二进制的 sha256 校验和（13 条目） |
+| `*.sig` | cosign 无密钥签名（OIDC、Sigstore） |
+| `*.pem` | 内嵌 OIDC 身份的签名证书 |
+| `*.sbom.json` | 该二进制的 CycloneDX SBOM（每平台一份） |
+| `FG-QiMen-release.spdx.json` | 覆盖全部发布产物的完整 SPDX SBOM |
 
 ### 1. 校验和
 
@@ -393,12 +374,12 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-通过则每行打印 `<binary>: OK`；不匹配会以非零退出码中止。
+干净通过时每行打印 `<binary>: OK`；任何不匹配都会以非零退出码中止。
 
-### 2. 签名（keyless、OIDC）
+### 2. 签名（无密钥，OIDC）
 
-发布流程用 [cosign](https://github.com/sigstore/cosign) keyless 模式
-对接 Sigstore 公共服务实例——仓库不存任何私钥。
+发布管线使用 [cosign](https://github.com/sigstore/cosign) 的无密钥模式对接
+Sigstore 公共 good 实例——仓库里没有任何秘密密钥。
 
 ```bash
 go install github.com/sigstore/cosign/v2/cmd/cosign@latest
@@ -411,22 +392,21 @@ COSIGN_EXPERIMENTAL=1 cosign verify-blob \
   fg-qimen-<platform>
 ```
 
-验证成功会打印已验证二进制的 SHA256 与签名身份的 OIDC subject。证书
-固定了 GitHub Actions workflow 身份
+验证成功会打印被验证二进制的 SHA256 与签名者 OIDC 身份。证书绑定 GitHub
+Actions 工作流身份
 （`https://github.com/LCUstinian/FG-QiMen/.github/workflows/release.yml@refs/tags/<TAG>`）。
 
 ### 3. SBOM
 
-CycloneDX SBOM 列出二进制链接的所有直接或间接依赖。可直接被
-[Dependency-Track](https://dependencytrack.org/) 或任何支持 SBOM 的 SCA
-工具摄取。
+CycloneDX SBOM 列出二进制链接的每个直接 + 传递依赖。可直接导入
+[Dependency-Track](https://dependencytrack.org/) 或任何 SBOM 感知的 SCA 工具。
 
 ```bash
-# 查看组件清单
+# 查看组件
 jq '.components[] | {name, version, purl}' fg-qimen-<platform>.sbom.json
 ```
 
-### 4. 源码可重现（可选）
+### 4. 源码可复现性（可选）
 
 从对应 tag 逐字节重建二进制：
 
@@ -436,62 +416,60 @@ go build -trimpath -ldflags='-s -w -buildid=' -o fg-qimen-local .
 sha256sum fg-qimen-local
 ```
 
-哈希必须匹配 `SHA256SUMS` 中对应行。
+哈希必须与 `SHA256SUMS` 对应行一致。
 
-### 5. 反馈不一致
+### 5. 上报差异
 
-若以上任何步骤失败，**请勿运行该二进制**。在
-<https://github.com/LCUstinian/FG-QiMen/issues> 开 issue 并附失败
-步骤的输出与所试 tag。
+以上任一步失败，**不要运行该二进制**。在
+<https://github.com/LCUstinian/FG-QiMen/issues> 提 issue，附失败步骤输出与你
+尝试的 tag。
 
 ---
 
-## 本地化策略
+## 本地化
 
-- **代码注释**：双语（中英）—— 每个公开函数/结构体/关键逻辑块都有。
-- **终端输出**：纯英文（banner、help、日志、错误）。
-- **README**：拆分为英文（[README.md](README.md)）+ 简体中文
+- **代码注释**：双语（中文 + 英文）覆盖所有公开函数、结构与关键逻辑块。
+- **终端输出**：100% 英文（banner、help、日志、错误）。
+- **README**：拆分——英文（[README.md](README.md)）+ 简体中文
   （[README.zh-CN.md](README.zh-CN.md)）。
 - **CLI flag 名**：英文。
+- **生成文档**（[FLAGS.md](docs/FLAGS.md)、[PLUGINS.md](docs/PLUGINS.md)）：
+  英文，与终端输出政策一致——它们是 registry 的渲染物，不是散文。
 
-## 优雅退出（Ctrl+C）
+## 优雅 Ctrl+C
 
-- 第一次 **Ctrl+C**：`cancel()` 根 context → 管线排空 → 输出刷盘 →
-  bbolt 同步 → 退出码 130。
-- 在 `--shutdown-timeout`（默认 5 秒）内的第二次 **Ctrl+C**：强退
+- 第一次 **Ctrl+C**：`cancel()` 根 context → 管线排空 → 输出 flush →
+  bbolt `Sync()` → 退出码 130。
+- `--shutdown-timeout`（默认 5s）内的第二次 **Ctrl+C**：硬退出
   （`os.Exit(1)`）。
 
 ---
 
-## 路线图
+## Roadmap
 
-下一里程碑（完整历史见 [CHANGELOG.md](CHANGELOG.zh-CN.md)）：
-
-- **v0.4**：完整 crack-mode 重构；统一跨插件的代理；逐 attempt 读
-  截止审计（v0.3.1 已对 7 个最严重的修了）。
-- **v0.5+**：完整的 fake-server 集成测试（MSSQL / SMB / RDP）；输出
-  轮转；项目导入/导出；更丰富的 HTTP 指纹。
+进行中的工作看 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) 的 `[Unreleased]`
+小节。当前主题：自适应扫描打磨、UDP 服务覆盖扩展、供应链加固。
 
 ---
 
 ## 致谢
 
-FG-QiMen 站在多个开源项目的肩膀上。所有重用的代码均采用 MIT 许可证；
-逐文件的修改历史在源码头部注释里。
+FG-QiMen 站在多个开源项目的肩膀上。所有复用代码均为 MIT 许可；逐文件的修改
+历史见源码头注释。
 
-**主要灵感来源**：[fscan](https://github.com/shadow1ng/fscan) by
-[shadow1ng](https://github.com/shadow1ng)（MIT）—— 管道解耦的扫描器架构、
-"探测 + 凭据"插件模式、Nmap 风格的端口指纹框架。FG-QiMen 继承其
-**不做漏洞利用** 的策略，并剥离原项目中所有接近"攻击面"的代码路径
-（unauthorized-access / write / POC）。
+**主要灵感来源**：[shadow1ng](https://github.com/shadow1ng) 的
+[fscan](https://github.com/shadow1ng/fscan)（MIT）——管线解耦的扫描器架构、
+服务 Identify + Credential 插件范式、Nmap 风格的端口指纹框架。FG-QiMen 继承
+**无漏洞利用**政策，并删除了原项目携带的所有未授权访问 / 写入 / POC 路径。
 
-完整第三方许可证文本：[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)（许可证原文必须保留原语言）。
+完整的第三方许可文本汇编：
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)。
 
-FG-QiMen 源码以 MIT 许可证发布。见 [LICENSE](LICENSE)。
+FG-QiMen 源码以 MIT 许可发布。见 [LICENSE](LICENSE)。
 
 ---
 
 ## 免责声明
 
-本工具仅供**合法授权的安全测试和学习使用**。请勿对未授权目标进行扫描。
-作者不承担任何滥用造成的后果。
+本工具**仅用于授权安全测试与学习**。未经许可请勿扫描任何目标。作者不对滥用
+负责。

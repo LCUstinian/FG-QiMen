@@ -1,6 +1,6 @@
 # Architecture
 
-> [中文版本](../ARCHITECTURE.zh-CN.md)
+> [中文版本](ARCHITECTURE.zh-CN.md)
 
 ## Project scope
 
@@ -172,12 +172,80 @@ per-write semantics.
 
 ## Performance
 
-- Adaptive worker pool (sliding window on filtered/open ratios).
-  Self-tunes 64-200.
+The scan path is self-tuning end to end. Four mechanisms stack:
+
+### AIMD thread pool (`internal/core/scan/pool.go`)
+
+- **Slow start**: the pool is born at `max(floor, target/4)` and
+  doubles per healthy adjustment interval until it reaches the
+  AIMD target (`InitialThreads`).
+- **Steady-state AIMD**: additive increase `+target/20` while
+  healthy; multiplicative decrease `×0.85` under stress, `×0.5`
+  under congestion. Health signals are the resource-exhaustion
+  rate (EMFILE-style dial errors) first and the fast/slow EMA
+  RTT trend second — a high filtered/closed ratio is *network
+  truth*, not scanner overload, and never triggers a shrink
+  (the v0.3-era heuristic that avalanched concurrency to 1).
+- **Silent segments**: a window with no open/refused responses
+  demotes Good to OK so a firewalled /24 can't be read as
+  headroom.
+- **Floor**: concurrency never drops below
+  `max(MinThreads, MaxThreads/20)`; `DefaultMinThreads=50`
+  comes from the avalanche post-mortem. `--threads` is a hard
+  cap — the pool never scales past it.
+- A 50 ms wake ticker drives the controller loop; the producer
+  uses capped exponential backoff (1 ms → 50 ms) so saturation
+  doesn't peg a core.
+- `RetryableProbe` (`internal/core/scan/retry.go`) absorbs
+  transient resource-exhaustion errors with exponential backoff
+  before they can reach the congestion controller; retry
+  failure >20% logs a warning that the process is likely FD /
+  socket-quota bound.
+
+### Adaptive per-probe timeout (`internal/core/scan/adaptive_timeout.go`)
+
+Every probe that actually reached the host (handshake completed
+or refused-RST) records its RTT into a 64-sample ring buffer.
+The single-probe timeout becomes `mean + 4σ`, clamped to
+`[max(500ms, base/5), base]`: on a fast LAN a 3 s filtered-port
+wait shrinks to ~600 ms (≈5× faster sweeps), while the ceiling
+stays at the operator's (possibly profile-tuned) base. Warmup
+(10 samples) returns base. Silent UDP probes report `RTT=0`
+and never feed the sampler. An explicit `--timeout` disables
+the whole mechanism — an explicit value is always the hard
+ceiling.
+
+### Network environment profiling (`internal/core/envprobe.go`)
+
+Before the pipeline opens the scan phase, up to 10 hosts are
+sampled evenly across the target list with cheap TCP connects
+(refused counts as a valid RTT) and the path is classified
+LAN (<20 ms median) / WAN (20-200 ms) / Internet (>200 ms) /
+Slow. The profile auto-tunes `--timeout` and `--threads` — but
+only for values the operator did **not** set explicitly. Zero
+samples (e.g. every sampled port is closed) default to WAN.
+
+### Segment pre-screening (`internal/core/scan/prescreen.go`)
+
+Inputs larger than `PrescreenThreshold` (256) addresses are
+pre-screened before the full scan: phase 1 probes the gateway
+(.1/.254) of each /24 with rotating ports; segments whose
+gateways all miss get a bounded phase-2 fallback (first
+`Phase2SampleCap=64` hosts, one rotating port each) before
+being skipped. Single-subnet inputs are never filtered. The
+residual false-negative window (a live host beyond position 64
+in an otherwise-silent segment) is documented; the kill switch
+is `PrescreenOptions.Phase2=false`.
+
+### Misc
+
 - `LoadSeenHashes` pre-allocates using `bk.Stats().KeyN` so 100k
   resumes avoid 17 log-2 reallocs.
 - Output sink uses 6 per-sink mutexes so a slow sink doesn't
   head-of-line block the others.
+- The UDP phase is serial after TCP with its own fixed pool
+  (128/200 threads, 2 s probe timeout), so UDP's long silent
+  waits can't perturb the TCP controller.
 
 ## Tradeoffs
 

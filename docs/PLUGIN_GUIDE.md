@@ -1,6 +1,6 @@
 # Plugin Author Guide
 
-> [中文版本](../PLUGIN_GUIDE.zh-CN.md)
+> [中文版本](PLUGIN_GUIDE.zh-CN.md)
 
 How to add a new service Identify / Credential plugin to FG-QiMen.
 
@@ -80,10 +80,16 @@ import (
 )
 ```
 
-For the registry guard test (`TestRegistryHasAllAuthenticators`) to
-pick it up, the plugin must also implement a `credential.Authenticator`
-registered via `credential.Register(...)` if it advertises
-`ModeCredential` (otherwise the auth path is wired through the
+The aggregation guard test
+(`internal/plugins/adapted/aggregation_test.go`) verifies that every
+plugin package is reachable from the aggregation import chain — a
+plugin package that falls out of the chain turns CI red, and adding
+a new plugin directory requires no guard changes.
+
+If the plugin advertises `ModeCredential`, it must also implement a
+`credential.Authenticator` registered via `credential.Register(...)`
+for the registry guard test (`TestRegistryHasAllAuthenticators`) to
+pick it up (otherwise the auth path is wired through the
 central `credential.Scheduler`, which expects a registered name).
 
 ## Hard rules

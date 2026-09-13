@@ -3,7 +3,7 @@
 > **More features ≠ better.** A pure scanner + credential tester. No exploit, no
 > persistence, no post-auth action — by design.
 
-> A pipeline scanner with project workspaces
+> Scan + identify, pushed to the extreme — comprehensive, deep, fast, stable.
 
 FG-QiMen is a pure CLI scanner that decouples the **port scanner (producer)** from
 the **plugin workers (consumer)** via a Go channel pipeline. It supports three
@@ -13,7 +13,7 @@ vs persistent project workspace with bbolt state).
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
-┌─ FG-QIMEN 0.7.0-dev ── project: corp-intranet ── mode: linked ─┐
+┌─ FG-QIMEN <version> ── project: corp-intranet ── mode: linked ─┐
 │  [ ▶ IDENTIFY ]  ETA ~12s  alive ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 18/24  ports ▓▓░░░░░░░░░░░░░░░░░░░░ 142/8000  rate 142 pps · 28 hits/s  ▁▂▃▅▇▅▃▂▁
 ├────────────────────────────────────────────────────────────────┤
 │ LIVE EVENTS                                                     │
@@ -38,11 +38,74 @@ vs persistent project workspace with bbolt state).
 
 ---
 
-## Pure scanner
+## Pure scanner, by design
 
-A scanner + credential tester — useful for authorized red-team recon. The
-project ships no exploitation, no post-auth action, no persistence. Full
-contract: [`docs/SECURITY.md`](docs/SECURITY.md).
+A scanner + credential tester for authorized work. FG-QiMen stops at
+scanning, identification, and credential verification — no exploit, no
+post-auth action, no persistence. That is a tactical choice, not a
+missing feature:
+
+- **Attack traffic is the loudest traffic.** On a defended intranet,
+  exploit attempts and POC launches are exactly what sets off alerts —
+  a pure sweep finishes before anyone is even looking. Spend the noise
+  budget later, on the one move that matters.
+- **Off-the-shelf attacks rarely pay.** A generic exploit fired at
+  random targets almost never beats the one picked after a human reads
+  the structured results.
+- **The deliverable is decision-grade data.** Structured service
+  identities, web/TLS fingerprints, credential hits — the machine maps
+  the terrain, the operator aims the next step.
+
+Full contract: [`docs/SECURITY.md`](docs/SECURITY.md).
+
+---
+
+## Why FG-QiMen
+
+One binary, two postures: a **plain intranet inventory scanner** for
+daily asset work, and a **low-noise, high-freedom red-team/APT recon
+tool** for engagements where every packet must earn its place. Neither
+posture comes from "more features" — it comes from three commitments:
+
+1. **It measures before it scans.** Environment profiling samples RTT and
+   loss across your targets first, then derives timeout and concurrency
+   from live data: mean+4σ timeout from a 64-sample RTT ring, an AIMD
+   congestion-control pool with slow start. Fast LAN sweeps collapse a 3s
+   wait to ~600ms (**≈5× faster**); lossy WANs back off instead of
+   drowning in retry storms. Anything you set explicitly always wins.
+2. **It identifies, not just connects.** Every service hit carries a
+   structured `product`/`version`/`confidence` identity — TCP by default,
+   opt-in UDP (`--udp`) probing from nmap payloads. Web hits add
+   status/title/server/matched fingerprints; HTTPS adds the **TLS
+   leaf-certificate identity** (SAN/CN fields routinely expose internal
+   hostnames banner matching never sees); RDP adds build/NLA/OS posture.
+3. **It ships proof, not promises.** Every release carries cosign keyless
+   signatures, CycloneDX + SPDX SBOMs, and SLSA L2 provenance — verify
+   the binary before you run it, or rebuild from the tag and compare
+   hashes byte-for-byte.
+
+### Head-to-head
+
+| Dimension | Fixed-parameter scanners | FG-QiMen |
+|---|---|---|
+| **Timeout** | one static per-probe value — every filtered port burns it | mean+4σ from a 64-sample RTT ring: 3s → ~600ms on fast LANs (**≈5× faster**), slow paths keep the operator ceiling |
+| **Concurrency** | fixed threads; one congested segment poisons the whole run | AIMD pool — slow start, additive growth while healthy, multiplicative backoff on congestion/RTT signals; `--threads` stays a hard cap |
+| **Dead-target waste** | probes every host on every segment | two-phase /24 gateway pre-screen + host exclusion (CIDR, range, `192`/`172`/`10` RFC1918 shortcuts) — dead segments get zero traffic |
+| **Service coverage** | TCP only | opt-in UDP probing (nmap payload DB) with the same structured identity as TCP (`--udp`, `--udp-strict`) |
+| **Identity depth** | "port open" + raw banner | structured product/version/confidence; web: status/title/server/fingers + TLS SAN/CN; RDP: build/NLA/OS |
+| **State & resume** | one-shot; a Ctrl+C costs the whole run | bbolt project workspace: resume, prune, export/import, cron schedules |
+| **Operator experience** | log lines scrolling past | live TUI (stage ETA, hit feed, plugin chart, error breakdown) or clean plain text; txt/json/csv sinks with daily buckets |
+| **Supply chain** | bare binaries | cosign signatures, dual SBOMs, SLSA L2 provenance, SHA-pinned CI actions — verify before you run |
+
+### What that buys you
+
+- **Healthy /24 LAN**: profiling tightens the timeout budget, the pool
+  ramps to full concurrency, and the sweep finishes in seconds — with
+  structured JSON you can pipe straight into other tooling.
+- **Lossy VPN/WAN**: the pool backs off multiplicatively instead of
+  hammering — fewer false "unreachable" verdicts, fewer retry storms.
+- **Interrupted run**: Ctrl+C drains the pipeline and flushes state;
+  `resume` continues the project instead of starting from zero.
 
 ---
 
@@ -64,7 +127,7 @@ fg-qimen projects list
 
 ### Build
 
-Requires Go 1.22+ and [`just`](https://github.com/casey/just).
+Requires Go 1.26+ and [`just`](https://github.com/casey/just).
 
 ```bash
 just build         # → release/fg-qimen[.exe]
@@ -85,7 +148,7 @@ fg-qimen -H 192.168.1.0/24 --ports 22,80,443,3389,8080
 fg-qimen -H 10.0.0.5 --ports 22,80,3306,6379,8080 -t 50
 
 # custom output paths
-fg-qimen -H 10.0.0.5 -o myscan.txt -j myscan.json
+fg-qimen -H 10.0.0.5 -ot myscan.txt -oj myscan.json
 ```
 
 > **Tip — keep scan output out of the repo root:** by default the
@@ -187,7 +250,7 @@ qwerty
 
 ```bash
 fg-qimen -H 10.0.0.0/24 --ports 22,3306 -uf users.txt -pf pass.txt
-fg-qimen scan --mode crack -H targets.txt -uf users.txt -pf pass.txt --project corp
+fg-qimen scan --mode crack -f targets.txt -uf users.txt -pf pass.txt --project corp
 ```
 
 ---
@@ -210,11 +273,11 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ### Output formats
 
 Result files carry a `HH-MM-SS` local-time start stamp in the
-filename (added in v0.5.1) so two same-day runs don't clobber
-each other. The directory is bucketed by `YYYY-MM-DD`; the time
-suffix goes on the file. Examples: `fgqm_result_14-30-22.txt`,
-`fgqm_creds.txt` (no stamp — the file is opened `O_APPEND` and
-the dedup is on the in-memory `State`).
+filename so two same-day runs don't clobber each other. The
+directory is bucketed by `YYYY-MM-DD`; the time suffix goes on the
+file. Examples: `fgqm_result_14-30-22.txt`, `fgqm_creds.txt` (no
+stamp — the file is opened `O_APPEND` and the dedup is on the
+in-memory `State`).
 
 - `fgqm_result_HH-MM-SS.txt` — human-readable lines
 - `fgqm_result_HH-MM-SS.json` — NDJSON (one JSON object per line)
@@ -228,63 +291,23 @@ the dedup is on the in-memory `State`).
 Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
 and the stamp.
 
-### Plugins (44 plugins / authenticators)
+### Plugins and credential coverage
 
-| Plugin | Default ports | Identify | Credential |
-|---|---|---|---|
-| `ssh` | 22, 2222, 2200, 22222 | ✅ | ✅ (password only; no Session/Exec) |
-| `http` | 80, 443, 8080, 8443, 8000, 8888 | ✅ | – (v0.2+) |
-| `webtitle` | 80, 443, 8080, 8443 | ✅ (FingerprintHub 3139 rules + favicon) | – |
-| `redis` | 6379, 6380 | ✅ (PING / PONG) | ✅ (RESP AUTH) |
-| `mongodb` | 27017, 27018 | ✅ (OP_MSG hello) | ✅ (SCRAM-SHA-256 via OP_MSG) |
-| `postgresql` | 5432, 5433, 5434 | ✅ (StartupMessage) | ✅ (lib/pq via `db.PingContext`) |
-| `mssql` | 1433, 1434, 2433 | ✅ (TDS via go-mssqldb) | ✅ (TDS Login7 via go-mssqldb) |
-| `smb` | 445, 139 | ✅ (SMB magic) | ✅ (SMB2 Session Setup NTLMv2) |
-| `smtp` | 25, 465, 587, 2525 | ✅ (EHLO) | – (v0.2+) |
-| `snmp` | 161, 162 | ✅ (sysDescr.0 raw) | – (v0.2+) |
-| `snmpv3` | 161, 162 | ✅ (GetRequest v3) | |
-| `ldap` | 389, 636 | ✅ (BindRequest + SearchRequest) | – (v0.2+) |
-| `memcached` | 11211, 11212 | ✅ (text "version\r\n") | ✅ (ASCII "auth" probe) |
-| `elasticsearch` | 9200, 9300 | ✅ (HTTP GET /) | ✅ (HTTP Basic) |
-| `rdp` | 3389 | ✅ (TPKT/X.224/MCS 4-step) | – (NLA cred test deferred) |
-| `rdpnla` | 3389 | ✅ (RDP NLA posture HYBRID/SSL/legacy) | – (NLA cred deferred) |
-| `vnc` | 5900–5905 | ✅ (RFB 003.x banner) | ✅ (RFB handshake + DES challenge) |
-| `telnet` | 23, 2323 | ✅ (IAC-stripped banner) | ✅ (IAC + prompt + user/pass flow) |
-| `oracle` | 1521, 1526, 2483 | ✅ (TNS Connect/Accept) | ✅ (TNS handshake via go-ora) |
-| `winrm` | 5985, 5986 | ✅ (GET /wsman) | ✅ (HTTP Basic + WSMan SOAP) |
-| `pop3` | 110, 995 | ✅ (+OK greeting) | ✅ (RFC 1939 USER/PASS) |
-| `imap` | 143, 993 | ✅ (`* OK` greeting) | ✅ (RFC 3501 LOGIN) |
-| `socks5` | 1080 | ✅ (SOCKS5 VER 5) | ✅ (RFC 1928/1929 user/pass) |
-| `rsync` | 873, 8873 | ✅ (`@RSYNCD:` greeting) | ✅ (USERNAME + MD5 challenge) |
-| `docker` | 2375, 2376 | ✅ (GET /_ping + /info) | ✅ (HTTP Basic to /images/json) |
-| `rabbitmq` | 5672 | ✅ (AMQP 0-9-1 header + Start) | ✅ (AMQP PLAIN) |
-| `mqtt` | 1883, 8883 | ✅ (MQTT 3.1.1 / 5.0 CONNECT/CONNACK) | |
-| `activemq` | 61616 | ✅ (OpenWire stub) | |
-| `kafka` | 9092 | ✅ (ApiVersions v0+) | |
-| `rocketmq` | 9876 | ✅ (RemotingCommand stub) | |
-| `modbus` | 502 | ✅ (Read Device Identification) | ✅ (Read Device ID only; no write) |
-| `ipmi` | 623 (UDP) | ✅ (RMCP+ Session Open) | ✅ (RAKP v2.0 HMAC-SHA1) |
-| `bacnet` | 47808 (UDP) | ✅ (BACnet/IP Who-Is → I-Am) | ✅ (reachability probe) |
-| `ntp` | 123 (UDP) | ✅ (NTPv4 client, Mode=4) | |
-| `tftp` | 69 (UDP) | ✅ (RRQ → DATA/ERROR) | |
-| `dns` | 53 (UDP) | ✅ (CHAOS version.bind + root A) | |
-| `nfs` | 2049 | ✅ (ONC RPC NULL call) | ✅ (RPC NULL; no AUTH_GSS) |
-| `jenkins` | 8080, 8443, 50000 | ✅ (Jenkins crumb + version) | |
-| `kibana` | 5601 | ✅ (Kibana status API) | |
-| `weblogic` | 7001, 7002, 8443 | ✅ (WebLogic console login page) | |
-| `aws` | 80 (cloud-metadata) | ✅ (IMDSv1 + IMDSv2 fingerprint) | |
-| `azure` | 80 (cloud-metadata) | ✅ (Azure IMDS fingerprint) | |
+The full plugin roster — names, default ports, and Identify/Credential
+capabilities — is generated straight from the binary's live registries and
+machine-checked in CI:
 
-Credential testing covers **21 services** (SSH + Redis + MongoDB +
-PostgreSQL + MSSQL + SMB + Memcached + Elasticsearch + VNC + Telnet + Oracle +
-WinRM + POP3 + IMAP + SOCKS5 + Rsync + Docker + RabbitMQ + Modbus + IPMI v2.0 +
-BACnet + NFS), all with the no-exploit enforcement
-(`fgqm_creds.txt` is the only side-effect).
+- [`docs/PLUGINS.md`](docs/PLUGINS.md) — every registered plugin, with default ports and capability matrix
+- [`docs/FLAGS.md`](docs/FLAGS.md) — every CLI flag, grouped, with defaults
+
+Credential testing covers every service marked ✅ in `PLUGINS.md`
+(authenticator registry), all under the no-exploit enforcement
+(`fgqm_creds.txt` is the only side effect).
 
 IPv6 is first-class (single IP / CIDR / comma-list). Custom web-fingerprint
-rulesets load via `--web-fingerprint <path-or-url>` (local file or HTTP URL
-for live-update from a rules server). RDP NLA posture (HYBRID / SSL / legacy)
-is detected by the `rdp-nla` plugin; full CredSSP authentication is
+rulesets load via `--web-fingerprint <path>` (FG-QiMen native JSON or EHole
+format; merged with the built-in rules). RDP NLA posture (HYBRID / SSL /
+legacy) is detected by the `rdp-nla` plugin; full CredSSP authentication is
 deferred.
 
 ---
@@ -292,28 +315,31 @@ deferred.
 ## CLI reference
 
 ```
-fg-qimen [flags]
-fg-qimen scan [flags]                       # explicit scan
-fg-qimen resume --project <name>            # resume project
-fg-qimen projects list                      # list projects
-fg-qimen projects create <n>                # create project
-fg-qimen projects delete <n>                # delete project
-fg-qimen projects info <n>                  # show project details
-fg-qimen projects export <n> <out.fgq>      # export project to single .fgq file
-fg-qimen projects import <in.fgq> <n>      # import from .fgq file
-fg-qimen projects prune <n> --before <date> # delete seen-hashes older than <date> (--compact reclaims disk)
-fg-qimen version                 # show version
-fg-qimen completion bash         # generate shell completion
+fg-qimen [flags]                             # implicit scan
+fg-qimen scan [target] [flags]               # explicit scan; target may be a CIDR/range/host
+fg-qimen resume --project <name>             # resume project
+fg-qimen projects list                       # list projects
+fg-qimen projects create <n>                 # create project
+fg-qimen projects delete <n>                 # delete project
+fg-qimen projects info <n>                   # show project details
+fg-qimen projects export <n> <out.fgq>       # export project to single .fgq file
+fg-qimen projects import <in.fgq> <n>        # import from .fgq file
+fg-qimen projects prune <n> --before <date>  # delete seen-hashes older than <date> (--compact reclaims disk)
+fg-qimen schedules add <name> --cron "<expr>" # persist a schedule in the project DB
+fg-qimen schedules list                      # inspect queued schedules
+fg-qimen schedules remove <name>             # drop a schedule
+fg-qimen version                             # show version
+fg-qimen completion bash                     # generate shell completion
 ```
 
-### Quick start (5 essential flags)
+### Quick start (6 essential flags)
 
 For ~90% of scans you only need these six flags:
 
 | Short | Long | Example | Purpose |
 |---|---|---|---|
 | `-H` | `--host` | `-H 10.0.0.0/24` | target IP / CIDR / range / comma-list |
-| (无) | `--project` | `--project corp` | named project (persists to bbolt; omit for ephemeral) |
+| — | `--project` | `--project corp` | named project (persists to bbolt; omit for ephemeral) |
 | `-u` | `--user` | `-u root,admin` | inline usernames (comma-separated for multiple) |
 | `-p` | `--pass` | `-p admin,root` | inline passwords (comma-separated for multiple) |
 | `-uf` | `--user-file` | `-uf users.txt` | usernames dictionary file (one per line) |
@@ -347,64 +373,21 @@ fg-qimen scan --project corp --mode crack -uf users.txt -pf pass.txt
 fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 ```
 
-> **Short-flag convention** (v0.5.1+): all lowercase, mnemonic only,
+> **Short-flag convention**: all lowercase, mnemonic only,
 > 2-letter for namespaces (output-* / user-pass-file). `-H` is the
 > sole uppercase (it avoids the `-h`/`--help` collision that cobra
 > reserves). See [CHANGELOG](CHANGELOG.md) for the migration
 > table from v0.5.0.
 
-### Full flag reference (v0.5.1 — 45 flags, 14 with short aliases)
+### Full flag reference
 
-| Short | Long | Default | Group | Meaning |
-|---|---|---|---|---|
-| `-H` | `--host` | — | Target | target IP / CIDR / range / comma-list (e.g. `10.0.0.0/24,192.168.1.0/24`) |
-| `-f` | `--hosts-file` | — | Target | load targets from file (one host per line; `#` comments skipped) |
-|     | `--project` | — | Workspace | project name; empty = ephemeral (no bbolt). No short flag — use long form (e.g. `--project corp`). |
-|     | `--project-key` | — | Workspace | passphrase to encrypt the project DB at rest (AES-256-GCM, Argon2id-derived v0.4+). Empty = plaintext. Env: `FG_QIMEN_PROJECT_KEY` |
-|     | `--mode` | `scan` | Workspace | `scan` (alive→scan→identify) / `crack` (creds only) / `linked` (scan + creds) |
-| `-r` | `--resume` | `false` | Workspace | resume from bbolt seen-set (skip already-seen host:port pairs). New in v0.5.1. |
-|     | `--no-state` | `false` | Workspace | disable bbolt, in-memory only; the project is wiped on exit |
-|     | `--ports` | `22,80,3306,3389,6379,8080` | Ports | comma-separated port list |
-|     | `--exclude-ports` | — | Ports | ports to remove from the resolved list |
-|     | `--udp` | `false` | Ports | also probe well-known UDP services (DNS, NetBIOS, SNMP, NTP, ...) with nmap-style service payloads after the TCP scan. Explicit `--ports` ∩ probe-hinted ports; otherwise the full hint set (~70 ports). Each silent port costs its read timeout (shrinks adaptively from ~2s on fast networks); UDP ports are still TCP-connect-probed by the regular scan. Ineffective in crack mode. |
-|     | `--udp-strict` | `false` | Ports | with `--udp`: report silent UDP ports as filtered and drop them from results instead of open\|filtered noise — trades recall of idle-but-open services for a clean output on firewalled segments |
-|     | `--no-icmp` | `false` | Ports | skip ICMP alive probe (TCP-only mode for hostile networks) |
-|     | `--proxy` | — | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). No short flag (use long form). |
-|     | `--socks5` | — | Network | SOCKS5 proxy URL (e.g. `socks5://user:pass@127.0.0.1:1080`) |
-|     | `--iface` | — | Network | bind outgoing connections to this local IP |
-| `-t` | `--threads` | `200` | Concurrency | AIMD target concurrency for the scan pool, and worker count for the plugin pool. The scan pool slow-starts at a quarter of this value, doubles up to it, then grows additively toward the built-in ceiling (500) while healthy and backs off multiplicatively on overload signals (resource exhaustion / RTT inflation); an explicit value doubles as the hard cap. Env profiling auto-tunes it only when not set explicitly. |
-|     | `--max-workers` | `16` | Concurrency | hard upper bound for `--threads` (caps the auto-scaler) |
-|     | `--timeout` | `3s` | Concurrency | per-op timeout (also covers the alive probe, port scan connect, plugin handshake) |
-| `-a` | `--alive-only` | `false` | Concurrency | stop after the alive probe; no scan / identify / credential |
-| `-u` | `--user` | — | Credentials | inline usernames (comma-separated) |
-| `-p` | `--pass` | — | Credentials | inline passwords (comma-separated). v0.5.1: short changed from `-P` to `-p` (Unix-standard mnemonic for password; matches sshpass / passwd / openssl). |
-| `-uf` | `--user-file` | — | Credentials | usernames dictionary file (one per line). v0.5.1: short changed from `-U` to `-uf` (nmap-style 2-letter for namespaced flags). |
-| `-pf` | `--pass-file` | — | Credentials | passwords dictionary file (one per line). v0.5.1: short changed from `-W` to `-pf`. |
-| `-ot` | `--output-txt` | — | Output | path to TXT result file. v0.5.1: short changed from `-o` to `-ot` (2-letter for the output namespace). |
-| `-oj` | `--output-json` | — | Output | path to NDJSON result file. v0.5.1: short changed from `-j` to `-oj`. |
-| `-oc` | `--output-csv` | — | Output | path to CSV result file (one row per result; stable column order for awk / pandas). New in v0.5.1. |
-|     | `--output-sarif` | — | Output | path to SARIF 2.1.0 JSON (one document, for GitHub Code Scanning). No short flag (niche). |
-|     | `--rotate-bytes` | `0` | Output | per-file size cap for output rotation (0 = no rotation). Renamed from `--output-rotate-bytes` in v0.4.1; the `output-` prefix was redundant since `rotate` is unique to the output subsystem. |
-|     | `--rotate-files` | `0` | Output | total files to keep including active (0 = no rotation). Renamed from `--output-rotate-files` in v0.4.1. |
-|     | `--show-creds` | `false` | Output | force cleartext in `fgqm_result.txt` (`fgqm_creds.txt` is always cleartext) |
-|     | `--plugins` | — | Output | comma-separated plugin allowlist (e.g. `--plugins ssh,redis,vnc`); empty = all |
-|     | `--web-fingerprint` | — | Output | path or URL to extra FingerprintHub-style web rules |
-|     | `--http-form-url` | — | Output | HTTP basic-auth URL for the HTTP form-brute plugin (opt-in) |
-|     | `--http-form-fields` | `user=$user$,pass=$pass$` | Output | field template for the form-brute plugin |
-|     | `--http-form-success` | — | Output | substring that indicates a successful login response |
-|     | `--http-form-failure` | `invalid` | Output | substring that indicates a failed login response |
-|     | `--http-form-redirect` | — | Output | if set, follow redirects and use this substring to detect success in the final response |
-|     | `--silent` | `false` | Behavior | suppress banner / live event log lines |
-|     | `--no-tui` | `false` | Behavior | force plain-text output even when stdout is a TTY |
-|     | `--no-batch` | `false` | Behavior | disable bbolt batched writes (one fsync per Put instead of per batch) |
-| `-v` | `--verbose` | `false` | Behavior | verbose logging (debug-level from plugins) |
-|     | `--insecure-tls` | `false` | Safety | skip TLS certificate verification (probe builds; INSECURE — see HARD rule) |
-|     | `--insecure-ssh` | `false` | Safety | skip SSH host-key verification (INSECURE — see HARD rule) |
-|     | `--known-hosts` | — | Safety | path to `known_hosts` file (sets `InsecureIgnoreHostKey` to false) |
+The complete flag table lives in [`docs/FLAGS.md`](docs/FLAGS.md) — it is
+**generated from the same registry the binary serves**, so it can never
+drift from `fg-qimen --help` (a CI guard test fails the build when it
+does). `fg-qimen --help` remains the authoritative terminal rendering.
 
 Complete CLI usage templates (one per common workflow) live in
-[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md). The current
-`fg-qimen --help` output is the authoritative reference.
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
 ---
 
@@ -493,6 +476,9 @@ output and the tag you tried.
 - **README**: split — English ([README.md](README.md)) + Simplified Chinese
   ([README.zh-CN.md](README.zh-CN.md)).
 - **CLI flag names**: English.
+- **Generated docs** ([FLAGS.md](docs/FLAGS.md), [PLUGINS.md](docs/PLUGINS.md)):
+  English, matching the terminal-output policy — they are renderings of
+  the registry, not prose.
 
 ## Graceful Ctrl+C
 
@@ -505,12 +491,9 @@ output and the tag you tried.
 
 ## Roadmap
 
-Next milestones (see [CHANGELOG.md](CHANGELOG.md) for per-version history):
-
-- **v0.4**: full crack-mode refactor; proxy unification across plugins;
-  per-attempt read-deadline audit (closed for 7 worst offenders in v0.3.1).
-- **v0.5+**: full fake-server integration tests (MSSQL / SMB / RDP);
-  output rotation; project import/export; richer HTTP fingerprinting.
+Work in flight is tracked in [CHANGELOG.md](CHANGELOG.md)'s
+`[Unreleased]` section. Current themes: adaptive-scanning refinement,
+UDP service-coverage expansion, and supply-chain hardening.
 
 ---
 

@@ -1,6 +1,6 @@
 # 架构
 
-> [English version](../ARCHITECTURE.md)
+> [English version](ARCHITECTURE.md)
 
 ## 项目范围
 
@@ -154,11 +154,64 @@ project 模式（`-p <name>`）：每个项目独立 bbolt + 可选加密。
 
 ## 性能
 
-- 自适应 worker pool（filtered / open 比的滑动窗口）。自调到 64-200。
-- `LoadSeenHashes` 用 `bk.Stats().KeyN` 预分配，100k 条 resume 避
-  免 17 次 log-2 重新分配。
-- Output sink 用 6 个 per-sink 互斥锁，慢 sink 不会 head-of-line
-  阻塞其他 sink。
+扫描路径端到端自调优。四个机制叠加：
+
+### AIMD 线程池（internal/core/scan/pool.go）
+
+- **慢启动**：池以 `max(floor, target/4)` 出生，每个健康的调整
+  间隔翻倍，直到达到 AIMD 目标（`InitialThreads`）。
+- **稳态 AIMD**：健康时加性增 `+target/20`；有压力乘性减
+  `×0.85`，拥塞 `×0.5`。健康信号以资源耗尽率（EMFILE 类
+  dial 错误）为主、fast/slow 双 EMA RTT 趋势为辅——filtered /
+  closed 比高是*网络真实状态*，不是扫描器过载，永不触发收缩
+  （v0.3 时代把并发雪崩到 1 的启发式已移除）。
+- **静默网段**：窗口内没有任何 open/refused 响应时 Good 降级
+  为 OK，防火墙 /24 不会被误读成"还有余量"。
+- **地板**：并发永不低于 `max(MinThreads, MaxThreads/20)`；
+  `DefaultMinThreads=50` 来自雪崩复盘。`--threads` 是硬上限
+  ——池绝不越过它。
+- 50ms 唤醒 ticker 驱动控制器循环；生产者用有上限的指数退避
+  （1ms → 50ms），饱和时不打满一个核。
+- `RetryableProbe`（internal/core/scan/retry.go）用指数退避吸收
+  瞬态资源耗尽错误，不让它们到达拥塞控制器；重试失败率 >20%
+  记告警，提示进程大概率处于 FD / 套接字配额不足状态。
+
+### 自适应单探测超时（internal/core/scan/adaptive_timeout.go）
+
+每个真正到达主机的探测（握手成功或被拒 RST）把 RTT 记入
+64 样本环形缓冲。单 probe 超时变为 `mean + 4σ`，clamp 到
+`[max(500ms, base/5), base]`：快速局域网上 3s 的 filtered
+端口等待收缩到约 600ms（扫速 ≈5×），上限仍保持操作员的
+（可能经画像调优的）base。预热期（10 样本）返回 base。静默
+UDP 探测报 `RTT=0`，永不喂入采样器。显式 `--timeout` 整体
+禁用该机制——显式值始终是硬上限。
+
+### 网络环境画像（internal/core/envprobe.go）
+
+管线进入扫描阶段之前，从目标列表等距抽最多 10 台主机做廉价
+TCP 连接（refused 也算有效 RTT），把路径分类为 LAN（中位
+<20ms）/ WAN（20-200ms）/ Internet（>200ms）/ Slow。画像自动
+调优 `--timeout` 与 `--threads`——但只对操作员**未**显式设置
+的值生效。零样本（例如抽到的端口全关）默认按 WAN。
+
+### 网段预筛（internal/core/scan/prescreen.go）
+
+超过 `PrescreenThreshold`（256）个地址的输入在正式扫描前先
+预筛：阶段 1 用轮换端口探测每个 /24 的网关（.1/.254）；网关
+全部未命中的网段进入有界的阶段 2 兜底（每段取前
+`Phase2SampleCap=64` 台主机，每台一个轮换端口），仍未命中才
+跳过。单网段输入永不过滤。残余误杀窗口（其他全静默的网段里
+排位 64 之后的存活主机）已文档化；关掉兜底的开关是
+`PrescreenOptions.Phase2=false`。
+
+### 其他
+
+- `LoadSeenHashes` 用 `bk.Stats().KeyN` 预分配，100k 条 resume
+  避免 17 次 log-2 重新分配。
+- Output sink 用 6 个 per-sink 互斥锁，慢 sink 不会
+  head-of-line 阻塞其他 sink。
+- UDP 阶段在 TCP 之后串行执行，用自己的固定池（128/200
+  线程、2s 探测超时），UDP 的长静默等待不会扰动 TCP 控制器。
 
 ## 取舍
 

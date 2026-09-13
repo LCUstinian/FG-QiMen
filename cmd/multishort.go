@@ -40,6 +40,20 @@ var multiCharShorts = map[string]string{
 	"pf": "pass-file",
 }
 
+// MultiCharShorts returns a copy of the 2-letter short-alias map
+// (short → long). Consumers: the docs generator (internal/docgen),
+// which renders the -ot/-oj/-oc/-uf/-pf aliases into docs/FLAGS.md.
+// / MultiCharShorts 返回 2 字母短别名映射（短 → 长）的副本。消费方：
+// 文档生成器（internal/docgen），把 -ot/-oj/-oc/-uf/-pf 别名渲染进
+// docs/FLAGS.md。
+func MultiCharShorts() map[string]string {
+	out := make(map[string]string, len(multiCharShorts))
+	for k, v := range multiCharShorts {
+		out[k] = v
+	}
+	return out
+}
+
 // expandMultiCharShorts rewrites -XY → --long-name and -XY=value →
 // --long-name=value for any -XY registered in multiCharShorts.
 // Pass-through for anything else (-- flags, single -x flags, bare

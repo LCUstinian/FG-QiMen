@@ -3,17 +3,17 @@
 > [中文版本](SECURITY.zh-CN.md)
 
 GitHub recognises a `SECURITY.md` at the **repository root** for the
-> security advisory flow. The full security model is in
-> [`docs/SECURITY.md`](docs/SECURITY.md); this file is the
-> **GitHub-required** policy.
+security advisory flow. The full security model is in
+[`docs/SECURITY.md`](docs/SECURITY.md); this file is the
+**GitHub-required** policy.
 
 ## Supported Versions
 
 | Version | Supported |
 |---------|-----------|
-| v0.3.1+ (current) | ✅ |
-| v0.2.x | Best-effort |
-| v0.1.x | End-of-life |
+| Latest release | ✅ |
+| Older minors | Best-effort |
+| v0.2.x and earlier | End-of-life |
 
 ## Reporting a Vulnerability
 

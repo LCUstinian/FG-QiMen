@@ -44,5 +44,14 @@ fgqm_workspace/
 # Trae IDE / 编辑器
 .trae/
 
+# Internal working docs — kept local, never pushed. CHANGELOG/RELEASE
+# reference these paths as plain text only (no markdown links).
+# / 内部工作文档——仅保留本地，不推送。CHANGELOG/RELEASE 只以
+# 纯文本路径引用（不带 markdown 链接）。
+/docs/archive/
+/docs/design/
+/docs/superpowers/
+/docs/verification/
+
 # Accidental artifact directory / 意外产物目录
 binary=release/

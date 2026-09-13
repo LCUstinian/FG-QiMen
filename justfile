@@ -343,6 +343,21 @@ smoke cidr="" max="":
         CLICOLOR_FORCE=1 TERM=xterm-256color FGQI_SMOKE_CIDR={{ cidr }} \
         go test -tags smoke -run TestSmokeLiveTUIOnTarget -v -timeout 15m ./internal/tui/
 
+# Regenerate the generated-docs artifacts — the bilingual pair of
+# docs/FLAGS(.zh-CN).md and docs/PLUGINS(.zh-CN).md — from the live
+# flag + plugin registries. Must run from the repo root. Guarded by
+# internal/docgen's TestGeneratedDocsUpToDate — CI fails when a
+# flag/plugin change lands without running this; a flag without a
+# Chinese usage translation in internal/docgen/zh.go fails earlier,
+# inside this recipe.
+# / 重新生成文档产物——docs/FLAGS(.zh-CN).md 与 docs/PLUGINS(.zh-CN).md
+# 的双语对——从源码内的 flag + 插件 registry。必须在仓库根运行。由
+# internal/docgen 的 TestGeneratedDocsUpToDate 守卫——改了 flag/插件
+# 没跑这个，CI 会红；flag 缺 internal/docgen/zh.go 中文说明则在本
+# recipe 内提前失败。
+docs-gen:
+    @go run ./tools/gendocs
+
 # Clean ephemeral-mode outputs / 清理即扫即走输出
 clean-out:
     @rm -rf {{ runs_dir }}/default

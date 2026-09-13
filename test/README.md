@@ -31,16 +31,16 @@ cat fgqm_workspace/default/*/fgqm_result_*.json | head
 
 # 5. Project-mode scan (writes to ./fgqm_workspace/projects/<name>/)
 ./release/fg-qimen projects create smoke
-./release/fg-qimen -p smoke -f test/targets.txt --ports 22,80,8080,3306 -t 5 --shutdown-timeout 2s --no-tui
+./release/fg-qimen --project smoke -f test/targets.txt --ports 22,80,8080,3306 -t 5 --shutdown-timeout 2s --no-tui
 
 # 6. Project info
 ./release/fg-qimen projects info smoke
 
 # 7. Credential test (SSH only; loopback won't have SSH by default)
 #    This is a no-op against loopback; just shows the flag wiring.
-./release/fg-qimen -p smoke -f test/targets.txt --ports 22 \
-    -u-file test/users.txt -P-file test/passes.txt \
-    -mode linked --no-tui
+./release/fg-qimen --project smoke -f test/targets.txt --ports 22 \
+    -uf test/users.txt -pf test/passes.txt \
+    --mode linked --no-tui
 
 # 8. Cleanup
 just clean-runs

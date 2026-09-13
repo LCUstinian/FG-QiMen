@@ -2,14 +2,10 @@
 
 > [中文版本](RELEASE.zh-CN.md)
 
-current — multi-platform automated release pipeline.
-> current — 多平台自动发布流水线。
+> current — multi-platform automated release pipeline.
 
 This document describes how to cut a release of FG-QiMen. The pipeline
 is fully automated; a tag push is the only manual trigger.
-
-本文档描述如何发布 FG-QiMen 新版本。流水线完全自动化；tag push
-是唯一的触发点。
 
 ## Pre-release checklist
 
@@ -20,6 +16,10 @@ is fully automated; a tag push is the only manual trigger.
 4. `internal/version/version.go` `Value` is bumped to the release
    version. The release.yml's `derive version` step overrides it at
    build time via `-ldflags`, so this is informational only.
+5. **Sync the pinned test constant**: `internal/version/version_test.go`
+   `TestValueDefault` must match the new `Value` — it is a separate
+   literal and will NOT follow the bump. (v0.8.0 shipped its first
+   red tag CI because of exactly this.)
 
 ## Cutting a release
 
@@ -33,13 +33,12 @@ git status
 head -30 CHANGELOG.md
 
 # 3. Tag. The release.yml `on.push.tags: - 'v*'` matches any v-prefixed
-#    semver tag. /打 tag。release.yml 的 `on.push.tags: - 'v*'` 匹配任
-#    意 v 前缀的 semver tag。
-git tag -a v0.3.1 -m "v0.3.1 — one-line description"
+#    semver tag.
+git tag -a vX.Y.Z -m "vX.Y.Z — one-line description"
 
-# 4. Push the tag. This triggers the release pipeline. /推送 tag。
-#    这触发 release 流水线。
-git push origin v0.3.1
+# 4. Push the tag. This triggers the release pipeline.
+#    (remote name is `FG-QiMen`, not `origin`)
+git push FG-QiMen vX.Y.Z
 ```
 
 The push triggers three GitHub Actions workflows:
@@ -116,7 +115,7 @@ cosign verify-attestation \
 
 ## Prerelease tags
 
-Tags containing a `-` (e.g. `v0.3.1-rc1`, `v0.3.1-beta2`) are
+Tags containing a `-` (e.g. `vX.Y.Z-rc1`, `vX.Y.Z-beta2`) are
 published as **prerelease** GitHub Releases. Use them for
 release-candidate smoke-testing before the final cut.
 
@@ -135,11 +134,11 @@ To reproduce one standard target locally (Linux/amd64):
 ```bash
 SOURCE_DATE_EPOCH=1700000000 \
 go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=v0.3.1" \
+  -ldflags "-s -w -buildid= -X github.com/LCUstinian/FG-QiMen/internal/version.Value=vX.Y.Z" \
   -o fg-qimen-linux-amd64 .
 ```
 
-The binary's `version` subcommand should print `v0.3.1`.
+The binary's `version` subcommand should print `vX.Y.Z`.
 
 To build the hardened edition locally, use the hardening scripts —
 they run the same garble + UPX + strip pipeline as CI (garble pinned
@@ -163,11 +162,11 @@ that is by design.
 After the tag is pushed and the release is live:
 
 - Update `internal/version/version.go` `Value` to the next development
-  version (e.g. `0.3.2-dev`).
+  version (e.g. `0.Y.(Z+1)-dev`).
 - Open a CHANGELOG `[Unreleased]` section in `CHANGELOG.md`.
 - Continue normal development on `main`.
 
-This keeps `git log v0.3.1..main` clean for the next release.
+This keeps `git log vX.Y.Z..main` clean for the next release.
 
 ## Troubleshooting
 
@@ -219,7 +218,7 @@ git checkout main && git pull --ff-only
 
 # 2. Tag
 git tag -a vX.Y.Z -m "vX.Y.Z — description"
-git push origin vX.Y.Z
+git push FG-QiMen vX.Y.Z
 
 # 3. Watch
 # https://github.com/LCUstinian/FG-QiMen/actions
@@ -241,6 +240,9 @@ cosign verify-blob --certificate ... --signature ...
 - Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
   `docs/verification/v0.3/second-batch-verification.md`,
   `docs/verification/v0.4/verification.md`,
-  `docs/verification/v0.5/verification.md`
+  `docs/verification/v0.5/verification.md`,
+  `docs/verification/v0.5.1/verification.md`,
+  `docs/verification/v0.6.0/verification.md`,
+  `docs/verification/v0.7.0-tui-v2-bc/verification.md`
 - Release notes: `CHANGELOG.md`
 - Benchmark baselines: `docs/verification/v0.4/benchmarks.md`
