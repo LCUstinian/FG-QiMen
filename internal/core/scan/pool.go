@@ -1,23 +1,42 @@
-// Package scan: bounded-concurrency worker pool with adaptive sizing.
-// Package scan: 有界并发 worker 池，支持自适应调并发。
+// Package scan: bounded-concurrency worker pool with AIMD sizing.
+// Package scan: 有界并发 worker 池，AIMD 自适应调并发。
 //
 // Pool pulls Items from an Iterator, dispatches them to N workers
 // (each calling the Probe), and sends Results to an out channel.
 //
+// The adaptive controller (borrowed from fscan's AdaptivePool) runs a
+// two-phase policy driven by PoolMetrics (metrics.go):
+//
+//  1. Slow start: from target/4, double per healthy interval until
+//     the env-tuned target — no burst of MaxThreads connects at t=0.
+//  2. Steady-state AIMD: additive increase (+target/20) while
+//     healthy, multiplicative decrease (×0.85 stressed / ×0.5
+//     congested) on real overload signals — resource-exhaustion rate
+//     and fast/slow EMA RTT trend.
+//
+// What the controller deliberately does NOT do (the avalanche
+// lessons): it never shrinks on a high filtered/closed ratio (that is
+// the target network's posture, not scanner overload — shrinking on
+// it collapsed concurrency and stretched /24 sweeps into hours), and
+// steady-state growth beyond the env-tuned target requires real
+// responses: an interval with no open and no refusal carries no
+// ground truth, so Good is demoted to OK there.
+//
 // Pool 从 Iterator 拉 Item，分发给 N 个 worker（每个调 Probe），
-// 把 Result 发到 out channel。
+// 把 Result 发到 out channel。自适应控制器（借鉴 fscan 的
+// AdaptivePool）分两阶段，由 PoolMetrics（metrics.go）驱动：
 //
-// Adaptive sizing grows the pool when probes are succeeding (open
-// ratio high) and never shrinks below MinThreads. The original
-// filtered-shrink heuristic was removed: a high filtered ratio is a
-// property of the target network (firewalls silently dropping SYN),
-// not of scanner overload — shrinking on it collapsed concurrency to
-// 1 on hardened networks and stretched a /24 port sweep into hours.
+//  1. 慢启动：从 target/4 起步，健康周期内逐周期翻倍至环境调优的
+//     target——避免 t=0 直接打出 MaxThreads 量级的连接。
+//  2. 稳态 AIMD：健康时加性增（+target/20），真实过载信号上乘性
+//     减（有压力 ×0.85 / 拥塞 ×0.5）——信号为资源耗尽率与 fast/slow
+//     双 EMA RTT 趋势。
 //
-// 自适应调并发：探针成功率高（open 比例高）时扩容，永不低于
-// MinThreads。原 filtered 缩容启发式已移除：filtered 比例高是目标
-// 网络的特性（防火墙静默丢 SYN），不是扫描器过载——在加固网络上
-// 以此缩容会把并发塌缩到 1，把一个 /24 端口扫描拖成数小时。
+// 控制器刻意不做的事（雪崩教训）：绝不因 filtered/closed 比例高而
+// 缩容（那是目标网络的姿态，不是扫描器过载——据此缩容曾把并发塌
+// 缩、把 /24 扫描拖成数小时）；稳态下要超出环境调优 target 的增长
+// 必须有真实响应：无 open 无 refused 的周期不携带网络真值，此时
+// Good 降级为 OK。
 package scan
 
 import (
@@ -65,11 +84,13 @@ type PoolOptions struct {
 	// 不把 Pool 和 Log 接口耦合的前提下恢复可见性。
 	OnProbeError func(item Item, err error)
 
-	// OpenGrowRatio: if more than this fraction of recent probes
-	// are open, grow concurrency by 25% (until MaxThreads).
-	// OpenGrowRatio：若超过这个比例的近期 probe 是 open，
-	// 并发升 25%（到 MaxThreads 为止）。
-	OpenGrowRatio float64
+	// Env classifies the target network for the controller's health
+	// thresholds (see metrics.go). Zero value maps to the WAN set.
+	// Wired from the env profile (core.NetworkEnv) by core/scanner.go.
+	// / Env 为控制器的健康阈值刻画目标网络（见 metrics.go）。零值映
+	// 射到 WAN 档。由 core/scanner.go 从环境画像（core.NetworkEnv）
+	// 映射接线。
+	Env Env
 
 	// Adaptive, when non-nil, replaces the fixed Timeout with the
 	// RTT-derived mean+4σ value per probe, and is fed RTT samples
@@ -93,7 +114,6 @@ func DefaultPoolOptions(probe Probe) PoolOptions {
 		MaxThreads:     500,
 		InitialThreads: 200,
 		AdjustInterval: 500 * time.Millisecond,
-		OpenGrowRatio:  0.1,
 	}
 }
 
@@ -107,10 +127,17 @@ type Pool struct {
 	// 由自适应控制器调节。
 	currentThreads atomic.Int32
 
-	// sliding-window counters
-	windowMu  sync.Mutex
-	window    []bool // open samples / open 样本
-	windowMax int
+	// Controller state + shared signals. Controller-only fields
+	// (target, inSlowStart, prevSnap) are touched exclusively by the
+	// single adaptiveLoop goroutine, so they need no atomics.
+	// / 控制器状态 + 共享信号。控制器专属字段（target、inSlowStart、
+	// prevSnap）只被唯一的 adaptiveLoop goroutine 触碰，无需 atomic。
+	metrics PoolMetrics
+	target  int32
+	// inSlowStart: doubling phase toward target. / 慢启动：向 target
+	// 翻倍阶段。
+	inSlowStart bool
+	prevSnap    MetricsSnapshot
 
 	// busyTimer is reused across busy-wait iterations to avoid
 	// allocating a fresh Timer on every time.After call. / busyTimer
@@ -118,7 +145,13 @@ type Pool struct {
 	busyTimer *time.Timer
 }
 
-// NewPool constructs a Pool. / NewPool 构造一个 Pool。
+// NewPool constructs a Pool. InitialThreads is the AIMD target: the
+// pool is born at max(floor, target/4) and doubles up healthy
+// intervals until it reaches target, then switches to steady-state
+// AIMD bounded by MaxThreads. / NewPool 构造一个 Pool。
+// InitialThreads 是 AIMD 的 target：池以 max(floor, target/4) 出生，
+// 健康周期内逐周期翻倍至 target，随后切换为 MaxThreads 约束下的
+// 稳态 AIMD。
 func NewPool(opts PoolOptions) *Pool {
 	if opts.Probe == nil {
 		opts.Probe = NewTCPConnectProbe()
@@ -138,12 +171,8 @@ func NewPool(opts PoolOptions) *Pool {
 	if opts.AdjustInterval <= 0 {
 		opts.AdjustInterval = 500 * time.Millisecond
 	}
-	if opts.OpenGrowRatio <= 0 {
-		opts.OpenGrowRatio = 0.1
-	}
 	p := &Pool{
-		opts:      opts,
-		windowMax: 256,
+		opts: opts,
 		// Stop the timer immediately so it doesn't fire on the
 		// first Reset. / 立即停止 timer，避免首次 Reset 前就触发。
 		busyTimer: time.NewTimer(0),
@@ -151,8 +180,43 @@ func NewPool(opts PoolOptions) *Pool {
 	if !p.busyTimer.Stop() {
 		<-p.busyTimer.C
 	}
-	p.currentThreads.Store(int32(opts.InitialThreads))
+	p.target = int32(opts.InitialThreads)
+	start := p.slowStartStart()
+	p.currentThreads.Store(start)
+	p.inSlowStart = start < p.target
 	return p
+}
+
+// slowStartStart computes the birth concurrency: target/4, floored
+// by the pool floor. / slowStartStart 计算出生并发：target/4，以池
+// 下限兜底。
+func (p *Pool) slowStartStart() int32 {
+	start := p.target / 4
+	if floor := p.floorThreads(); start < floor {
+		start = floor
+	}
+	if start > p.target {
+		start = p.target
+	}
+	return start
+}
+
+// floorThreads is the lowest concurrency the controller will ever
+// set: max(MinThreads, MaxThreads/20). The MinThreads half honors the
+// operator/env floor (DefaultMinThreads=50 came from the avalanche
+// lesson); the MaxThreads/20 half is fscan's proportional bottom.
+// / floorThreads 是控制器允许的最低并发：max(MinThreads,
+// MaxThreads/20)。前者尊重操作员/环境下限（DefaultMinThreads=50 源
+// 自雪崩教训）；后者是 fscan 的比例下限。
+func (p *Pool) floorThreads() int32 {
+	floor := int32(p.opts.MinThreads)
+	if prop := int32(p.opts.MaxThreads / 20); prop > floor {
+		floor = prop
+	}
+	if floor < 1 {
+		floor = 1
+	}
+	return floor
 }
 
 // resetTimer is a small wrapper that drains a stopped timer's
@@ -337,12 +401,39 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				// Result 推到下游。把传输层错误视作"非 open 也非
 				// filtered"，避免窗口偏移，且不向输出 channel 推
 				// 无意义 res。
+				//
+				// Resource-exhaustion errors double as the AIMD
+				// congestion signal: RetryableProbe absorbs the
+				// transient ones with backoff, so what surfaces here
+				// is persistent FD/socket starvation — exactly when
+				// the controller must shrink.
+				// / 资源耗尽错误同时充当 AIMD 的拥塞信号：
+				// RetryableProbe 已用退避吸收瞬时耗尽，能浮到这里
+				// 的是持续性 FD/socket 饥饿——正是控制器必须缩容的
+				// 时刻。
+				if isResourceExhaustedError(err) {
+					p.metrics.RecordExhausted()
+				}
 				if p.opts.OnProbeError != nil {
 					p.opts.OnProbeError(item, err)
 				}
 				return
 			}
-			p.record(res)
+			// Classify for the AIMD controller. Only open and closed
+			// carry an RTT (ground truth); filtered/timeouts dilute
+			// the exhaustion rate's denominator but never feed the
+			// RTT EMAs (recordRTT skips RTT ≤ 0).
+			// / 为 AIMD 控制器分类。只有 open 和 closed 携带 RTT
+			// （网络真值）；filtered/timeout 只稀释耗尽率的分母，
+			// 绝不喂 RTT EMA（recordRTT 跳过 RTT ≤ 0）。
+			switch res.State {
+			case StateOpen:
+				p.metrics.RecordOpen(res.RTT)
+			case StateClosed:
+				p.metrics.RecordRefused(res.RTT)
+			default:
+				p.metrics.RecordTimeout()
+			}
 			// Feed the adaptive timeout only with samples that
 			// actually reached a host: open (handshake / response)
 			// and closed (refused RST) both prove a round trip.
@@ -372,25 +463,10 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 	return nil
 }
 
-// record adds a result to the sliding window. Only open results are
-// interesting to the (grow-only) adaptive controller; filtered/closed
-// samples are recorded as false.
-// record 把一个结果加入滑动窗口。对（只增的）自适应控制器而言只有
-// open 结果有意义；filtered/closed 样本记为 false。
-func (p *Pool) record(r Result) {
-	p.windowMu.Lock()
-	defer p.windowMu.Unlock()
-	if len(p.window) >= p.windowMax {
-		// Drop the oldest sample. / 丢弃最早的样本。
-		p.window = p.window[1:]
-	}
-	p.window = append(p.window, r.State == StateOpen)
-}
-
-// adaptiveLoop periodically inspects the sliding window and adjusts
-// concurrency. Exits when stop is closed.
+// adaptiveLoop periodically drives the controller at AdjustInterval.
+// Exits when stop is closed.
 //
-// adaptiveLoop 周期性检查滑动窗口并调并发。stop 关闭时退出。
+// adaptiveLoop 按 AdjustInterval 周期性驱动控制器。stop 关闭时退出。
 //
 // P3-3 (audit): the previous implementation drove the loop off a
 // single ticker at AdjustInterval (default 500ms). When Pool.Run
@@ -424,35 +500,103 @@ func (p *Pool) adaptiveLoop(ctx context.Context, stop chan struct{}) {
 	}
 }
 
-// adjust inspects the current window and grows the pool when the
-// open ratio exceeds opts.OpenGrowRatio. The pool never shrinks: a
-// high filtered/closed ratio reflects the target network's posture
-// (firewalls dropping SYN), not scanner overload, and shrinking on
-// it collapses throughput (see package comment).
-// adjust 检查当前窗口，open 比例超过 opts.OpenGrowRatio 时扩容。
-// 池永不缩容：filtered/closed 比例高反映的是目标网络的姿态（防火墙
-// 丢 SYN），不是扫描器过载，据此缩容会塌缩吞吐（见包注释）。
+// adjust runs one controller step: assess health from the metric
+// deltas of the last interval, then apply the phase policy. It is
+// only ever called from the adaptiveLoop goroutine.
+//
+// adjust 执行一步控制器：用上个周期的度量增量评估健康，再应用阶段
+// 策略。只会被 adaptiveLoop goroutine 调用。
 func (p *Pool) adjust() {
-	p.windowMu.Lock()
-	w := p.window
-	p.windowMu.Unlock()
-	if len(w) < 16 {
-		return // not enough samples yet
+	health, _ := p.metrics.assessHealth(&p.prevSnap, p.opts.Env)
+	if health == HealthUnknown {
+		return
 	}
-	var openN int
-	for _, isOpen := range w {
-		if isOpen {
-			openN++
-		}
-	}
-	openRatio := float64(openN) / float64(len(w))
+	// Sustained RTT inflation lowers the AIMD target — the ceiling
+	// for additive growth follows the network down instead of
+	// fighting it. / RTT 持续膨胀时压低 AIMD target——加性增的天花
+	// 板跟着网络下滑，而不是与网络对抗。
+	p.maybeReduceTarget()
 
 	cur := p.currentThreads.Load()
-	if openRatio > p.opts.OpenGrowRatio {
-		// Grow by 25%. / 升 25%。
-		newThreads := int32(min(float64(int32(p.opts.MaxThreads)), float64(cur)*1.25))
-		if newThreads != cur {
-			p.currentThreads.Store(newThreads)
+	var newSize int32
+	if p.inSlowStart {
+		newSize = p.adjustSlowStart(health, cur)
+	} else {
+		newSize = p.adjustAIMD(health, cur)
+	}
+	if floor := p.floorThreads(); newSize < floor {
+		newSize = floor
+	}
+	if newSize > int32(p.opts.MaxThreads) {
+		newSize = int32(p.opts.MaxThreads)
+	}
+	if newSize != cur {
+		p.currentThreads.Store(newSize)
+	}
+}
+
+// adjustSlowStart doubles per healthy interval until target; a
+// stressed/congested interval exits the phase immediately with a
+// halving. / adjustSlowStart 健康周期内逐周期翻倍至 target；出现压
+// 力/拥塞立即退出该阶段并减半。
+func (p *Pool) adjustSlowStart(health HealthSignal, cur int32) int32 {
+	switch health {
+	case HealthCongested, HealthStressed:
+		p.inSlowStart = false
+		return int32(float64(cur) * 0.5)
+	default:
+		newSize := cur * 2
+		if newSize >= p.target {
+			newSize = p.target
+			p.inSlowStart = false
 		}
+		return newSize
+	}
+}
+
+// adjustAIMD is the steady-state policy: +5% of target while healthy,
+// hold on OK, ×0.85 on stress, ×0.5 on congestion.
+// / adjustAIMD 是稳态策略：健康时 +target 的 5%，OK 时维持，有压力
+// ×0.85，拥塞 ×0.5。
+func (p *Pool) adjustAIMD(health HealthSignal, cur int32) int32 {
+	switch health {
+	case HealthCongested:
+		return int32(float64(cur) * 0.5)
+	case HealthStressed:
+		return int32(float64(cur) * 0.85)
+	case HealthGood:
+		inc := p.target / 20
+		if inc < 1 {
+			inc = 1
+		}
+		return cur + inc
+	default: // HealthOK
+		return cur
+	}
+}
+
+// maybeReduceTarget lowers the AIMD target by 10% when the fast/slow
+// RTT ratio sustains above 3.0 — latency is escalating faster than
+// any single halving would suggest. One-way ratchet (never re-raised
+// within a scan) keeps the controller from oscillating on a flapping
+// path. Floor: max(floorThreads, MaxThreads/5).
+// / maybeReduceTarget 在 fast/slow RTT 比持续高于 3.0 时把 AIMD
+// target 压低 10%——延迟恶化速度比单次减半所暗示的更快。单向棘轮
+// （一次扫描内不再回升）避免控制器在抖动路径上震荡。下限：
+// max(floorThreads, MaxThreads/5)。
+func (p *Pool) maybeReduceTarget() {
+	if p.metrics.RTTRatio() <= 3.0 {
+		return
+	}
+	minTarget := int32(p.opts.MaxThreads / 5)
+	if floor := p.floorThreads(); minTarget < floor {
+		minTarget = floor
+	}
+	newTarget := int32(float64(p.target) * 0.9)
+	if newTarget < minTarget {
+		newTarget = minTarget
+	}
+	if newTarget < p.target {
+		p.target = newTarget
 	}
 }

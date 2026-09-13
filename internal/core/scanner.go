@@ -138,8 +138,14 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 	// Internet/Slow，自动调优超时与线程——但只调操作员未显式指定的
 	// 值。在预筛之前跑，让网段探测继承调优后的超时。
 	envProbe := scan.NewTCPConnectProbe()
+	// poolEnv feeds the scan pool's AIMD health thresholds (metrics.
+	// go). Zero value ("") maps to the WAN set when profiling did not
+	// run. / poolEnv 喂扫描池的 AIMD 健康阈值（metrics.go）。画像未
+	// 跑时零值（""）映射到 WAN 档。
+	var poolEnv scan.Env
 	if len(targets) >= EnvProbeMinHosts && envProbe.Available() == nil {
 		profile := ProbeNetwork(ctx, targetAddrs(targets), envProbe, time.Second)
+		poolEnv = scan.Env(profile.Env)
 		if summary := ApplyEnvTuning(cfg, profile); summary != "" {
 			sess.Log.Info("[*] network profile: %s", summary)
 		}
@@ -466,6 +472,16 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 		if !cfg.TimeoutExplicit {
 			adaptive = scan.NewAdaptiveTimeout(cfg.Timeout)
 		}
+		// Ceiling semantics: an explicit --threads is a hard cap, not
+		// a suggestion — the AIMD controller may grow toward MaxThreads
+		// on healthy networks, which must never exceed what the
+		// operator asked for. / 上限语义：显式 --threads 是硬上限而非
+		// 建议值——AIMD 控制器在健康网络上会向 MaxThreads 增长，但绝
+		// 不能超过操作员的指定值。
+		maxThreads := DefaultMaxThreads
+		if cfg.ThreadsExplicit {
+			maxThreads = cfg.Threads
+		}
 		sc := scan.NewScanner(scan.ScanOptions{
 			// Banner grabbing is wired (FirstBanner) so the Stage-0
 			// nmap-style fingerprint in the plugin worker has raw
@@ -481,7 +497,8 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 			Adaptive:   adaptive,
 			Threads:    cfg.Threads,
 			MinThreads: DefaultMinThreads,
-			MaxThreads: DefaultMaxThreads,
+			MaxThreads: maxThreads,
+			Env:        poolEnv,
 			// P3 / F12 audit fix: surface probe errors (ctx cancel,
 			// conn reset, etc.) to the session log instead of
 			// silently dropping them. The pool worker records the
@@ -598,6 +615,7 @@ func runFullPipeline(ctx context.Context, sess *session.Session) (int, error) {
 				Adaptive:   udpAdaptive,
 				Threads:    DefaultUDPThreads,
 				MaxThreads: DefaultUDPMaxThreads,
+				Env:        poolEnv,
 				OnProbeError: func(_ scan.Item, err error) {
 					sess.Log.Warn("udp probe error: %v", err)
 				},

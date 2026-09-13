@@ -69,6 +69,22 @@
 
 ### Changed
 
+- **AIMD 自适应并发池（借鉴 fscan 的 AdaptivePool）** —— 扫描池原本
+  "只增不减"的 open 比例启发式替换为两阶段控制器，由无锁扫描度量
+  驱动：慢启动（以 `--threads` 目标的 1/4 出生，健康周期内逐周期
+  翻倍）→ 稳态 AIMD——健康时加性增（+target/20），有压力 ×0.85，
+  拥塞 ×0.5。健康每 500ms 评估一次，信号为资源耗尽率（穿透
+  RetryableProbe 的 EMFILE 类拨号错误）与 fast/slow 双 EMA RTT 趋势
+  （fast α=1/10、slow α=1/50；只有真正到达主机的探测才喂入），并按
+  环境画像接入 LAN/WAN/Internet 三档阈值。雪崩教训由测试钉死：
+  filtered 占比高的窗口绝不读作过载（timeout 只稀释耗尽率分母），
+  纯静默不携带网络真值——超出环境调优目标的增长必须有真实响应。
+  RTT 比值持续 >3 时经单向棘轮压低 AIMD target（下限
+  MaxThreads/5）。
+- **`--threads` 显式指定时成为硬上限** —— 此前显式值在响应良好的
+  网络上仍会被涨到内置的 500 线程上限；AIMD 控制器现在把显式
+  `--threads` 视为天花板，绝不超出。环境画像只在未显式指定时自动
+  调优。
 - **fingerprint：softmatch 降级为低置信度猜测** —— 当没有任何硬
   规则命中 banner 时，首个 soft 命中现按 nmap 惯例报为 `service?`
   且不带版本信息，而非看似权威的匹配。soft 正则是宽松的协议提示，

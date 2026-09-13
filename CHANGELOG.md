@@ -92,6 +92,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **AIMD adaptive concurrency pool (borrowed from fscan's
+  AdaptivePool)** — the scan pool's grow-only open-ratio heuristic is
+  replaced by a two-phase controller driven by lock-free scan metrics:
+  slow start (birth at a quarter of the `--threads` target, doubling
+  per healthy interval) then steady-state AIMD — additive growth
+  (+target/20) while healthy, ×0.85 on stress, ×0.5 on congestion.
+  Health is assessed per 500ms interval from the resource-exhaustion
+  rate (EMFILE-style dial errors that survived RetryableProbe) and a
+  fast/slow dual-EMA RTT trend (fast α=1/10, slow α=1/50; only probes
+  that actually reached a host feed it), with LAN/WAN/Internet
+  threshold sets wired from the env profile. The avalanche lessons are
+  pinned by tests: a filtered-heavy window never reads as overload
+  (timeouts only dilute the exhaustion denominator) and pure silence
+  carries no ground truth, so growth beyond the env-tuned target
+  requires real responses. A sustained RTT ratio >3 lowers the AIMD
+  target via a one-way ratchet (floored at MaxThreads/5).
+- **`--threads` is now a hard cap when set explicitly** — previously an
+  explicit value still grew to the built-in 500-thread ceiling on
+  responsive networks; the AIMD controller now treats an explicit
+  `--threads` as the ceiling and never exceeds it. Env profiling
+  continues to auto-tune the value only when it is not explicit.
 - **fingerprint: softmatches demoted to a low-confidence guess** —
   when no hard rule matches a banner, the first soft hit is now
   reported in nmap's convention as `service?` with empty version

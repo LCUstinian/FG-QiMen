@@ -371,7 +371,7 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 |     | `--proxy` | — | Network | HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:8080`). Honored by every TCP dial site via `credential.DialTCP` / `DialTCPAddr` (Phase 2.2). No short flag (use long form). |
 |     | `--socks5` | — | Network | SOCKS5 proxy URL (e.g. `socks5://user:pass@127.0.0.1:1080`) |
 |     | `--iface` | — | Network | bind outgoing connections to this local IP |
-| `-t` | `--threads` | `200` | Concurrency | concurrent workers in the plugin pool |
+| `-t` | `--threads` | `200` | Concurrency | AIMD target concurrency for the scan pool, and worker count for the plugin pool. The scan pool slow-starts at a quarter of this value, doubles up to it, then grows additively toward the built-in ceiling (500) while healthy and backs off multiplicatively on overload signals (resource exhaustion / RTT inflation); an explicit value doubles as the hard cap. Env profiling auto-tunes it only when not set explicitly. |
 |     | `--max-workers` | `16` | Concurrency | hard upper bound for `--threads` (caps the auto-scaler) |
 |     | `--timeout` | `3s` | Concurrency | per-op timeout (also covers the alive probe, port scan connect, plugin handshake) |
 | `-a` | `--alive-only` | `false` | Concurrency | stop after the alive probe; no scan / identify / credential |

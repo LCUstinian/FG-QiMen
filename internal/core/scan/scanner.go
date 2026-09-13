@@ -18,7 +18,7 @@ import (
 type ScanOptions struct {
 	Probe      Probe
 	Timeout    time.Duration
-	Threads    int // initial threads; pool adapts up/down
+	Threads    int // AIMD target concurrency; the pool slow-starts below it and AIMD-adjusts around it / AIMD 目标并发；池在其下方慢启动，并在其附近 AIMD 调整
 	MinThreads int
 	MaxThreads int
 	// Adaptive, when non-nil, enables the RTT-sampled per-probe
@@ -28,6 +28,11 @@ type ScanOptions struct {
 	// AdaptiveTimeout）。操作员显式设置 --timeout 时由接线点
 	// （core/scanner.go）禁用。
 	Adaptive *AdaptiveTimeout
+	// Env classifies the target network for the pool's AIMD health
+	// thresholds (see metrics.go). Zero value maps to the WAN set.
+	// / Env 为池的 AIMD 健康阈值刻画目标网络（见 metrics.go）。零值
+	// 映射到 WAN 档。
+	Env Env
 	// OnProbeError forwards the pool's per-probe error signal to
 	// the caller. Same contract as PoolOptions.OnProbeError.
 	//
@@ -61,6 +66,9 @@ func NewScanner(opts ScanOptions) *Scanner {
 	}
 	if opts.Adaptive != nil {
 		pOpts.Adaptive = opts.Adaptive
+	}
+	if opts.Env != "" {
+		pOpts.Env = opts.Env
 	}
 	return &Scanner{pool: NewPool(pOpts)}
 }

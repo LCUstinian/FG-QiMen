@@ -334,7 +334,7 @@ fg-qimen -H 10.0.0.0/24 --proxy http://127.0.0.1:8080
 |     | `--proxy` | （空） | Network | HTTP/HTTPS 代理 URL（如 `http://127.0.0.1:8080`）。通过 `credential.DialTCP` / `DialTCPAddr` 在所有 TCP 拨号站点生效（Phase 2.2）。无短参。 |
 |     | `--socks5` | （空） | Network | SOCKS5 代理 URL（如 `socks5://user:pass@127.0.0.1:1080`） |
 |     | `--iface` | （空） | Network | 出站连接绑定的本地 IP |
-| `-t` | `--threads` | `200` | Concurrency | plugin 池的并发 worker 数 |
+| `-t` | `--threads` | `200` | Concurrency | 扫描池 AIMD 的目标并发与 plugin 池的 worker 数。扫描池以其 1/4 慢启动翻倍至此值，健康时向内置上限（500）加性增长，过载信号（资源耗尽/RTT 恶化）上乘性回退；显式指定时该值即硬上限，环境画像只在未显式指定时自动调优。 |
 |     | `--max-workers` | `16` | Concurrency | `--threads` 的硬上限（给自动缩放器加 cap） |
 |     | `--timeout` | `3s` | Concurrency | 单次操作超时（覆盖 alive 探活、端口扫描 connect、插件握手） |
 | `-a` | `--alive-only` | `false` | Concurrency | alive 后就停；不跑 scan / identify / credential |
