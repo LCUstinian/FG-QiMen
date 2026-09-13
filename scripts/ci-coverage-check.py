@@ -73,7 +73,17 @@ PLUGIN_ROOT = "internal/plugins/adapted"
 #   - modbus removed (plugin-side io.ReadFull + 9-byte buffer fix;
 #     coverage jumped from 29.7% to 87.5%; the §11.2 reason
 #     no longer applies).
-FLOOR_EXEMPT = frozenset()
+#
+# v0.9.0 history:
+#   - smb added (enum.go null-session share walk; go-smb2 is
+#     client-only and its Session/Share types are concrete, so the
+#     happy path needs an SMB2 fake server; tracked in issue #14).
+#     ftp, added in the same release, was NOT exempted: a minimal
+#     RFC 959 fake covered the walk and lifted the package from
+#     36.3% to 87.3%.
+FLOOR_EXEMPT = frozenset({
+    "internal/plugins/adapted/filestorage/smb",
+})
 
 
 def global_coverage_pct() -> float:
