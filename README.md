@@ -11,6 +11,11 @@ the **plugin workers (consumer)** via a Go channel pipeline. It supports three
 run modes (`scan` / `crack` / `linked`) and two work modes (ephemeral oneshot
 vs persistent project workspace with bbolt state).
 
+**The name is the mission.** *FG* stands for the Mohist doctrine of
+non-aggression (非攻, *Féi Gōng*) — the scanner identifies, it never attacks.
+*QiMen* comes from Qimen Dunjia (奇门遁甲), the ancient art of measurement and
+deduction — measure first, then scan.
+
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
@@ -170,18 +175,11 @@ fg-qimen -H 10.0.0.5 -ot myscan.txt -oj myscan.json
 > `./fgqm_workspace` relative to the cwd. Point it elsewhere with
 > `--workspace <dir>` or the `FGQI_WORKSPACE` env var (flag wins) so
 > debug runs and scratch scans never litter the project directory.
-> / **提示 — 别让扫描输出污染仓库根**：默认工作区（结果 sink、
-> bbolt 状态、日桶）建在相对 cwd 的 `./fgqm_workspace`。用
-> `--workspace <dir>` 或环境变量 `FGQI_WORKSPACE`（flag 优先）把它
-> 指到别处，调试 run 和临时扫描就不会弄脏项目目录。
 
 > **Tip — faster alive discovery on Windows:** without elevation the
 > ICMP prober cannot open a raw socket, so alive detection falls back
 > to spawning `ping.exe` per host (works, but slower). Run the scanner
 > from an elevated shell to enable the fast ICMP path.
-> / **提示 — Windows 下加速存活探测**：非管理员无法打开 ICMP raw
-> socket，存活探测会退化为逐主机 spawn `ping.exe`（可用但较慢）。
-> 用管理员终端运行扫描器即可启用快速 ICMP 路径。
 
 ### Project mode
 
@@ -287,27 +285,32 @@ Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ### Output formats
 
 Result files carry a `HH-MM-SS` local-time start stamp in the
-filename so two same-day runs don't clobber each other. The
-directory is bucketed by `YYYY-MM-DD`; the time suffix goes on the
-file. Examples: `fgqm_result_14-30-22.txt`, `fgqm_creds.txt` (no
-stamp — the file is opened `O_APPEND` and the dedup is on the
-in-memory `State`).
+filename so two same-day runs don't clobber each other, and live
+under a `YYYY-MM-DD/` daily bucket directory (example:
+`fgqm_result_14-30-22.txt`). One exception: `fgqm_creds.txt` has no
+stamp — the file is opened `O_APPEND` and dedup runs on the in-memory
+`State`.
 
-- `fgqm_result_HH-MM-SS.txt` — human-readable lines
-- `fgqm_result_HH-MM-SS.ndjson` — NDJSON (one JSON object per line; the `.ndjson` extension is deliberate — editors that validate a whole `.json` file as a single document would flag multi-line output as invalid)
-- `fgqm_result_HH-MM-SS.csv` — RFC 4180, one row per result
-- `fgqm_creds.txt` — credential hits (cleartext; operator's working file)
-- `fgqm_rdp_HH-MM-SS.ndjson` / `fgqm_rdp_HH-MM-SS.txt` — RDP deep fingerprint (hostname, build, NLA flag, OS)
-- `fgqm_web_HH-MM-SS.ndjson` / `fgqm_web_HH-MM-SS.txt` — structured web fingerprint per webtitle hit: URL, status, title, server, matched fingers, and — for https targets — the TLS leaf identity (subject, SANs, issuer, validity dates, protocol version). The SAN/CN fields routinely expose internal hostnames and domains that banner matching never sees.
-- `fgqm_alive_HH-MM-SS.txt` — one IP per line (dedup'd host list for `nmap -iL` / `masscan --targets` / `curl` loops). Same daily bucket (`YYYY-MM-DD/`) + `HH-MM-SS` filename stamp as the other timestamped sinks (`fgqm_result_*`, `fgqm_rdp_*`).
-- `fgqm_log_HH-MM-SS.txt` — the run's log archive (same `[*]`/`[+]`/`[!]` lines as the console stream, format `HH:MM:SS [level] message`). Same daily bucket + stamp as the result files; one is written per scan automatically. Text mode (`--no-tui`) tees to both console and file; TUI mode and `--silent` write file-only — the screen stays clean but logs are no longer lost. Since credential-hit lines carry cleartext passwords, the file is created `0600` (same policy as `fgqm_creds.txt`).
-- `fgqm_discovery_HH-MM-SS.ndjson` / `.txt` — out-of-scope host discoveries from protocol interactions (NBNS, SMB, TLS SAN, ...): address, hostname, source protocol, discovery time. Recorded on every run; scanning them is opt-in via `--expand-scope`.
-- `fgqm_shares_HH-MM-SS.ndjson` / `.txt` — SMB null-session share enumeration (`--share-enum`): share names, access level, directory metadata (names, sizes, mtimes). Evidence-only — file contents are never downloaded.
-- `fgqm_ftp_HH-MM-SS.ndjson` / `.txt` — FTP directory walks (`--ftp-enum`): anonymous or weak-credential logins, directory tree metadata. Deliberately separate from share findings.
-- `fgqm_servers_HH-MM-SS.ndjson` / `.txt` — aggregated important-server inventory (DC / file / backup / VPN / DB / ...): IP, hostname, roles, evidence ports.
+| Sink | Contents |
+|---|---|
+| `fgqm_result_<time>.txt` / `.ndjson` / `.csv` | scan results — human-readable lines / NDJSON (one JSON object per line) / RFC 4180 CSV |
+| `fgqm_creds.txt` | credential hits (cleartext; operator's working file) |
+| `fgqm_rdp_<time>.ndjson` / `.txt` | RDP deep fingerprint: hostname, build, NLA flag, OS |
+| `fgqm_web_<time>.ndjson` / `.txt` | structured web fingerprint per webtitle hit: URL, status, title, server, matched fingers — https targets add the TLS leaf identity (subject, SANs, issuer, validity dates, protocol version); the SAN/CN fields routinely expose internal hostnames banner matching never sees |
+| `fgqm_alive_<time>.txt` | one IP per line — dedup'd host list ready for `nmap -iL` / `masscan --targets` / `curl` loops |
+| `fgqm_log_<time>.txt` | run log archive (`HH:MM:SS [level] message`, same lines as the console stream); written automatically per scan — text mode (`--no-tui`) tees to console + file, TUI mode and `--silent` write file-only; created `0600` since credential-hit lines carry cleartext passwords |
+| `fgqm_discovery_<time>.ndjson` / `.txt` | out-of-scope host discoveries from protocol interactions (NBNS, SMB, TLS SAN, ...): address, hostname, source protocol, discovery time; recorded on every run, opt-in scanning via `--expand-scope` |
+| `fgqm_shares_<time>.ndjson` / `.txt` | SMB null-session share enumeration (`--share-enum`): share names, access level, directory metadata — evidence-only, file contents are never downloaded |
+| `fgqm_ftp_<time>.ndjson` / `.txt` | FTP directory walks (`--ftp-enum`): anonymous or weak-credential logins, directory tree metadata — deliberately separate from share findings |
+| `fgqm_servers_<time>.ndjson` / `.txt` | aggregated important-server inventory (DC / file / backup / VPN / DB / ...): IP, hostname, roles, evidence ports |
 
-Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
-and the stamp.
+Notes:
+
+- `<time>` is the `HH-MM-SS` start stamp; the `.ndjson` extension is
+  deliberate — editors that validate a whole `.json` file as a single
+  document would flag multi-line output as invalid.
+- Explicit paths via `-ot` / `-oj` / `-oc` bypass both the bucketing
+  and the stamp.
 
 ### Evidence, scope & server inventory
 

@@ -8,6 +8,9 @@ FG-QiMen 是一个纯 CLI 扫描器，通过 Go channel 管线解耦**端口扫�
 **插件 worker（消费者）**。支持三种运行模式（`scan` / `crack` / `linked`）与两种工作
 模式（即扫即走 vs 带持久化 bbolt 状态的项目工作区）。
 
+**名字即定位。** *FG* 取自墨家「非攻」——只识别、不攻击；*QiMen* 取自奇门遁甲
+的「奇门」——先测算推演、后落子行动。
+
 [English](README.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [更新日志](CHANGELOG.zh-CN.md)
 
 ```
@@ -252,24 +255,27 @@ fg-qimen scan --mode crack -f targets.txt -uf users.txt -pf pass.txt --project c
 ### 输出格式
 
 结果文件名携带本地时间 `HH-MM-SS` 启动戳（v0.5.1 新增），同日多次 run 不会互相
-覆盖。目录按 `YYYY-MM-DD` 分桶；时间戳放在文件名上。示例：
-`fgqm_result_14-30-22.txt`；`fgqm_creds.txt` 无戳——该文件以 `O_APPEND` 打开，
-去重靠内存 `State`。
+覆盖，并落在按 `YYYY-MM-DD` 分桶的目录下（示例：`fgqm_result_14-30-22.txt`）。
+唯一例外：`fgqm_creds.txt` 无戳——该文件以 `O_APPEND` 打开，去重靠内存 `State`。
 
-- `fgqm_result_HH-MM-SS.txt` — 人类可读行
-- `fgqm_result_HH-MM-SS.ndjson` — NDJSON（每行一个 JSON 对象；扩展名 `.ndjson` 是刻意的——按单文档校验整个 `.json` 文件的编辑器会把多行输出标为非法）
-- `fgqm_result_HH-MM-SS.csv` — RFC 4180，每条结果一行
-- `fgqm_creds.txt` — 凭据命中（明文；操作员工作文件）
-- `fgqm_rdp_HH-MM-SS.ndjson` / `fgqm_rdp_HH-MM-SS.txt` — RDP 深度指纹（主机名、build、NLA 标志、OS）
-- `fgqm_web_HH-MM-SS.ndjson` / `fgqm_web_HH-MM-SS.txt` — 每个 webtitle 命中的结构化 Web 指纹：URL、状态码、标题、Server、命中指纹，以及 https 目标的 TLS 叶子证书身份（Subject、SAN、Issuer、有效期、协议版本）。SAN/CN 字段经常暴露 banner 匹配永远看不到的内网主机名与域名。
-- `fgqm_alive_HH-MM-SS.txt` — 每行一个 IP（去重后的主机清单，可直接喂 `nmap -iL` / `masscan --targets` / `curl` 循环）。与其他带时间戳 sink（`fgqm_result_*`、`fgqm_rdp_*`）相同的日桶（`YYYY-MM-DD/`）+ `HH-MM-SS` 文件名戳。
-- `fgqm_log_HH-MM-SS.txt` — 本次 run 的日志归档（与控制台流相同的 `[*]`/`[+]`/`[!]` 行，格式 `HH:MM:SS [level] message`）。与结果文件相同的日桶 + 时间戳；每次扫描自动写一份。纯文本模式（`--no-tui`）同时 tee 到控制台与文件；TUI 模式与 `--silent` 只写文件——屏幕保持干净，日志不再丢失。凭据命中行含明文密码，文件以 `0600` 创建（与 `fgqm_creds.txt` 同策略）。
-- `fgqm_discovery_HH-MM-SS.ndjson` / `.txt` — 协议交互（NBNS、SMB、TLS SAN……）发现的范围外主机：地址、主机名、来源协议、发现时间。每次 run 都记录；要不要扫由 `--expand-scope` 显式开启。
-- `fgqm_shares_HH-MM-SS.ndjson` / `.txt` — SMB 匿名会话共享枚举（`--share-enum`）：共享名、访问级别、目录元数据（名/大小/修改时间）。仅取证——绝不下载文件内容。
-- `fgqm_ftp_HH-MM-SS.ndjson` / `.txt` — FTP 目录遍历（`--ftp-enum`）：匿名或弱口令登录，目录树元数据。刻意与共享发现分开落盘。
-- `fgqm_servers_HH-MM-SS.ndjson` / `.txt` — 重要服务器聚合清单（域控 / 文件 / 备份 / VPN / 数据库……）：IP、主机名、角色、证据端口。
+| Sink | 内容 |
+|---|---|
+| `fgqm_result_<time>.txt` / `.ndjson` / `.csv` | 扫描结果——人类可读行 / NDJSON（每行一个 JSON 对象）/ RFC 4180 CSV |
+| `fgqm_creds.txt` | 凭据命中（明文；操作员工作文件） |
+| `fgqm_rdp_<time>.ndjson` / `.txt` | RDP 深度指纹：主机名、build、NLA 标志、OS |
+| `fgqm_web_<time>.ndjson` / `.txt` | 每个 webtitle 命中的结构化 Web 指纹：URL、状态码、标题、Server、命中指纹——https 目标追加 TLS 叶子证书身份（Subject、SAN、Issuer、有效期、协议版本）；SAN/CN 字段经常暴露 banner 匹配永远看不到的内网主机名与域名 |
+| `fgqm_alive_<time>.txt` | 每行一个 IP——去重后的主机清单，可直接喂 `nmap -iL` / `masscan --targets` / `curl` 循环 |
+| `fgqm_log_<time>.txt` | 本次 run 的日志归档（`HH:MM:SS [level] message`，与控制台流相同的行）；每次扫描自动写一份——纯文本模式（`--no-tui`）同时 tee 到控制台与文件，TUI 模式与 `--silent` 只写文件；凭据命中行含明文密码，文件以 `0600` 创建 |
+| `fgqm_discovery_<time>.ndjson` / `.txt` | 协议交互（NBNS、SMB、TLS SAN……）发现的范围外主机：地址、主机名、来源协议、发现时间；每次 run 都记录，要不要扫由 `--expand-scope` 显式开启 |
+| `fgqm_shares_<time>.ndjson` / `.txt` | SMB 匿名会话共享枚举（`--share-enum`）：共享名、访问级别、目录元数据——仅取证，绝不下载文件内容 |
+| `fgqm_ftp_<time>.ndjson` / `.txt` | FTP 目录遍历（`--ftp-enum`）：匿名或弱口令登录，目录树元数据——刻意与共享发现分开落盘 |
+| `fgqm_servers_<time>.ndjson` / `.txt` | 重要服务器聚合清单（域控 / 文件 / 备份 / VPN / 数据库……）：IP、主机名、角色、证据端口 |
 
-通过 `-ot` / `-oj` / `-oc` 显式指定路径会同时绕过日桶与时间戳。
+说明：
+
+- `<time>` 即 `HH-MM-SS` 启动戳；扩展名 `.ndjson` 是刻意的——按单文档校验
+  整个 `.json` 文件的编辑器会把多行输出标为非法。
+- 通过 `-ot` / `-oj` / `-oc` 显式指定路径会同时绕过日桶与时间戳。
 
 ### 证据、范围与服务器清单
 
