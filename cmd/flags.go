@@ -61,6 +61,7 @@ var (
 	flagExcludePorts string
 	flagUDP          bool
 	flagUDPStrict    bool
+	flagNoFPProbes   bool
 	flagAliveOnly    bool
 
 	// 4. Network / 网络
@@ -260,6 +261,8 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"also probe well-known UDP services (DNS, NetBIOS, SNMP, NTP, ...) with nmap-style service payloads after the TCP scan; each silent port costs its read timeout (~2s)")
 	pf.BoolVar(&flagUDPStrict, "udp-strict", false,
 		"with --udp: report silent UDP ports as filtered and drop them from results instead of open|filtered noise; trades recall of idle-but-open services for a clean output on firewalled segments")
+	pf.BoolVar(&flagNoFPProbes, "no-fp-probes", false,
+		"disable TCP active probes: silent open ports are no longer sent nmap-style probe payloads (hint probes / GET / help) to elicit an identification banner; strictly passive banner grabs only")
 	pf.BoolVarP(&flagAliveOnly, "alive-only", "a", false,
 		"only run host discovery; skip port scan and plugins")
 
@@ -414,7 +417,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	// 这是单一真源——flag 名列表要与上面的 StringVarP/Var 调用对齐。
 	annotate(pf, []string{"host", "hosts-file", "exclude-hosts", "exclude-hosts-file"}, groupTarget)
 	annotate(pf, []string{"project", "project-key", "workspace", "mode", "resume", "no-state"}, groupWorkspace)
-	annotate(pf, []string{"ports", "exclude-ports", "udp", "udp-strict", "alive-only"}, groupPorts)
+	annotate(pf, []string{"ports", "exclude-ports", "udp", "udp-strict", "no-fp-probes", "alive-only"}, groupPorts)
 	annotate(pf, []string{"proxy", "socks5", "iface", "port-timeout", "web-timeout", "web-fingerprint"}, groupNetwork)
 	annotate(pf, []string{"threads", "timeout", "shutdown-timeout", "max-workers"}, groupConcurrency)
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",

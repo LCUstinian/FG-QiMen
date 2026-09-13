@@ -9,7 +9,7 @@
 
 > [中文版本](FLAGS.zh-CN.md)
 
-58 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
+59 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
 authoritative machine-checked reference; add a flag by editing
 cmd/flags.go, then run `just docs-gen`.
 
@@ -39,6 +39,7 @@ cmd/flags.go, then run `just docs-gen`.
 |---|---|---|---|
 | `-a` | `--alive-only` | `false` | only run host discovery; skip port scan and plugins |
 | — | `--exclude-ports` | — | ports to exclude (same format as --ports) |
+| — | `--no-fp-probes` | `false` | disable TCP active probes: silent open ports are no longer sent nmap-style probe payloads (hint probes / GET / help) to elicit an identification banner; strictly passive banner grabs only |
 | — | `--ports` | — | port specification: port groups (web/db/service/common/main), ranges (80-85), or comma-separated (22,80,443). Empty = default 133 ports. |
 | — | `--udp` | `false` | also probe well-known UDP services (DNS, NetBIOS, SNMP, NTP, ...) with nmap-style service payloads after the TCP scan; each silent port costs its read timeout (~2s) |
 | — | `--udp-strict` | `false` | with --udp: report silent UDP ports as filtered and drop them from results instead of open\|filtered noise; trades recall of idle-but-open services for a clean output on firewalled segments |

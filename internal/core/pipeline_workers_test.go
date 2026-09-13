@@ -276,11 +276,20 @@ func TestPipelineWorkers_UDPDemoDispatch(t *testing.T) {
 func newWorkerFixture(t *testing.T) (*session.Session, chan types.ScanItem, chan *types.Result, func()) {
 	t.Helper()
 	sess := &session.Session{
-		Ctx:    context.Background(),
-		Config: &types.Config{},
-		State:  types.NewState(),
-		UI:     ui.NopUI(),
-		Log:    types.DiscardLogger{},
+		Ctx: context.Background(),
+		Config: &types.Config{
+			// Worker tests assert dispatch/panic/drain contracts, not
+			// identification: without this the Stage-0 active-probe
+			// fallback would dial every banner-less item (2s dial
+			// timeout each), blowing every test deadline.
+			// / worker 测试断言分发/panic/排空契约，不做识别：不加这
+			// 个，Stage-0 主动探针兜底会对每个无 banner item 拨号（各
+			// 2s 拨号超时），全部测试期限都会爆。
+			NoFPProbes: true,
+		},
+		State: types.NewState(),
+		UI:    ui.NopUI(),
+		Log:   types.DiscardLogger{},
 	}
 	items := make(chan types.ScanItem, 4)
 	results := make(chan *types.Result, 4)

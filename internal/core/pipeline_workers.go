@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
+	"github.com/LCUstinian/FG-QiMen/internal/core/scan"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
 	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/LCUstinian/FG-QiMen/internal/session"
@@ -68,6 +69,21 @@ func runPluginWorker(
 	// Lazy VScan. Built on first banner we see. / 懒 VScan。
 	var vscan *fingerprint.VScan
 	vscanOnce := sync.Once{}
+	// Lazy TCP active-probe payload cache: hint map + generic trio,
+	// decoded once per worker. / 懒 TCP 主动探针 payload 缓存：hint 映
+	// 射 + 通用三件套，每 worker 解码一次。
+	var probeHints map[int][][]byte
+	var probeGeneric [][]byte
+	probeOnce := sync.Once{}
+	resolveProbePayloads := func() {
+		probeOnce.Do(func() {
+			if vscan == nil {
+				vscanOnce.Do(func() { vscan = fingerprint.NewVScan() })
+			}
+			probeHints = vscan.TCPPayloadMap()
+			probeGeneric = vscan.TCPGenericPayloads()
+		})
+	}
 	// Pre-compute the plugin filter once instead of per item (m6 audit).
 	// 预先计算一次 plugin 过滤，而非每个 item 重算（m6 审计）。
 	selected := selectPlugins(plugins.All(), sess.Config.Plugins)
@@ -120,6 +136,34 @@ func runPluginWorker(
 					}
 				}
 			}
+			// TCP active-probe fallback: most services (HTTP, memcached,
+			// RPC portmappers, ...) say nothing until spoken to, so the
+			// passive FirstBanner grab sees only the chatty minority.
+			// For silent TCP ports, send the nmap hint probes (or the
+			// rarity-1 generic trio) on ONE connection and match the
+			// first response. UDP has its own probe phase (--udp); TLS
+			// identity is the webtitle plugin's job. Opt-out:
+			// --no-fp-probes.
+			// / TCP 主动探针兜底：多数服务（HTTP、memcached、RPC
+			// portmapper……）不被搭话就一言不发，被动 FirstBanner 抓取
+			// 只看得见话痨的少数。对沉默 TCP 端口，在一条连接上发送
+			// nmap hint 探针（或 rarity-1 通用三件套），并对首个响应做
+			// 匹配。UDP 有自己的探测阶段（--udp）；TLS 身份归 webtitle
+			// 插件。选退开关：--no-fp-probes。
+			probeBanner := ""
+			if item.Banner == "" && bm.Service == "" && item.Protocol != types.ProtocolUDP && !sess.Config.NoFPProbes {
+				resolveProbePayloads()
+				probe := scan.NewTCPServiceProbe(func(port int) [][]byte {
+					if pl := probeHints[port]; len(pl) > 0 {
+						return pl
+					}
+					return probeGeneric
+				})
+				if resp, perr := probe.ProbeBanner(ctx, item.Host, item.Port, sess.Config.Timeout); perr == nil && len(resp) > 0 {
+					probeBanner = string(resp)
+					bm, _ = vscan.MatchBanner(resp)
+				}
+			}
 			// Confidence: a hard nmap match is authoritative; the
 			// softmatch fallback ("svc?") is only a hint. Unmatched
 			// ports carry no confidence claim.
@@ -158,6 +202,14 @@ func runPluginWorker(
 			// 的端口时，端口从 IdentNone 搬到 IdentHard——划分保持精确，
 			// 无重复计数，也无需 per-port map。
 			claimed := conf
+			// Evidence banner: the passive grab when present, else the
+			// first active-probe response that produced the claim.
+			// / 证据 banner：有被动抓取用被动抓取，否则用产出断言的
+			// 首个主动探针响应。
+			bannerSrc := item.Banner
+			if bannerSrc == "" {
+				bannerSrc = probeBanner
+			}
 			r := &types.Result{
 				Host:       item.Host,
 				Port:       item.Port,
@@ -167,7 +219,7 @@ func runPluginWorker(
 				Confidence: conf,
 				FpProbe:    bm.Probe,
 				FpPattern:  bm.Pattern,
-				Banner:     formatPortfinger(bm.Service, bm.Product, bm.Version, item.Banner),
+				Banner:     formatPortfinger(bm.Service, bm.Product, bm.Version, bannerSrc),
 				Time:       time.Now(),
 			}
 			sess.State.Counters.Results.Add(1)

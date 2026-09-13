@@ -9,7 +9,7 @@
 
 > [English version](FLAGS.md)
 
-58 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
+59 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
 同一集合）。下表为机器校验的权威参考；新增 flag 请改 cmd/flags.go
 并在 internal/docgen/zh.go 配中文说明，然后跑 `just docs-gen`。
 
@@ -39,6 +39,7 @@
 |---|---|---|---|
 | `-a` | `--alive-only` | `false` | 只做主机存活发现；跳过端口扫描与插件 |
 | — | `--exclude-ports` | — | 排除的端口（格式同 --ports） |
+| — | `--no-fp-probes` | `false` | 关闭 TCP 主动探针：沉默的开放端口不再发送 nmap 风格探针 payload（hint 探针 / GET / help）引出识别 banner；只做纯被动 banner 抓取 |
 | — | `--ports` | — | 端口规格：端口组（web/db/service/common/main）、范围（80-85）或逗号分隔（22,80,443）。空 = 默认 133 个端口。 |
 | — | `--udp` | `false` | TCP 扫描之后额外用 nmap 风格服务 payload 探测常见 UDP 服务（DNS、NetBIOS、SNMP、NTP……）；每个静默端口要等满读超时（约 2s） |
 | — | `--udp-strict` | `false` | 配合 --udp：静默 UDP 端口报 filtered 并从结果丢弃，而非 open\|filtered 噪声；在防火墙网段上用「漏掉空闲但开放服务」的召回换干净输出 |

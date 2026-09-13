@@ -85,6 +85,52 @@ type Config struct {
 	// host×port 吐一条噪声结果）。仅在 UDP 开启时有意义。
 	UDPStrict bool
 
+	// NoFPProbes disables the TCP active-probe fallback: for an open
+	// TCP port whose passive banner grab came up empty, the Stage-0
+	// fingerprinter sends up to MaxTCPProbesPerPort nmap probe
+	// payloads (hint probes, or the rarity-1 generic trio) on one
+	// connection and matches the first response. On by default — this
+	// is the "identify, not just connect" pillar working on the
+	// silent majority of ports (HTTP, memcached, RPC…); opt out for
+	// strictly passive sweeps. / NoFPProbes 关闭 TCP 主动探针兜底：
+	// 对被动 banner 抓取空手的开放 TCP 端口，Stage-0 指纹识别在一条
+	// 连接上发送至多 MaxTCPProbesPerPort 个 nmap 探针 payload（hint
+	// 探针，或 rarity-1 通用三件套），并对首个响应做匹配。默认开启
+	// ——这是"identify, not just connect"支柱在沉默端口大部队
+	//（HTTP、memcached、RPC……）上的落点；只想要纯被动扫描时选退。
+	NoFPProbes bool
+
+	// ExpandScope controls what happens when a protocol interaction
+	// surfaces a host OUTSIDE the requested scan scope ("off" = record
+	// only, the default; "auto" = bounded second scan round). Safety
+	// gates for "auto": RFC1918 private IPs only, same /24 as an
+	// already-scanned target or inside the user's own CIDR list,
+	// --exclude-hosts still applies, single expansion round, hard cap
+	// of 256 hosts. / ExpandScope 控制协议交互发现范围外主机时的行
+	// 为（"off" = 仅记录，默认；"auto" = 有界二轮扫描）。"auto" 的
+	// 安全门：仅 RFC1918 私网 IP、与已扫目标同 /24 或在用户给定 CIDR
+	// 内、--exclude-hosts 仍然生效、只扩一轮、上限 256 台。
+	ExpandScope string
+
+	// ShareEnum enables read-only SMB null-session share enumeration
+	// on open port 445: list share names, mount what an anonymous
+	// session can, and record directory metadata (names, sizes, mtimes).
+	// Evidence-only: file contents are never downloaded. Findings go
+	// to shares.json / shares.txt. / ShareEnum 开启只读 SMB 匿名会话
+	// 共享枚举（445 开放时）：列共享名，挂载匿名会话可访问的共享，
+	// 记录目录元数据（名/大小/修改时间）。仅取证：绝不下载文件内容。
+	// 结果写入 shares.json / shares.txt。
+	ShareEnum bool
+
+	// FTPEnum enables read-only FTP directory walks: on open port 21,
+	// try anonymous login first, then any credential hit from the
+	// credential stage, and record the directory tree metadata. Findings
+	// go to ftp.json / ftp.txt, deliberately separate from share
+	// findings. / FTPEnum 开启只读 FTP 目录遍历：21 端口开放时先试
+	// 匿名登录，再试凭据阶段的命中凭据，记录目录树元数据。结果写入
+	// ftp.json / ftp.txt，刻意与共享发现分开记录。
+	FTPEnum bool
+
 	// Network / 网络
 	Proxy       string        // HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:8080)
 	Socks5      string        // SOCKS5 proxy address (e.g. 127.0.0.1:1080)
