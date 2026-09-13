@@ -20,6 +20,51 @@
   cloud，两个闭包守卫测试（`TestAggregationImportsAllSubpackages`、
   `TestRootBinaryImportsAdapted`）在任何插件包被漏出聚合链时让
   CI 变红。
+- **每个帮助页渲染错误** —— 自定义 usage 模板在 cobra 自带 help
+  模板已打印 `{{.Long}}` 的情况下又打了一遍，所有描述出现两次；
+  模板还丢了 cobra 的 Available Commands 段，
+  scan/projects/resume/schedules/version 在 `--help` 里隐身；Flag
+  Groups 摘要为手写，早已与 flags.go 脱节（缺 Schedule 行、缺
+  `http-form-*`、缺 `rotate-*`、缺 `web-fingerprint`、缺
+  `no-batch`/`no-prescreen`）。帮助模板已修复；分组摘要改为
+  Execute() 时从 flag 分组注解生成——新增一个 flag 加一行
+  `annotate()` 即可出现在摘要里。
+
+### Added
+
+- **每条身份断言带证据链：`fp_probe` / `fp_pattern` NDJSON 字段 +
+  `schema` 版本戳** —— nmap 风格 banner 指纹现在记录每条
+  service/product/version 断言的来源：哪个探针（如 `GetRequest`）、
+  哪条规则文本，硬匹配与 softmatch 路径、TCP 与 UDP 一视同仁。
+  NDJSON 记录携带 `schema: 1`，下游消费方可钉住输出契约随演进
+  不兼容。未知服务的输出保持逐字节一致（新字段全部 `omitempty`）。
+- **识别覆盖率汇总：`identified=X/Y (hard=.. soft=.. unknown=..)`**
+  —— 扫描结束行现在量化 Y 个开放端口中有多少带身份断言、断言有
+  多强（nmap 硬匹配或插件协议握手 vs softmatch 提示）。banner 为空
+  的端口被插件握手认领后即从 unknown 桶搬出；三桶划分按构造精确，
+  Y−X 的未知尾部就是下次扫描的可行动目标清单（"identify, not just
+  connect"——度量交付，而非承诺）。
+- **指纹质量度量 harness（`just golden`）+ 复活 645 条 lookaround
+  死规则** —— 以合成/RFC 公开样本构建 golden 数据集，度量识别质量
+  （hard 命中率、识别率、零误报），并以垃圾字节扫描防守 regex
+  意外（256 条噪声输入，零硬命中）。上游 nmap-service-probes HTTP
+  规则中 RE2 不兼容的 PCRE 前瞻写法
+  `(?:[^\r\n]*\r\n(?!\r\n))*?` 在编译期被机械翻译为 RE2 安全的
+  header 循环，12,155 条规则的存活率从 94.3% 升至 99.6%。
+
+### Docs
+
+- **README 定位重写**（双语，结构镜像）—— tagline 先行的引言、
+  为何不做攻击的理由（告警噪声、打坏目标风险、低价值 exploit、
+  决策级交付物）、双姿态框架、三承诺结构。统计条带改为渲染实时
+  注册表计数（44 插件 / 27 支持凭据 / 3333 条 web 指纹规则 /
+  84 条 UDP 探针），由 gendocs 生成，CI 守卫测试
+  （`TestREADMEStatsUpToDate`）把两份 README 钉在注册表上——
+  一条规则，计数零漂移。
+- **双语文档审计** —— gendocs 确立为生成式 flag/插件表的唯一
+  真相源，修复断裂交叉链接，历史材料移入 `docs/archive/`；
+  找回 v0.5.0–v0.5.1 丢失的 CHANGELOG 条目，拆分归档错位的
+  v0.6.0 条目。
 
 ## [0.8.1] - 2026-09-13
 

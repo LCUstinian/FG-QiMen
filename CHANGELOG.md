@@ -29,6 +29,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guard tests (`TestAggregationImportsAllSubpackages`,
   `TestRootBinaryImportsAdapted`) turn the aggregation chain red in
   CI the moment any plugin package is left out.
+- **help output rendered wrong on every screen** — the custom usage
+  template printed `{{.Long}}` on top of cobra's own help template,
+  so every description appeared twice; the template also dropped
+  cobra's Available Commands section, hiding
+  scan/projects/resume/schedules/version from `--help`; the Flag
+  Groups summary was hand-written and had drifted out of sync with
+  flags.go (no Schedule row, no `http-form-*`, no `rotate-*`, no
+  `web-fingerprint`, no `no-batch`/`no-prescreen`). Help templates
+  fixed; the group summary is now generated from the flag group
+  annotations at Execute() time, so a flag plus its `annotate()`
+  line is all it takes to appear.
+
+### Added
+
+- **Evidence chain on every identity claim: `fp_probe` / `fp_pattern`
+  NDJSON fields + `schema` version stamp** — the nmap-style banner
+  fingerprint now records which probe (e.g. `GetRequest`) and which
+  rule text produced each service/product/version claim, on both the
+  hard-match and softmatch paths, TCP and UDP alike. NDJSON records
+  carry `schema: 1` so downstream consumers can pin the output
+  contract as it evolves. Unknown-service results stay byte-identical
+  (all new fields are `omitempty`).
+- **Identification-coverage summary: `identified=X/Y (hard=.. soft=..
+  unknown=..)`** — the end-of-scan line now quantifies how many of
+  the Y open ports carry an identity claim and how strong it is
+  (hard nmap match or plugin protocol handshake vs softmatch hint).
+  A port claimed by a plugin handshake after an empty banner moves
+  out of the unknown bucket; the partition is exact by construction,
+  so the Y−X unknown tail is the actionable target list for the next
+  scan ("identify, not just connect" — measured, not promised).
+- **Fingerprint quality harness (`just golden`) + 645 lookaround
+  rules revived** — a golden dataset of synthetic/RFC-sample banners
+  measures identification quality (hard-match and identification
+  rates, zero false positives) and a garbage-byte sweep guards
+  against regex accidents (256 noise inputs, zero hard hits). The
+  RE2-incompatible PCRE lookahead idiom
+  `(?:[^\r\n]*\r\n(?!\r\n))*?` in the upstream nmap-service-probes
+  HTTP rules is mechanically translated to a RE2-safe header loop at
+  compile time, raising live-rule survival from 94.3% to 99.6% of
+  12,155 rules.
+
+### Docs
+
+- **README positioning rewrite** (bilingual, structurally mirrored) —
+  tagline-first blockquote, why-not-attack rationale (alert noise,
+  target-breaking risk, low-value exploits, decision-grade
+  deliverable), dual-posture framing, three-commitment structure.
+  The stats strip now renders live registry counts (44 plugins / 27
+  credential-capable / 3333 web fingerprint rules / 84 UDP probes)
+  via gendocs, with a CI guard test (`TestREADMEStatsUpToDate`)
+  pinning both READMEs to the registries — one rule, no count drift.
+- **bilingual docs audit** — gendocs established as the SSOT for
+  generated flag/plugin tables, broken cross-links fixed, historical
+  material moved to `docs/archive/`; CHANGELOG restored entries lost
+  for v0.5.0–v0.5.1 and split mis-filed v0.6.0 items.
 
 ## [0.8.1] - 2026-09-13
 
