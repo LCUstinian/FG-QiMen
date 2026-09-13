@@ -103,6 +103,19 @@ func getDB() *DB {
 	return db
 }
 
+// RuleCount reports the total built-in web fingerprint rule count:
+// the hardcoded ruleset (rules.go) plus every embedded FingerprintHub
+// entry. internal/docgen renders this number into the README stats
+// strip, so it stays registry-live and guard-tested rather than a
+// hand-written figure that drifts.
+// / RuleCount 报告内置 Web 指纹规则总数：硬编码规则集（rules.go）加
+// 上全部内嵌 FingerprintHub 条目。internal/docgen 把这个数字渲染进
+// README 统计条——registry 活体取数、守卫测试看护，而非会漂移的手
+// 写数字。
+func RuleCount() int {
+	return len(RuleDatas) + len(getDB().Fingerprints)
+}
+
 // fingerprintMatch is a single match with priority. / fingerprintMatch 是带优先级的单次匹配。
 type fingerprintMatch struct {
 	Name     string

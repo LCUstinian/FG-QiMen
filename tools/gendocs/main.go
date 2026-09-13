@@ -1,22 +1,24 @@
-// gendocs regenerates the generated-docs artifacts under docs/ from the
-// in-source flag + plugin registries. Run from the repo root:
+// gendocs regenerates the generated-docs artifacts from the in-source
+// flag + plugin + fingerprint registries. Run from the repo root:
 //
-//	go run ./tools/gendocs            # FLAGS + PLUGINS, both languages
+//	go run ./tools/gendocs            # FLAGS + PLUGINS + README strips
 //	go run ./tools/gendocs flags      # FLAGS.md + FLAGS.zh-CN.md only
 //	go run ./tools/gendocs plugins    # PLUGINS.md + PLUGINS.zh-CN.md only
+//	go run ./tools/gendocs readme     # README(.zh-CN).md stats strips only
 //
 // `just docs-gen` is the documented entry point. Each run writes the
 // bilingual pair of its target; the Chinese artifacts require every
 // flag to have a translation in internal/docgen/zh.go (validated here
 // before anything is written). The artifacts are guarded by
-// internal/docgen's TestGeneratedDocsUpToDate: CI goes red the moment
-// a flag/plugin change lands without regenerating.
+// internal/docgen's TestGeneratedDocsUpToDate and
+// TestREADMEStatsUpToDate: CI goes red the moment a flag/plugin/
+// fingerprint change lands without regenerating.
 //
-// gendocs 从源码内的 flag + 插件 registry 重新生成 docs/ 下的文档产
-// 物。在仓库根目录运行。每次运行写出目标的双语对；中文产物要求每个
+// gendocs 从源码内的 flag + 插件 + 指纹 registry 重新生成文档产物。
+// 在仓库根目录运行。每次运行写出目标的双语对；中文产物要求每个
 // flag 都在 internal/docgen/zh.go 配有翻译（写文件前先校验）。产物由
-// internal/docgen 的 TestGeneratedDocsUpToDate 守卫：flag/插件变更
-// 落地而未重新生成时 CI 变红。
+// internal/docgen 的 TestGeneratedDocsUpToDate 与 TestREADMEStatsUpToDate
+// 守卫：flag/插件/指纹变更落地而未重新生成时 CI 变红。
 package main
 
 import (
@@ -57,8 +59,8 @@ func main() {
 			artifact{"PLUGINS.md", docgen.PluginsMarkdown()},
 			artifact{"PLUGINS.zh-CN.md", docgen.PluginsMarkdownZh()})
 	}
-	if len(all) == 0 {
-		fmt.Fprintf(os.Stderr, "gendocs: unknown target %q (want flags | plugins | all)\n", what)
+	if len(all) == 0 && what != "readme" {
+		fmt.Fprintf(os.Stderr, "gendocs: unknown target %q (want flags | plugins | readme | all)\n", what)
 		os.Exit(2)
 	}
 
@@ -69,5 +71,34 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("wrote", path)
+	}
+
+	// The README stats strips are surgical rewrites between the
+	// gendocs:stats markers, never whole-file overwrites — the READMEs
+	// are hand-written L1 prose everywhere else and must not be touched.
+	// / README 统计条是 gendocs:stats 标记之间的外科手术式替换，绝不
+	// 整文件重写——README 其余部分是手写的 L1 常青文本，必须原样保留。
+	if what == "all" || what == "readme" {
+		strips := []struct{ name, block string }{
+			{"README.md", docgen.READMEStats()},
+			{"README.zh-CN.md", docgen.READMEStatsZh()},
+		}
+		for _, s := range strips {
+			raw, err := os.ReadFile(s.name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gendocs: read %s: %v (must run from the repo root)\n", s.name, err)
+				os.Exit(1)
+			}
+			out, err := docgen.ApplyStatsBlock(string(raw), s.block)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gendocs: %s: %v\n", s.name, err)
+				os.Exit(1)
+			}
+			if err := os.WriteFile(s.name, []byte(out), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "gendocs: write %s: %v\n", s.name, err)
+				os.Exit(1)
+			}
+			fmt.Println("wrote", s.name)
+		}
 	}
 }

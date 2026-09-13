@@ -42,6 +42,36 @@ func TestGeneratedDocsUpToDate(t *testing.T) {
 	}
 }
 
+// TestREADMEStatsUpToDate pins the stats strip between the
+// gendocs:stats markers of both root READMEs to the live plugin /
+// authenticator / probe / fingerprint registries. A plugin added
+// without `just docs-gen` turns CI red here, exactly like the docs/
+// artifacts above.
+// / TestREADMEStatsUpToDate 把两份根 README 中 gendocs:stats 标记之间
+// 的统计条钉死在活体插件 / authenticator / 探测库 / 指纹 registry
+// 上。新增插件没跑 `just docs-gen` 时，CI 在这里变红，与上面的
+// docs/ 产物同一机制。
+func TestREADMEStatsUpToDate(t *testing.T) {
+	readmes := map[string]string{
+		"README.md":       READMEStats(),
+		"README.zh-CN.md": READMEStatsZh(),
+	}
+	for name, want := range readmes {
+		path := filepath.Join("..", "..", name)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s unreadable: %v", path, err)
+		}
+		got, err := StatsBlock(string(raw))
+		if err != nil {
+			t.Fatalf("%s: %v — add the gendocs:stats marker pair and run `just docs-gen`", path, err)
+		}
+		if got != want {
+			t.Fatalf("%s stats strip is stale relative to the live registries — run `just docs-gen` and commit the regenerated README", path)
+		}
+	}
+}
+
 // TestFlagDescZhCoverage forces every registered flag to carry a
 // Chinese usage translation. Without it, a new flag would silently
 // render English in FLAGS.zh-CN.md; with it, CI names the offender.

@@ -1,9 +1,10 @@
 # FG-QiMen
 
-> **More features ≠ better.** A pure scanner + credential tester. No exploit, no
-> persistence, no post-auth action — by design.
-
-> Scan + identify, pushed to the extreme — comprehensive, deep, fast, stable.
+> **Scan + identify, pushed to the extreme** — comprehensive, deep, fast,
+> stable.
+>
+> **More features ≠ better.** A pure scanner + credential tester. No exploit,
+> no persistence, no post-auth action — by design.
 
 FG-QiMen is a pure CLI scanner that decouples the **port scanner (producer)** from
 the **plugin workers (consumer)** via a Go channel pipeline. It supports three
@@ -49,6 +50,10 @@ missing feature:
   exploit attempts and POC launches are exactly what sets off alerts —
   a pure sweep finishes before anyone is even looking. Spend the noise
   budget later, on the one move that matters.
+- **Exploits can take the target down.** A POC written for one version
+  fired against another can crash the service — sometimes the whole
+  host — turning a recon pass into a production outage. A scan only
+  reads; that risk stays off the table.
 - **Off-the-shelf attacks rarely pay.** A generic exploit fired at
   random targets almost never beats the one picked after a human reads
   the structured results.
@@ -84,18 +89,27 @@ posture comes from "more features" — it comes from three commitments:
    the binary before you run it, or rebuild from the tag and compare
    hashes byte-for-byte.
 
+Those commitments are the tagline's four promises made real:
+**comprehensive** full-spectrum coverage, **deep** decision-grade
+identity, **fast** through an engine that tunes itself, and **stable**
+when the network is at its worst.
+
+<!-- gendocs:stats begin -->
+**44 service plugins · 27 credential-capable · 3333 built-in web fingerprint rules · 84 UDP probe payloads**
+<!-- gendocs:stats end -->
+
 ### Head-to-head
 
 | Dimension | Fixed-parameter scanners | FG-QiMen |
 |---|---|---|
-| **Timeout** | one static per-probe value — every filtered port burns it | mean+4σ from a 64-sample RTT ring: 3s → ~600ms on fast LANs (**≈5× faster**), slow paths keep the operator ceiling |
-| **Concurrency** | fixed threads; one congested segment poisons the whole run | AIMD pool — slow start, additive growth while healthy, multiplicative backoff on congestion/RTT signals; `--threads` stays a hard cap |
-| **Dead-target waste** | probes every host on every segment | two-phase /24 gateway pre-screen + host exclusion (CIDR, range, `192`/`172`/`10` RFC1918 shortcuts) — dead segments get zero traffic |
+| **Timeout** | one static per-probe value — every filtered port burns it | mean+4σ from a 64-sample RTT ring<br>3s → ~600ms on fast LANs (**≈5× faster**), slow paths keep the operator ceiling |
+| **Concurrency** | fixed threads; one congested segment poisons the whole run | AIMD pool — slow start, additive growth while healthy, multiplicative backoff on congestion/RTT signals<br>`--threads` stays a hard cap |
+| **Dead-target waste** | probes every host on every segment | two-phase /24 gateway pre-screen + host exclusion (CIDR, range, `192`/`172`/`10` RFC1918 shortcuts)<br>dead segments get zero traffic |
 | **Service coverage** | TCP only | opt-in UDP probing (nmap payload DB) with the same structured identity as TCP (`--udp`, `--udp-strict`) |
-| **Identity depth** | "port open" + raw banner | structured product/version/confidence; web: status/title/server/fingers + TLS SAN/CN; RDP: build/NLA/OS |
+| **Identity depth** | "port open" + raw banner | structured product/version/confidence<br>web: status/title/server/fingers + TLS SAN/CN<br>RDP: build/NLA/OS |
 | **State & resume** | one-shot; a Ctrl+C costs the whole run | bbolt project workspace: resume, prune, export/import, cron schedules |
-| **Operator experience** | log lines scrolling past | live TUI (stage ETA, hit feed, plugin chart, error breakdown) or clean plain text; txt/json/csv sinks with daily buckets |
-| **Supply chain** | bare binaries | cosign signatures, dual SBOMs, SLSA L2 provenance, SHA-pinned CI actions — verify before you run |
+| **Operator experience** | log lines scrolling past | live TUI (stage ETA, hit feed, plugin chart, error breakdown) or clean plain text<br>txt/json/csv sinks with daily buckets |
+| **Supply chain** | bare binaries | cosign signatures, dual SBOMs, SLSA L2 provenance, SHA-pinned CI actions<br>verify before you run |
 
 ### What that buys you
 
@@ -479,6 +493,8 @@ output and the tag you tried.
 - **Generated docs** ([FLAGS.md](docs/FLAGS.md), [PLUGINS.md](docs/PLUGINS.md)):
   English, matching the terminal-output policy — they are renderings of
   the registry, not prose.
+
+---
 
 ## Graceful Ctrl+C
 

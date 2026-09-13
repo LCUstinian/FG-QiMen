@@ -29,7 +29,9 @@ Every doc exists as an English/Simplified-Chinese pair (`*.md` /
 `*.zh-CN.md`) kept structurally in sync. The two `GENERATED` files are
 build products of `just docs-gen` — never hand-edited; a CI guard test
 (internal/docgen) fails the moment they drift from the live flag/plugin
-registries.
+registries. The same generator also injects the stats strip between the
+`gendocs:stats` markers of both root READMEs (same guard, same
+regeneration path).
 
 ## User-facing docs (top level)
 

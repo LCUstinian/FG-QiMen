@@ -27,6 +27,8 @@ docs/
 每份文档都是英文/简体中文成对存在（`*.md` / `*.zh-CN.md`），结构保持
 同步。两个 `生成物` 是 `just docs-gen` 的构建产物——绝不手改；一旦与
 活体 flag/插件 registry 漂移，CI 守卫测试（internal/docgen）立刻变红。
+同一生成器还会向两份根 README 的 `gendocs:stats` 标记之间注入统计条
+（同一守卫，同一再生成路径）。
 
 ## 面向用户的文档（顶层）
 

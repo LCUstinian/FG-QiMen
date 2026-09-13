@@ -1,14 +1,16 @@
 // Package docgen generates the generated-docs artifacts under docs/
-// (FLAGS.md, FLAGS.zh-CN.md, PLUGINS.md, PLUGINS.zh-CN.md) from the
-// live in-source registries. The artifacts are build products, never
-// hand-edited; the guard test in this package fails CI the moment a
-// flag/plugin change lands without a `just docs-gen` regeneration —
-// and the zh artifacts additionally require every new flag to carry a
-// Chinese usage translation (zh.go), so the bilingual pair cannot
-// drift apart either.
+// (FLAGS.md, FLAGS.zh-CN.md, PLUGINS.md, PLUGINS.zh-CN.md) plus the
+// stats strip injected between the gendocs:stats markers of both root
+// READMEs, all from the live in-source registries. The artifacts are
+// build products, never hand-edited; the guard test in this package
+// fails CI the moment a flag/plugin change lands without a `just
+// docs-gen` regeneration — and the zh artifacts additionally require
+// every new flag to carry a Chinese usage translation (zh.go), so the
+// bilingual pair cannot drift apart either.
 //
 // Package docgen 从源码内的活体 registry 生成 docs/ 下的文档产物
-// （FLAGS.md、FLAGS.zh-CN.md、PLUGINS.md、PLUGINS.zh-CN.md）。产物只
+// （FLAGS.md、FLAGS.zh-CN.md、PLUGINS.md、PLUGINS.zh-CN.md）以及注入
+// 两份根 README 的 gendocs:stats 标记之间的统计条。产物只
 // 由生成器写入、绝不手改；本包内的守卫测试在 flag/插件变更后未跑
 // `just docs-gen` 时会让 CI 变红——且中文产物额外要求每个新 flag 都
 // 带中文 usage 翻译（zh.go），双语对之间同样不可能漂移。
@@ -32,6 +34,8 @@ import (
 	"github.com/LCUstinian/FG-QiMen/cmd"
 	"github.com/LCUstinian/FG-QiMen/internal/core/credential"
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	webfp "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle/fingerprint"
+	"github.com/LCUstinian/FG-QiMen/internal/portscan/fingerprint"
 	"github.com/spf13/pflag"
 )
 
@@ -299,6 +303,21 @@ func PluginsMarkdownZh() string {
 	})
 }
 
+// credentialCapable reports whether a plugin can be credential-tested:
+// the authenticator registry is authoritative (the Scheduler owns the
+// spray loop; most plugins leave Credential() as a stub), the plugin's
+// own ModeCredential bit is the fallback. The single shared predicate
+// behind renderPlugins' Credential column and the README stats strip —
+// two renderings, one rule, so the published counts can never disagree.
+// / credentialCapable 判定一个插件是否支持凭据测试：authenticator
+// registry 权威（喷洒循环由 Scheduler 负责，多数插件把 Credential()
+// 留成 stub），插件自身 ModeCredential 位作 fallback。这是
+// renderPlugins 的 Credential 列与 README 统计条共用的唯一判定——
+// 两处渲染、一条规则，公开的数字永不打架。
+func credentialCapable(m plugins.Mode, name string, credNames map[string]bool) bool {
+	return m&plugins.ModeCredential != 0 || credNames[name]
+}
+
 // renderPlugins is the shared PLUGINS-artifact renderer.
 // / renderPlugins 是共享的 PLUGINS 产物渲染器。
 func renderPlugins(r pluginsRender) string {
@@ -315,7 +334,7 @@ func renderPlugins(r pluginsRender) string {
 		if m&plugins.ModeIdentify != 0 {
 			identify++
 		}
-		if m&plugins.ModeCredential != 0 || credNames[p.Name()] {
+		if credentialCapable(m, p.Name(), credNames) {
 			credential++
 		}
 	}
@@ -335,7 +354,7 @@ func renderPlugins(r pluginsRender) string {
 		m := p.Modes()
 		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
 			p.Name(), cellPorts(p.Ports()), cellBit(m, plugins.ModeIdentify),
-			cellBool(credNames[p.Name()] || m&plugins.ModeCredential != 0))
+			cellBool(credentialCapable(m, p.Name(), credNames)))
 	}
 	return b.String()
 }
@@ -366,4 +385,123 @@ func cellBool(ok bool) string {
 		return "✅"
 	}
 	return "–"
+}
+
+// ─── README stats strip / README 统计条 ─────────────────────────────
+
+// The gendocs:stats marker pair delimits the generated strip in both
+// root READMEs. Everything between them is a build product; markers
+// themselves are part of the rendered block so ApplyStatsBlock can
+// rewrite the strip without knowing anything else about the file.
+// / gendocs:stats 标记对在两份根 README 里圈出生成的统计条。标记之
+// 间的全部内容都是构建产物；标记本身属于渲染块的一部分，因此
+// ApplyStatsBlock 重写统计条时无需了解文件的任何其他内容。
+const (
+	statsBeginMarker = "<!-- gendocs:stats begin -->"
+	statsEndMarker   = "<!-- gendocs:stats end -->"
+)
+
+// readmeStats is the count snapshot the strip renders. Every number
+// comes from a live registry — plugin registry, authenticator
+// registry, the embedded nmap probe database, the built-in web
+// fingerprint ruleset — never from a hand-written literal (the very
+// drift the 28/45/58 flag-count incident taught us to avoid).
+// / readmeStats 是统计条渲染的计数快照。每个数字都来自活体
+// registry——插件 registry、authenticator registry、内嵌 nmap 探测
+// 库、内置 Web 指纹规则集——绝不手写字面量（28/45/58 flag 计数事
+// 故教我们避免的正是这种漂移）。
+type readmeStats struct {
+	plugins     int
+	credCapable int
+	webRules    int
+	udpProbes   int
+}
+
+// computeReadmeStats takes the live count snapshot. Credential
+// capability mirrors renderPlugins' rule: the authenticator registry
+// is authoritative, the plugin's own ModeCredential bit is fallback.
+// / computeReadmeStats 取活体计数快照。凭据能力口径与 renderPlugins
+// 一致：authenticator registry 权威，插件自身 ModeCredential 位作
+// fallback。
+func computeReadmeStats() readmeStats {
+	all := plugins.All()
+	credNames := map[string]bool{}
+	for _, n := range credential.Authenticators() {
+		credNames[n] = true
+	}
+	cred := 0
+	for _, p := range all {
+		m := p.Modes()
+		if credentialCapable(m, p.Name(), credNames) {
+			cred++
+		}
+	}
+	return readmeStats{
+		plugins:     len(all),
+		credCapable: cred,
+		webRules:    webfp.RuleCount(),
+		udpProbes:   len(fingerprint.NewVScan().UDPProbes),
+	}
+}
+
+// READMEStats renders the English stats strip (markers included) for
+// injection between the gendocs:stats markers of README.md.
+// / READMEStats 渲染英文统计条（含标记），注入 README.md 的
+// gendocs:stats 标记之间。
+func READMEStats() string {
+	s := computeReadmeStats()
+	return statsBeginMarker + "\n" +
+		fmt.Sprintf("**%d service plugins · %d credential-capable · %d built-in web fingerprint rules · %d UDP probe payloads**",
+			s.plugins, s.credCapable, s.webRules, s.udpProbes) +
+		"\n" + statsEndMarker
+}
+
+// READMEStatsZh is the Chinese twin of READMEStats for
+// README.zh-CN.md; the numbers are byte-identical, only the copy
+// differs.
+// / READMEStatsZh 是 READMEStats 面向 README.zh-CN.md 的中文孪生版；
+// 数字逐字节一致，只有文案不同。
+func READMEStatsZh() string {
+	s := computeReadmeStats()
+	return statsBeginMarker + "\n" +
+		fmt.Sprintf("**%d 个服务插件 · %d 个支持凭据测试 · %d 条内置 Web 指纹规则 · %d 条 UDP 探测载荷**",
+			s.plugins, s.credCapable, s.webRules, s.udpProbes) +
+		"\n" + statsEndMarker
+}
+
+// ApplyStatsBlock replaces the strip between the gendocs:stats markers
+// in a README source with block and returns the updated file content.
+// Markers are part of block. Missing or inverted markers are a hard
+// error — the strip must never silently vanish from a README.
+// / ApplyStatsBlock 把 README 源码中 gendocs:stats 标记之间的统计条
+// 替换为 block 并返回更新后的文件内容。标记包含在 block 内。标记缺
+// 失或倒序是硬错误——统计条绝不允许从 README 里静默消失。
+func ApplyStatsBlock(readme, block string) (string, error) {
+	i := strings.Index(readme, statsBeginMarker)
+	if i < 0 {
+		return "", fmt.Errorf("README stats: begin marker %q not found — add the gendocs:stats marker pair first", statsBeginMarker)
+	}
+	j := strings.Index(readme, statsEndMarker)
+	if j < i {
+		return "", fmt.Errorf("README stats: end marker %q missing or before the begin marker", statsEndMarker)
+	}
+	return readme[:i] + block + readme[j+len(statsEndMarker):], nil
+}
+
+// StatsBlock extracts the marker-delimited strip (markers included)
+// from a README source. The guard test compares this against
+// READMEStats / READMEStatsZh to pin the READMEs to the registries.
+// / StatsBlock 从 README 源码里提取标记圈定的统计条（含标记）。守卫
+// 测试把它与 READMEStats / READMEStatsZh 对比，把 README 钉死在
+// registry 上。
+func StatsBlock(readme string) (string, error) {
+	i := strings.Index(readme, statsBeginMarker)
+	if i < 0 {
+		return "", fmt.Errorf("README stats: begin marker %q not found — add the gendocs:stats marker pair first", statsBeginMarker)
+	}
+	j := strings.Index(readme, statsEndMarker)
+	if j < i {
+		return "", fmt.Errorf("README stats: end marker %q missing or before the begin marker", statsEndMarker)
+	}
+	return readme[i : j+len(statsEndMarker)], nil
 }

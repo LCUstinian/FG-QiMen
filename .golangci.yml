@@ -107,6 +107,10 @@ linters-settings:
              # required for backward compatibility. / 字节码协议
              # 里的 MD5 是向后兼容所需。
       - G505  # crypto/sha1 import — same reason as G401.
+      - G306  # WriteFile >0600: tools/gendocs writes public documentation
+              # artifacts (docs/FLAGS|PLUGINS, README stats strips);
+              # 0644 is the intended visibility. / 生成的是公开文档产物，
+              # 0644 是刻意的可见性。
   revive:
     rules:
       - name: exported
