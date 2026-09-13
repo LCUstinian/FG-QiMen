@@ -43,8 +43,8 @@ func (fc *flushCloser) bw() *bufio.Writer {
 	return fc.rw.bw()
 }
 
-// Output writes results to TXT, NDJSON, creds, RDP, and CSV files.
-// Output 把结果写入 TXT、NDJSON、凭据、RDP、CSV 文件。
+// Output writes results to TXT, NDJSON, creds, RDP, Web, and CSV files.
+// Output 把结果写入 TXT、NDJSON、凭据、RDP、Web、CSV 文件。
 //
 // Each sink has its own mutex so writes to one file never block writes
 // to another. At 200 worker goroutines pushing results concurrently,
@@ -59,15 +59,16 @@ type Output struct {
 	// Per-sink mutexes. Locked by the matching Write* / Close / Flush
 	// method. / 每个 sink 独立 mutex。由对应 Write* / Close / Flush
 	// 方法上锁。
-	txtMu, jsnMu, credsMu, rdpjsonMu, rdptxtMu, csvMu, aliveMu sync.Mutex
+	txtMu, jsnMu, credsMu, rdpjsonMu, rdptxtMu, webjsonMu, webtxtMu, csvMu, aliveMu sync.Mutex
 
 	// txt  : one human-readable line per result
 	// json : one JSON object per line (NDJSON)
 	// creds: "host:port  plugin  user/pass  time" per hit
 	// rdpjson / rdptxt: RDP deep fingerprint
+	// webjson / webtxt: webtitle structured fingerprint (+ TLS identity)
 	// csv  : RFC 4180 one row per result (header on first write)
 	// alive: one host per line (deduped; pipeline-friendly)
-	txt, jsn, creds, rdpjson, rdptxt, csv, alive *flushCloser
+	txt, jsn, creds, rdpjson, rdptxt, webjson, webtxt, csv, alive *flushCloser
 
 	// csvWriter is hoisted to a field so we allocate it once at
 	// OpenOutput time, not per WriteResult. The previous code
@@ -155,6 +156,8 @@ type OutputConfig struct {
 	CredsPath      string // empty = no creds output
 	RDPJSONPath    string // empty = no rdp.json output
 	RDPTXTPath     string // empty = no rdp.txt output
+	WebJSONPath    string // empty = no web.json output
+	WebTXTPath     string // empty = no web.txt output
 	// ResultAlivePath is the optional alive-host list (one IP per
 	// line, deduped). When set, every WriteResult appends the host
 	// to this file. Pipeline-friendly: the output is directly
@@ -231,6 +234,8 @@ func OpenOutput(cfg OutputConfig) (*Output, error) {
 		{cfg.CredsPath, 0o600, func(w *flushCloser) { o.creds = w }},
 		{cfg.RDPJSONPath, 0o644, func(w *flushCloser) { o.rdpjson = w }},
 		{cfg.RDPTXTPath, 0o644, func(w *flushCloser) { o.rdptxt = w }},
+		{cfg.WebJSONPath, 0o644, func(w *flushCloser) { o.webjson = w }},
+		{cfg.WebTXTPath, 0o644, func(w *flushCloser) { o.webtxt = w }},
 		{cfg.ResultCSVPath, 0o644, func(w *flushCloser) {
 			o.csv = w
 			// Allocate csv.Writer once; reused per WriteResult.
@@ -299,6 +304,8 @@ func (o *Output) Close() error {
 		{o.creds, &o.credsMu, "creds"},
 		{o.rdpjson, &o.rdpjsonMu, "rdp.json"},
 		{o.rdptxt, &o.rdptxtMu, "rdp.txt"},
+		{o.webjson, &o.webjsonMu, "web.json"},
+		{o.webtxt, &o.webtxtMu, "web.txt"},
 		{o.csv, &o.csvMu, "csv"},
 		{o.alive, &o.aliveMu, "alive"},
 		// SARIF goes last: assemble the document from o.sarifBuf,
@@ -368,6 +375,8 @@ func (o *Output) Flush() error {
 		{o.creds, &o.credsMu},
 		{o.rdpjson, &o.rdpjsonMu},
 		{o.rdptxt, &o.rdptxtMu},
+		{o.webjson, &o.webjsonMu},
+		{o.webtxt, &o.webtxtMu},
 		{o.csv, &o.csvMu},
 		{o.alive, &o.aliveMu},
 	}
@@ -620,6 +629,39 @@ func (o *Output) WriteRDP(fp types.RDPFingerprint) error {
 			fp.NLASupported, fp.ServerFlags,
 			fp.CertSubject, fp.CertIssuer)
 		o.rdptxtMu.Unlock()
+	}
+	return nil
+}
+
+// WriteWeb writes a structured web fingerprint to web.json (NDJSON) and
+// web.txt (human-readable). Each file has its own mutex.
+//
+// The type itself lives in types (types.WebFingerprint): the webtitle
+// plugin produces it into Result.Extra, and output only renders it.
+// TLS fields are empty for http targets and simply don't appear in the
+// JSON (omitempty) / render as empty key= pairs in the txt line.
+//
+// / WriteWeb 把结构化的 Web 指纹写入 web.json（NDJSON）和 web.txt
+// （人类可读）。每个文件独立 mutex。类型本体在 types
+// （types.WebFingerprint）：webtitle 插件把它放进 Result.Extra，
+// output 只负责渲染。http 目标的 TLS 字段为空，JSON 中直接不出现
+// （omitempty），txt 行渲染为空的 key= 对。
+func (o *Output) WriteWeb(fp types.WebFingerprint) error {
+	if o.webjson != nil {
+		o.webjsonMu.Lock()
+		enc := json.NewEncoder(o.webjson)
+		_ = enc.Encode(fp)
+		o.webjsonMu.Unlock()
+	}
+	if o.webtxt != nil {
+		o.webtxtMu.Lock()
+		ts := fp.ScanTime.Format("2006-01-02 15:04:05")
+		fmt.Fprintf(o.webtxt,
+			"[%s] %s  [%d/%d] title=%q server=%q fps=%v cert-subject=%q cert-issuer=%q cert-san=%v tls=%q\n",
+			ts, fp.URL, fp.StatusCode, fp.ContentLen,
+			fp.Title, fp.Server, fp.Fingers,
+			fp.CertSubject, fp.CertIssuer, fp.CertSANs, fp.TLSVersion)
+		o.webtxtMu.Unlock()
 	}
 	return nil
 }

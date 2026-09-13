@@ -78,6 +78,16 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 	if err != nil {
 		return fmt.Errorf("output path: %w", err)
 	}
+	// Web fingerprint (webtitle structured payload + TLS identity).
+	// / Web 指纹（webtitle 结构化 payload + TLS 证书身份）。
+	webJSON, err := resolveOutputPath(cfg, "", "fgqm_web.json", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
+	webTXT, err := resolveOutputPath(cfg, "", "fgqm_web.txt", now)
+	if err != nil {
+		return fmt.Errorf("output path: %w", err)
+	}
 	// Alive-host list (one IP per line, deduped). Always on by
 	// default — operators pipe it directly into nmap / masscan /
 	// curl loops, and there's no harm in writing it (an empty
@@ -120,6 +130,8 @@ func openOutputSinks(sess *session.Session, cfg *types.Config, now time.Time) er
 		RotateMaxFiles:  flagOutputRotateFiles,
 		RDPJSONPath:     rdpJSON,
 		RDPTXTPath:      rdpTXT,
+		WebJSONPath:     webJSON,
+		WebTXTPath:      webTXT,
 		ResultAlivePath: alivePath,
 		AliveFormat:     flagAliveFormat,
 		// P0#2: result.txt gets the redaction gate; creds.txt is

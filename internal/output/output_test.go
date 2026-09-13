@@ -303,6 +303,72 @@ func TestWriteRDPEmitsBoth(t *testing.T) {
 	}
 }
 
+// TestWriteWebEmitsBoth: a single WriteWeb call produces one
+// NDJSON line in web.json AND one human-readable line in web.txt.
+// TLS fields survive the round-trip; omitempty keeps them absent
+// when empty. / TestWriteWebEmitsBoth：单次 WriteWeb 在 web.json
+// 产一行 NDJSON、web.txt 产一行人类可读文本。TLS 字段经 round-trip
+// 保留；为空时 omitempty 使其不出现。
+func TestWriteWebEmitsBoth(t *testing.T) {
+	dir := t.TempDir()
+	cfg := OutputConfig{
+		WebJSONPath: filepath.Join(dir, "fgqm_web.json"),
+		WebTXTPath:  filepath.Join(dir, "fgqm_web.txt"),
+	}
+	o, err := OpenOutput(cfg)
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+	fp := types.WebFingerprint{
+		URL:           "https://10.0.0.5:8443",
+		Host:          "10.0.0.5",
+		Port:          8443,
+		Scheme:        "https",
+		StatusCode:    200,
+		Title:         "Login",
+		Server:        "nginx/1.25.4",
+		ContentLen:    4211,
+		Fingers:       []string{"nginx", "vue"},
+		CertSubject:   "intranet-web.corp.local",
+		CertIssuer:    "Corp Root CA",
+		CertSANs:      []string{"web01.corp.local"},
+		CertValidFrom: "2026-01-02",
+		CertValidTo:   "2027-03-04",
+		TLSVersion:    "TLS 1.2",
+		ScanTime:      time.Date(2026, 6, 14, 1, 0, 0, 0, time.UTC),
+	}
+	if err := o.WriteWeb(fp); err != nil {
+		t.Errorf("WriteWeb: %v", err)
+	}
+	if err := o.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+
+	jsonLines := readLines(t, cfg.WebJSONPath)
+	if len(jsonLines) != 1 {
+		t.Fatalf("got %d web.json lines, want 1", len(jsonLines))
+	}
+	var got types.WebFingerprint
+	if err := json.Unmarshal([]byte(jsonLines[0]), &got); err != nil {
+		t.Fatalf("unmarshal web.json: %v", err)
+	}
+	if got.URL != fp.URL || got.Title != fp.Title || got.TLSVersion != fp.TLSVersion ||
+		got.CertSubject != fp.CertSubject || len(got.Fingers) != 2 {
+		t.Errorf("web.json round-trip mismatch: got %+v", got)
+	}
+
+	txtLines := readLines(t, cfg.WebTXTPath)
+	if len(txtLines) != 1 {
+		t.Fatalf("got %d web.txt lines, want 1", len(txtLines))
+	}
+	for _, w := range []string{"https://10.0.0.5:8443", "Login", "nginx/1.25.4",
+		`cert-subject="intranet-web.corp.local"`, "web01.corp.local", `tls="TLS 1.2"`} {
+		if !strings.Contains(txtLines[0], w) {
+			t.Errorf("web.txt line missing %q: %q", w, txtLines[0])
+		}
+	}
+}
+
 // TestFlushForceWriteBeforeClose: Flush must push the buffer to
 // disk so a reader can see results without waiting for Close. This
 // matters for the long-running scan: -v logging in another goroutine

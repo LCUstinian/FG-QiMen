@@ -25,6 +25,15 @@ import (
 	"time"
 
 	"github.com/LCUstinian/FG-QiMen/internal/plugins"
+	// Register the webtitle plugin (deep HTTP fingerprinting) alongside
+	// the basic http plugin. webtitle registers itself via its own
+	// init(); without this blank import its Identify never runs in a
+	// production binary — every webtitle "hit" only existed inside
+	// unit tests. / 随基础 http 插件一起注册 webtitle 插件（深度 HTTP
+	// 指纹）。webtitle 经自己的 init() 注册；缺了这条 blank import，
+	// 生产二进制里 webtitle 的 Identify 永远不会跑——所有 webtitle
+	// "命中"只存在于单测里。
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/web/webtitle"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 

@@ -141,6 +141,15 @@ func persistResult(sess *session.Session, r *types.Result) {
 				sess.Log.Warn("output write rdp failed: %v", err)
 			}
 		}
+		// Same side-channel for webtitle: *types.WebFingerprint
+		// dual-writes web.json / web.txt (response facts + TLS leaf
+		// identity). / webtitle 的同一旁路：*types.WebFingerprint
+		// 双写 web.json / web.txt（响应事实 + TLS 叶子证书身份）。
+		if webFP, ok := r.Extra.(*types.WebFingerprint); ok {
+			if err := sess.Out.WriteWeb(*webFP); err != nil {
+				sess.Log.Warn("output write web failed: %v", err)
+			}
+		}
 	}
 	if sess.Store == nil {
 		return

@@ -27,6 +27,8 @@
 //     - hardcoded rules (rules.go)
 //     - FingerprintHub JSON (enhanced.go)
 //  6. Return Banner with the matched fingerprints appended.
+//  7. Stash a *types.WebFingerprint payload (response facts + TLS
+//     leaf identity) in Result.Extra for web.json / web.txt dual-write.
 //
 // 本插件做的事（Identify 阶段）：
 //  1. 智能协议检测（HTTP vs HTTPS，靠缓存的服务信息或主动 TLS 探测）
@@ -35,6 +37,8 @@
 //  4. 取 /favicon.ico 算 mmh3 + MD5 哈希
 //  5. 跑指纹匹配：硬编码规则 + FingerprintHub JSON
 //  6. 返回 Banner，附上匹配的指纹
+//  7. 把 *types.WebFingerprint payload（响应事实 + TLS 叶子证书
+//     身份）放进 Result.Extra，供 web.json / web.txt 双写。
 //
 // HARD RULE: this plugin does NOT run any POC. It only identifies.
 // See the no-exploit policy in README.
@@ -122,6 +126,14 @@ func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *t
 	_ = resp.Body.Close()
 	contentLen := len(body)
 
+	// https targets: harvest the leaf-certificate identity from the
+	// response's connection state — zero extra connections. / https
+	// 目标：从响应的连接状态收割叶子证书身份——零额外连接。
+	var cert tlsInfo
+	if scheme == "https" {
+		cert = extractTLSInfo(resp.TLS)
+	}
+
 	// Build the per-source "CheckData" for the matcher. / 构造
 	// 传给匹配器的 CheckData。
 	checkData := fingerprint.CheckData{
@@ -160,11 +172,35 @@ func (p *WebTitlePlugin) Identify(ctx context.Context, host string, port int) *t
 
 	// Build the banner. / 构造 banner。
 	banner := buildBanner(displayURL, statusCode, contentLen, title, server, uniq)
+
+	// Structured payload for web.json / web.txt dual-write (the
+	// pipeline sink type-asserts Extra). / 结构化 payload，供
+	// web.json / web.txt 双写（管线 sink 对 Extra 做断言）。
+	webFP := &types.WebFingerprint{
+		URL:        displayURL,
+		Host:       host,
+		Port:       port,
+		Scheme:     scheme,
+		StatusCode: statusCode,
+		Title:      title,
+		Server:     server,
+		ContentLen: contentLen,
+		Fingers:    uniq,
+		// TLS identity. / TLS 证书身份。
+		CertSubject:   cert.Subject,
+		CertIssuer:    cert.Issuer,
+		CertSANs:      cert.SANs,
+		CertValidFrom: cert.ValidFrom,
+		CertValidTo:   cert.ValidTo,
+		TLSVersion:    cert.Version,
+		ScanTime:      time.Now(),
+	}
 	return &types.Result{
 		Host:    host,
 		Port:    port,
 		Service: "http",
 		Banner:  banner,
+		Extra:   webFP,
 		Time:    time.Now(),
 	}
 }

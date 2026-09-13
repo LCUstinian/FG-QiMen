@@ -4,6 +4,30 @@
 # Changelog
 ## [Unreleased]
 
+### Fixed
+
+- **webtitle 插件从未在生产二进制中注册** ——
+  `internal/plugins/adapted/web/http.go`（聚合注册点）只 import 了
+  基础 `http` 插件；`webtitle` 深度 HTTP 指纹插件的 `init()` 从未
+  在单测之外运行，所以尽管插件本体、3139 条 FingerprintHub 规则库
+  与 favicon 匹配器全都随包发布，任何扫描都不可能产出 webtitle
+  命中。blank import 已补上，实机冒烟确认 webtitle 正常产出。
+- `internal/version` 的默认值钉死测试未随 v0.8.0 发版 bump 同步
+  更新（发版清单遗漏）。
+
+### Added
+
+- **结构化 Web 指纹输出：`fgqm_web.json` / `fgqm_web.txt`** ——
+  webtitle 每次命中现在都在 `Result.Extra` 携带
+  `types.WebFingerprint` payload（URL、状态码、标题、Server、命中
+  指纹），由管线 sink 经 `output.WriteWeb` 双写（与 RDP 相同的
+  `Extra` 旁路模式）。为 SIEM / 自动化消费方提供机器可读的 Web
+  侦察数据。
+- **https 目标的 TLS 叶子证书身份** —— subject、SAN DNS 名、
+  issuer、有效期与协议版本，从 `resp.TLS` 零额外连接收割，进入
+  Web 指纹 payload。SAN/CN 字段常能暴露 banner 匹配看不到的内网
+  机器名与域名。无 CN（SAN-only）证书回退到序列化 RDN 串。
+
 ## [0.8.0] - 2026-09-13
 
 ### Added

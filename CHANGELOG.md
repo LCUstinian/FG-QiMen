@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **webtitle plugin was never registered in production binaries** —
+  `internal/plugins/adapted/web/http.go` (the aggregated registration
+  point) imported only the basic `http` plugin; the `webtitle` deep
+  HTTP fingerprint plugin's `init()` never ran outside unit tests,
+  so no scan ever produced a webtitle hit despite the plugin, its
+  3139-rule FingerprintHub database and its favicon matcher all
+  shipping. The blank import is now in place and the real-binary
+  smoke test produces webtitle results.
+- `internal/version`'s pinned-default test was not bumped in
+  lockstep with the v0.8.0 release bump (release-checklist miss).
+
+### Added
+
+- **Structured web fingerprint output: `fgqm_web.json` / `fgqm_web.txt`** —
+  every webtitle hit now carries a `types.WebFingerprint` payload
+  (URL, status, title, server, matched fingers) in `Result.Extra`,
+  dual-written by the pipeline sink via `output.WriteWeb` (same
+  `Extra` side-channel pattern as RDP). Machine-readable web
+  recon data for SIEM / automation consumers.
+- **TLS leaf-certificate identity for https targets** — subject, SAN
+  DNS names, issuer, validity dates and protocol version are
+  harvested from `resp.TLS` at zero extra connections and land in
+  the web fingerprint payload. SAN/CN fields routinely expose
+  internal hostnames and domains that banner matching never sees.
+  CN-less (SAN-only) certs fall back to the serialized RDN string.
+
 ## [0.8.0] - 2026-09-13
 
 ### Added
