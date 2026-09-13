@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **43 plugin subpackages were never registered in production
+  binaries** — the category packages (`database/`, `email/`,
+  `filestorage/`, `messaging/`, `network/`, `remote/`, `cloud/`,
+  plus `web/`'s jenkins/kibana/weblogic) were empty placeholders
+  whose comments claimed the parent `adapted` package imported the
+  plugin subdirs directly; it didn't. postgresql, mysql, mssql,
+  oracle, mongodb, elasticsearch, redis, memcached, ssh, telnet,
+  vnc, winrm, ipmi, rdp, rdpnla, smb, nfs, rsync, ftp, smtp, pop3,
+  imap, rabbitmq, kafka, mqtt, activemq, rocketmq, snmp, snmpv3,
+  ldap, docker, socks5, modbus, bacnet, dns, ntp, tftp, aws, azure
+  and the web trio only ever ran inside unit tests — real-scan
+  service identification was carried entirely by the nmap
+  fingerprint layer, UDP fingerprinting and the credential
+  authenticators. Every category doc.go now blank-imports its
+  subpackages, the adapted root imports cloud, and two closure
+  guard tests (`TestAggregationImportsAllSubpackages`,
+  `TestRootBinaryImportsAdapted`) turn the aggregation chain red in
+  CI the moment any plugin package is left out.
+
 ## [0.8.1] - 2026-09-13
 
 ### Removed

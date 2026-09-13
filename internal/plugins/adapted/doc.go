@@ -27,8 +27,10 @@
 package adapted
 
 import (
-	// Each category's subdirs self-register via init().
-	// 各 category 子目录通过自己的 init() 注册。
+	// Each category's doc.go blank-imports its own plugin subpackages;
+	// this file only needs the category roots. / 各类目的 doc.go
+	// blank-import 自己的插件子包；本文件只需 import 类目根。
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/cloud"
 	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/database"
 	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/email"
 	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/filestorage"

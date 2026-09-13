@@ -1,13 +1,24 @@
-// Package email is the email category for service Identify
-// plugins. Subdirectories are self-registering plugins (each has
-// its own init() that calls plugins.Register).
+// Package email is the email category for service Identify plugins.
+// Subdirectories (/imap, /pop3, /smtp) are self-registering plugins
+// (each has its own init() that calls plugins.Register).
 //
-// 包 email 是 adapted 下的 email 类目包。子目录是
-// 自注册插件（各自 init() 调 plugins.Register）。
+// This doc.go blank-imports every subpackage so a binary that imports
+// only internal/plugins/adapted (via cmd/root.go) registers the whole
+// category. History: the category was empty of imports and its
+// plugins never ran in production — caught by
+// TestAggregationImportsAllSubpackages in the parent package.
 //
-// This doc.go is a placeholder so the directory is a valid Go
-// package. The category parent (internal/plugins/adapted/doc.go)
-// blank-imports each subdir explicitly to trigger their init().
-// / 本 doc.go 是占位，让目录成为合法 Go 包。上层 adapted 包
-// 显式 blank-import 每个子目录来触发 init()。
+// 包 email 是 adapted 下的 email 类目包。子目录（/imap、/pop3、
+// /smtp）是自注册插件（各自 init() 调 plugins.Register）。
+//
+// 本 doc.go blank-import 全部子包，使只 import
+// internal/plugins/adapted 的二进制（经 cmd/root.go）注册整个类目。
+// 历史：本类目此前无任何 import，插件从未在生产运行——由父包的
+// TestAggregationImportsAllSubpackages 抓出。
 package email
+
+import (
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/email/imap"
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/email/pop3"
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/email/smtp"
+)

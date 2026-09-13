@@ -1,12 +1,23 @@
-// Package cloud holds service-Identify plugins for cloud-provider
-// metadata endpoints (AWS IMDS, Azure Instance Metadata Service).
+// Package cloud is the cloud category for service Identify plugins.
+// Subdirectories (/aws, /azure) are self-registering plugins (each
+// has its own init() that calls plugins.Register).
 //
-// / cloud 包是云供应商元数据端点（AWS IMDS、Azure Instance
-// Metadata Service）的服务识别插件。
+// This doc.go blank-imports every subpackage so a binary that imports
+// only internal/plugins/adapted (via cmd/root.go) registers the whole
+// category. History: the category was empty of imports and its
+// plugins never ran in production — caught by
+// TestAggregationImportsAllSubpackages in the parent package.
 //
-// All plugins in this package are HARD-rule compliant: they probe
-// the metadata endpoint and report its presence + version. They
-// do NOT exfiltrate credentials, tokens, or user data. / 本包
-// 所有插件都符合 HARD 规则：探测元数据端点并报告其存在+版本。
-// 绝不外泄凭据、token 或 user data。
+// 包 cloud 是 adapted 下的 cloud 类目包。子目录（/aws、/azure）是
+// 自注册插件（各自 init() 调 plugins.Register）。
+//
+// 本 doc.go blank-import 全部子包，使只 import
+// internal/plugins/adapted 的二进制（经 cmd/root.go）注册整个类目。
+// 历史：本类目此前无任何 import，插件从未在生产运行——由父包的
+// TestAggregationImportsAllSubpackages 抓出。
 package cloud
+
+import (
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/cloud/aws"
+	_ "github.com/LCUstinian/FG-QiMen/internal/plugins/adapted/cloud/azure"
+)

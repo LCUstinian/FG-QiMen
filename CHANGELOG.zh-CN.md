@@ -4,6 +4,23 @@
 # Changelog
 ## [Unreleased]
 
+### Fixed
+
+- **43 个插件子包从未在生产二进制中注册** —— 类目包（`database/`、
+  `email/`、`filestorage/`、`messaging/`、`network/`、`remote/`、
+  `cloud/`，以及 `web/` 的 jenkins/kibana/weblogic）是空占位文件，
+  注释声称上层 `adapted` 包直接 import 了各插件子目录——实际没有。
+  postgresql、mysql、mssql、oracle、mongodb、elasticsearch、redis、
+  memcached、ssh、telnet、vnc、winrm、ipmi、rdp、rdpnla、smb、nfs、
+  rsync、ftp、smtp、pop3、imap、rabbitmq、kafka、mqtt、activemq、
+  rocketmq、snmp、snmpv3、ldap、docker、socks5、modbus、bacnet、
+  dns、ntp、tftp、aws、azure 及 web 三件只在单测里运行过——真实
+  扫描的服务识别完全由 nmap 指纹层、UDP 指纹与凭据测试器承担。
+  现在每个类目 doc.go blank-import 全部子包，adapted 根 import
+  cloud，两个闭包守卫测试（`TestAggregationImportsAllSubpackages`、
+  `TestRootBinaryImportsAdapted`）在任何插件包被漏出聚合链时让
+  CI 变红。
+
 ## [0.8.1] - 2026-09-13
 
 ### Removed
