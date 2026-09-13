@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`homebrew-tap.yml` workflow deleted** — its one-time
+  prerequisites (the sibling `homebrew-tap` repository and the
+  `HOMEBREW_TAP_TOKEN` secret) were never configured, so the
+  workflow failed on every release; the channel never worked and
+  nobody missed it. Same YAGNI verdict as scoop-bucket. Re-add from
+  git history if Homebrew distribution is ever wanted.
+
 ### Fixed
 
 - **webtitle plugin was never registered in production binaries** —

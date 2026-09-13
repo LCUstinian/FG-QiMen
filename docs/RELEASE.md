@@ -232,7 +232,12 @@ cosign verify-blob --certificate ... --signature ...
 ## Cross-references
 
 - Workflows: `.github/workflows/release.yml`,
-  `workflow-lint.yml`, `ci.yml`, `homebrew-tap.yml`
+  `workflow-lint.yml`, `ci.yml`
+  (`homebrew-tap.yml` removed 2026-09-13: its one-time prerequisites
+  — the sibling tap repo and the HOMEBREW_TAP_TOKEN secret — were
+  never configured, so it failed every trigger; same YAGNI verdict
+  as scoop-bucket. Re-add from git history if Homebrew distribution
+  is ever wanted)
 - Per-batch verification: `docs/verification/v0.3/first-batch-verification.md`,
   `docs/verification/v0.3/second-batch-verification.md`,
   `docs/verification/v0.4/verification.md`,

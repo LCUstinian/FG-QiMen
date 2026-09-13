@@ -4,6 +4,14 @@
 # Changelog
 ## [Unreleased]
 
+### Removed
+
+- **删除 `homebrew-tap.yml` workflow** —— 其一次性前置（同级
+  `homebrew-tap` 仓库与 `HOMEBREW_TAP_TOKEN` secret）从未配置，
+  该 workflow 每次 release 都必然失败；渠道从未工作过，也无人
+  问津。与 scoop-bucket 同一 YAGNI 结论。若需要 Homebrew 分发，
+  从 git 历史找回再加回。
+
 ### Fixed
 
 - **webtitle 插件从未在生产二进制中注册** ——

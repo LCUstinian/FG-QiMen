@@ -220,7 +220,11 @@ cosign verify-blob --certificate ... --signature ...
 ## 交叉引用
 
 - 工作流：`.github/workflows/release.yml`、
-  `workflow-lint.yml`、`ci.yml`、`homebrew-tap.yml`
+  `workflow-lint.yml`、`ci.yml`
+  （`homebrew-tap.yml` 已于 2026-09-13 删除：其一次性前置——同级
+  tap 仓库与 HOMEBREW_TAP_TOKEN secret——从未配置，每次触发必然
+  失败；与 scoop-bucket 同一 YAGNI 结论。若需要 Homebrew 分发，
+  从 git 历史找回再加回）
 - 分批验证报告：`docs/verification/v0.3/first-batch-verification.md`、
   `docs/verification/v0.3/second-batch-verification.md`、
   `docs/verification/v0.4/verification.md`、
