@@ -23,6 +23,25 @@ import (
 	"testing"
 )
 
+// readRepoDoc reads a repository markdown file with CRLF normalized
+// to LF. On windows-latest CI the runner checks out with autocrlf=true,
+// so every tracked .md lands on disk as CRLF while the generated
+// artifacts are LF — a byte comparison would fail only on that one
+// platform (macOS/ubuntu checkout LF). Normalizing here keeps the
+// guard about CONTENT drift, not about git's eol settings.
+// / readRepoDoc 读取仓库 markdown 并把 CRLF 归一化为 LF。windows-latest
+// CI 以 autocrlf=true 检出，所有受跟踪的 .md 落盘为 CRLF，而生成产物
+// 是 LF——逐字节比较会在且仅会在那个平台失败（macOS/ubuntu 检出为
+// LF）。在此归一化让守卫关注内容漂移，而非 git 的 eol 配置。
+func readRepoDoc(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s unreadable: %v", path, err)
+	}
+	return strings.ReplaceAll(string(raw), "\r\n", "\n")
+}
+
 func TestGeneratedDocsUpToDate(t *testing.T) {
 	artifacts := map[string]string{
 		"FLAGS.md":         FlagsMarkdown(),
@@ -32,11 +51,8 @@ func TestGeneratedDocsUpToDate(t *testing.T) {
 	}
 	for name, want := range artifacts {
 		path := filepath.Join("..", "..", "docs", name)
-		got, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("%s unreadable: %v — run `just docs-gen`", path, err)
-		}
-		if strings.TrimSpace(string(got)) != strings.TrimSpace(want) {
+		got := strings.TrimSpace(readRepoDoc(t, path))
+		if got != strings.TrimSpace(want) {
 			t.Fatalf("%s is stale relative to the live registries — run `just docs-gen` and commit the regenerated file", path)
 		}
 	}
@@ -58,11 +74,7 @@ func TestREADMEStatsUpToDate(t *testing.T) {
 	}
 	for name, want := range readmes {
 		path := filepath.Join("..", "..", name)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("%s unreadable: %v", path, err)
-		}
-		got, err := StatsBlock(string(raw))
+		got, err := StatsBlock(readRepoDoc(t, path))
 		if err != nil {
 			t.Fatalf("%s: %v — add the gendocs:stats marker pair and run `just docs-gen`", path, err)
 		}

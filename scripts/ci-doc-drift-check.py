@@ -38,7 +38,31 @@ HEADER_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
 def count_headers(path: Path) -> int:
     if not path.exists():
         return 0
-    return len(HEADER_RE.findall(path.read_text(encoding="utf-8")))
+    # utf-8-sig: a leading BOM would otherwise glue itself to the
+    # first "#" and hide the document's very first header (this bit
+    # the EN CHANGELOG, whose BOM sits on the "# Changelog" line,
+    # while the ZH file carries its BOM on a quote line).
+    # / utf-8-sig：文件头 BOM 会粘在第一个 "#" 前面，让文档的
+    # 第一个 header 消失计数（EN CHANGELOG 的 BOM 恰好在
+    # "# Changelog" 行首，而 ZH 的 BOM 在引用行上）。
+    text = path.read_text(encoding="utf-8-sig")
+    # Skip fenced code blocks: a bash "# comment" inside ``` fences
+    # is not a section header. The CONFIGURATION / RELEASE pairs
+    # merge adjacent command comments differently per language, and
+    # counting those lines produced phantom drift.
+    # / 跳过围栏代码块：``` 内的 bash "# 注释" 不是章节 header。
+    # CONFIGURATION / RELEASE 两对文档里，中英文对相邻命令注释的
+    # 合并方式不同，误计这些行产生了幻影漂移。
+    in_fence = False
+    count = 0
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and HEADER_RE.match(line):
+            count += 1
+    return count
 
 
 def main() -> int:
