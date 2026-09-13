@@ -86,3 +86,30 @@ func TestStateSnapshotIncludesStage(t *testing.T) {
 		t.Errorf("Snapshot.Stage = %d, want %d", snap.Stage, StageIdentify)
 	}
 }
+
+// TestStateSnapshotIncludesIdentQuality verifies Snapshot() round-trips
+// the identification-quality counters (IdentHard / IdentSoft / IdentNone)
+// that the Stage-0 site in core bumps per open port and the end-of-scan
+// summary reports as "identified=X/Y (hard=… soft=… unknown=…)".
+// / TestStateSnapshotIncludesIdentQuality 验证 Snapshot() 往返识别质量
+// 计数器（IdentHard / IdentSoft / IdentNone）——core 的 Stage-0 位置对
+// 每个开放端口各计一次，扫描结束汇总以 "identified=X/Y (hard=… soft=…
+// unknown=…)" 报告。
+func TestStateSnapshotIncludesIdentQuality(t *testing.T) {
+	s := NewState()
+	s.Counters.IdentHard.Add(27)
+	s.Counters.IdentSoft.Add(4)
+	s.Counters.IdentNone.Add(11)
+	snap := s.Snapshot()
+	if snap.IdentHard != 27 || snap.IdentSoft != 4 || snap.IdentNone != 11 {
+		t.Errorf("Snapshot ident quality = (%d, %d, %d), want (27, 4, 11)",
+			snap.IdentHard, snap.IdentSoft, snap.IdentNone)
+	}
+	// The summary invariant: the three buckets partition the Stage-0
+	// result set, so hard+soft+none is the denominator of identified=X/Y.
+	// / 汇总不变量：三个桶划分 Stage-0 结果集，hard+soft+none 即
+	// identified=X/Y 的分母。
+	if got := snap.IdentHard + snap.IdentSoft + snap.IdentNone; got != 42 {
+		t.Errorf("hard+soft+none = %d, want 42", got)
+	}
+}

@@ -97,6 +97,26 @@ type Counters struct {
 	Results     atomic.Int64
 	Creds       atomic.Int64
 	Errors      atomic.Int64
+	// Identification-quality counters, bumped once per Stage-0 port
+	// result in the plugin worker (core/pipeline_workers.go). They
+	// partition every open port by the strength of its identity
+	// claim, so IdentHard+IdentSoft+IdentNone == Stage-0 result count:
+	//   IdentHard — nmap hard match or protocol-level certainty (ConfHigh)
+	//   IdentSoft — nmap softmatch hint ("svc?", ConfLow)
+	//   IdentNone — open port with no identity claim at all
+	// The end-of-scan summary reports identified=X/Y from these so the
+	// operator can measure identification coverage per scan ("identify,
+	// not just connect" — the unknown tail is the actionable part).
+	// / 识别质量计数器，插件 worker 的 Stage-0 端口结果各计一次。把
+	// 每个开放端口按身份断言强度三分类，IdentHard+IdentSoft+IdentNone
+	// == Stage-0 结果数：IdentHard = nmap 硬匹配（ConfHigh）；IdentSoft
+	// = softmatch 提示（ConfLow）；IdentNone = 完全无身份断言的开放
+	// 端口。扫描结束汇总给出 identified=X/Y，让操作者量化单次扫描的
+	// 识别覆盖率（"identify, not just connect"——未知尾部才是可行动的
+	// 部分）。
+	IdentHard atomic.Int64
+	IdentSoft atomic.Int64
+	IdentNone atomic.Int64
 }
 
 // CountersView is a plain-int64 snapshot of Counters for safe display/logging.
@@ -109,6 +129,9 @@ type CountersView struct {
 	Creds       int64
 	Errors      int64
 	Stage       int64 // v0.5.2: current scan stage (StageIdle=0, StageAlive=1, ...)
+	IdentHard   int64 // identification quality: hard-match ports
+	IdentSoft   int64 // identification quality: softmatch-hint ports
+	IdentNone   int64 // identification quality: no-claim open ports
 }
 
 // NewState creates a fresh State with counters zeroed.
@@ -165,6 +188,9 @@ func (s *State) Snapshot() CountersView {
 		Creds:       s.Counters.Creds.Load(),
 		Errors:      s.Counters.Errors.Load(),
 		Stage:       int64(s.Stage.Load()),
+		IdentHard:   s.Counters.IdentHard.Load(),
+		IdentSoft:   s.Counters.IdentSoft.Load(),
+		IdentNone:   s.Counters.IdentNone.Load(),
 	}
 }
 

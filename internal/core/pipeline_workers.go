@@ -132,6 +132,32 @@ func runPluginWorker(
 					conf = types.ConfLow
 				}
 			}
+			// Identification-quality partition: every Stage-0 port
+			// result lands in exactly one bucket, so the end-of-scan
+			// "identified=X/Y" summary is exact by construction.
+			// / 识别质量三分类：每条 Stage-0 端口结果恰好落入一个桶，
+			// 扫描结束的 "identified=X/Y" 汇总因此按构造精确。
+			switch conf {
+			case types.ConfHigh:
+				sess.State.Counters.IdentHard.Add(1)
+			case types.ConfLow:
+				sess.State.Counters.IdentSoft.Add(1)
+			default:
+				sess.State.Counters.IdentNone.Add(1)
+			}
+			// claimed tracks whether THIS item already carries an
+			// identity claim. A ScanItem is processed start-to-finish
+			// by one worker goroutine (Stage-0 emit → plugin loop), so
+			// a plain local is enough: when a plugin's protocol
+			// handshake later claims an unclaimed port, the port moves
+			// from IdentNone to IdentHard — the partition stays exact
+			// with no double counting and no per-port map.
+			// / claimed 追踪本 item 是否已带身份断言。单个 ScanItem 由
+			// 一个 worker goroutine 从头处理到尾（Stage-0 发射 → 插件
+			// 循环），普通局部变量就够：插件协议握手随后认领了未认领
+			// 的端口时，端口从 IdentNone 搬到 IdentHard——划分保持精确，
+			// 无重复计数，也无需 per-port map。
+			claimed := conf
 			r := &types.Result{
 				Host:       item.Host,
 				Port:       item.Port,
@@ -185,6 +211,16 @@ func runPluginWorker(
 						// / 插件 Identify 是真协议握手——管线中
 						// 最权威的身份断言。
 						r.Confidence = types.ConfHigh
+						// Identification-coverage move: an unclaimed port
+						// identified by a real protocol handshake leaves
+						// the unknown bucket (see `claimed` above).
+						// / 识别覆盖率搬运：真协议握手认领了原本无断言
+						// 的端口，把它从 unknown 桶搬出（见上文 claimed）。
+						if claimed == "" {
+							sess.State.Counters.IdentNone.Add(-1)
+							sess.State.Counters.IdentHard.Add(1)
+							claimed = types.ConfHigh
+						}
 						// TUI Spec A (Task 3): record plugin hit so the
 						// TUI's "Plugin hits" breakdown counts per-service
 						// finds. normalisePluginName collapses "ssh" /

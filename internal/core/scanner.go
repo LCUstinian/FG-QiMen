@@ -919,12 +919,23 @@ func targetAddrs(targets []types.Target) []string {
 }
 
 // summaryString builds a one-line summary printed at end of scan.
-// summaryString 构建扫描结束时打印的单行摘要。
+// The identified=X/Y tail is the identification-coverage measure:
+// of the Y open ports that produced a Stage-0 result, X carry an
+// identity claim (hard nmap match or softmatch hint); the unknown
+// tail (Y-X) is the actionable part for the next scan ("identify,
+// not just connect").
+// / summaryString 构建扫描结束时打印的单行摘要。identified=X/Y 尾巴
+// 是识别覆盖率度量：产出 Stage-0 结果的 Y 个开放端口中，X 个带身份
+// 断言（nmap 硬匹配或 softmatch 提示）；未知尾部（Y-X）是下次扫描
+// 可行动的部分（"identify, not just connect"）。
 func summaryString(sess *session.Session) string {
 	c := sess.State.Snapshot()
+	stage0 := c.IdentHard + c.IdentSoft + c.IdentNone
 	return fmt.Sprintf(
-		"[*] Done. alive=%d ports=%d results=%d creds=%d errors=%d",
-		c.Alive, c.Ports, c.Results, c.Creds, c.Errors)
+		"[*] Done. alive=%d ports=%d results=%d creds=%d errors=%d identified=%d/%d (hard=%d soft=%d unknown=%d)",
+		c.Alive, c.Ports, c.Results, c.Creds, c.Errors,
+		c.IdentHard+c.IdentSoft, stage0,
+		c.IdentHard, c.IdentSoft, c.IdentNone)
 }
 
 // (P2 dead-code purge: PluginsAll removed in v0.2 audit. Callers
