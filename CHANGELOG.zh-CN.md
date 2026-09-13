@@ -4,6 +4,8 @@
 # Changelog
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-13
+
 ### Added
 
 - **UDP 服务探针（`--udp`）** —— TCP 扫描之后的可选 UDP 阶段：常见
