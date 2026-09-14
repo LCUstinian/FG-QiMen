@@ -3,3 +3,10 @@
 # on checkout, which breaks `gofmt` and floods CI with whole-file
 # "File is not properly formatted" diffs.
 *.go text eol=lf
+
+# Golden-frame snapshots are byte-compared by TestGoldenFrames; a CRLF
+# checkout on Windows would break every frame test. Wordlists and the
+# nmap probe database get the same treatment for reproducibility.
+# / golden 帧快照由 TestGoldenFrames 字节级比对，Windows 检出转 CRLF
+# 会炸全部帧测试。口令字典与 nmap 探针库同理保持 LF。
+*.txt text eol=lf
