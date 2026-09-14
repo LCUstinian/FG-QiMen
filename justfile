@@ -354,6 +354,22 @@ smoke cidr="" max="":
 golden:
     CGO_ENABLED=0 go test -v -run "TestGolden" ./internal/portscan/fingerprint/
 
+# A1 benchmark judge (方向3 先测量): runs the loopback topology
+# (fake SSH/HTTP/memcached + blackholes + refusals) through the real
+# scan pipeline and reports latency P50/P95, identification ratio, and
+# probe cost/return. `-save` records the local baseline (workspace/
+# bench/baseline.ndjson); later runs auto-diff against it. Never gates
+# — regression flags are observational only.
+# Usage: just bench                       (default -runs 3)
+#        just bench -runs 5 -save         (refresh local baseline)
+#        just bench -latency 50ms         (injected-RTT round)
+# / A1 基准裁判（方向3 先测量）：回环拓扑（假 SSH/HTTP/memcached +
+# 黑洞 + 拒绝端口）跑真实扫描管线，报告时延 P50/P95、识别率、probe
+# 成本回报。`-save` 记录本机基线（workspace/bench/baseline.ndjson），
+# 后续运行自动 diff。绝不拦截——回归标记仅作观测。
+bench *args="":
+    CGO_ENABLED=0 go run ./tools/bench {{ args }}
+
 # Regenerate the generated-docs artifacts — the bilingual pair of
 # docs/FLAGS(.zh-CN).md and docs/PLUGINS(.zh-CN).md, plus the stats
 # strips between the gendocs:stats markers of both root READMEs —
