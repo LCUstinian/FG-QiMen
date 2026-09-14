@@ -100,6 +100,22 @@ type Config struct {
 	// host×port 吐一条噪声结果）。仅在 UDP 开启时有意义。
 	UDPStrict bool
 
+	// UDPThreads overrides the UDP phase's initial AIMD target. Zero =
+	// core.DefaultUDPThreads. Injection surface for the bench harness
+	// (A4); operators keep the shipped default.
+	// / UDPThreads 覆写 UDP 阶段的 AIMD 初始 target。零 =
+	// core.DefaultUDPThreads。bench 装置的注入表面（A4）；操作员保
+	// 持出厂默认。
+	UDPThreads int
+
+	// UDPMaxThreads overrides the UDP phase's hard concurrency cap.
+	// Zero = core.DefaultUDPMaxThreads. Injection surface for the
+	// bench harness (A4); operators keep the shipped default.
+	// / UDPMaxThreads 覆写 UDP 阶段的硬并发上限。零 =
+	// core.DefaultUDPMaxThreads。bench 装置的注入表面（A4）；操作
+	// 员保持出厂默认。
+	UDPMaxThreads int
+
 	// NoFPProbes disables the TCP active-probe fallback: for an open
 	// TCP port whose passive banner grab came up empty, the Stage-0
 	// fingerprinter sends up to MaxTCPProbesPerPort nmap probe
@@ -316,6 +332,22 @@ func (c *Config) Validate() error {
 	if c.Threads > 10000 {
 		return CodeInvalidTimeout.Newf("lower to 10000 or less",
 			"threads too large: %d (max 10000)", c.Threads)
+	}
+	// UDP pool overrides share the TCP threads bound (A4 injection
+	// surface; zero = shipped default, which Validate must accept).
+	// / UDP 池覆写与 TCP threads 同界（A4 注入表面；零 = 出厂默认，
+	// Validate 必须接受零值）。
+	for _, v := range []struct {
+		name  string
+		value int
+	}{
+		{"udp-threads", c.UDPThreads},
+		{"udp-max-threads", c.UDPMaxThreads},
+	} {
+		if v.value < 0 || v.value > 10000 {
+			return CodeInvalidTimeout.Newf("use 0 (default) or 1..10000",
+				"%s out of range: %d (0 = shipped default, max 10000)", v.name, v.value)
+		}
 	}
 	if c.Timeout <= 0 {
 		return CodeInvalidTimeout.New("timeout must be > 0", "use --timeout 3s (default) or any positive duration")

@@ -104,7 +104,10 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 	if len(payloads) == 0 {
 		// No hint for this port: degrade to the generic 1-byte probe.
 		// / 该端口无提示：退化为通用单字节探测。
-		banner, state, rtt := probeOnce(ctx, host, port, []byte{0x00}, dialTimeout, readTimeout)
+		banner, state, rtt, perr := probeOnce(ctx, host, port, []byte{0x00}, dialTimeout, readTimeout)
+		if perr != nil {
+			return Result{}, perr
+		}
 		if state == StateOpen && len(banner) == 0 {
 			// Silence: no response, no RTT (zero keeps the adaptive
 			// ring clean); strict mode reports Filtered.
@@ -127,10 +130,15 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 	d := net.Dialer{Timeout: dialTimeout}
 	conn, err := d.DialContext(ctx, "udp", addr)
 	if err != nil {
-		if isConnRefused(err) {
-			return Result{Host: host, Port: port, State: StateClosed, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
+		// Resource exhaustion surfaces as an error (pool AIMD signal);
+		// refused → closed, unreachable → filtered.
+		// / 资源耗尽以错误浮出（池 AIMD 信号）；refused → closed，
+		// unreachable → filtered。
+		state, perr := udpDialVerdict(err)
+		if perr != nil {
+			return Result{}, perr
 		}
-		return Result{Host: host, Port: port, State: StateFiltered, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
+		return Result{Host: host, Port: port, State: state, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
 	}
 	defer conn.Close()
 
@@ -146,6 +154,12 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 			return Result{Host: host, Port: port, State: StateFiltered, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
 		}
 		if _, err := conn.Write(payload); err != nil {
+			// Starvation on send must surface — the pool turns it into
+			// the AIMD congestion signal.
+			// / 发送侧饥饿必须浮出——池会把它变成 AIMD 拥塞信号。
+			if isResourceExhaustedError(err) {
+				return Result{}, err
+			}
 			if isConnRefused(err) {
 				return Result{Host: host, Port: port, State: StateClosed, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
 			}
@@ -171,6 +185,11 @@ func (p *UDPServiceProbe) Probe(ctx context.Context, host string, port int, time
 	if readErr != nil {
 		if isConnRefused(readErr) {
 			return Result{Host: host, Port: port, State: StateClosed, Method: MethodUDP, RTT: time.Since(start), Time: time.Now()}, nil
+		}
+		if isResourceExhaustedError(readErr) {
+			// Starvation on recv — surface, never launder into silence.
+			// / recv 侧饥饿——浮出，绝不洗成静默。
+			return Result{}, readErr
 		}
 		if isTimeout(readErr) {
 			// Silence → open|filtered, marked Open so plugins get a

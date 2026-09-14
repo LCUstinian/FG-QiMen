@@ -67,7 +67,14 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 	if btimeout <= 0 {
 		btimeout = 2 * time.Second
 	}
-	banner, state, rtt := probeOnce(ctx, host, port, payload, timeout, btimeout)
+	banner, state, rtt, perr := probeOnce(ctx, host, port, payload, timeout, btimeout)
+	if perr != nil {
+		// Resource-exhausted dial (etc.) — surface to the pool so the
+		// AIMD controller shrinks and the operator sees the starvation.
+		// / 资源耗尽 dial（等）——浮出给池，让 AIMD 控制器缩容、操作
+		// 员看到饥饿。
+		return Result{}, perr
+	}
 	if state == StateOpen && len(banner) == 0 {
 		// Silent open|filtered: no response, no RTT. Zeroing keeps
 		// the adaptive sampler (pool AdaptiveTimeout) free of
@@ -83,6 +90,27 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 	}, nil
 }
 
+// udpDialVerdict maps a UDP dial error to a verdict. Resource
+// exhaustion (EMFILE / socket starvation) MUST surface as an error —
+// the pool turns it into the AIMD congestion signal and the operator
+// sees the starvation instead of silently missing probes. Everything
+// else keeps the classic verdict: refused → closed, unreachable →
+// filtered.
+//
+// / udpDialVerdict 把 UDP dial 错误映射为裁决。资源耗尽（EMFILE /
+// socket 饥饿）必须以错误浮出——池会把它变成 AIMD 拥塞信号，操作
+// 员能看到饥饿而不是悄悄丢探测。其余保持经典裁决：refused →
+// closed，unreachable → filtered。
+func udpDialVerdict(err error) (State, error) {
+	if isResourceExhaustedError(err) {
+		return StateFiltered, err
+	}
+	if isConnRefused(err) {
+		return StateClosed, nil
+	}
+	return StateFiltered, nil
+}
+
 // probeOnce is the single-payload UDP state machine shared by
 // UDPProbe and UDPServiceProbe: dial a connected UDP socket, send one
 // payload, wait up to readTimeout for a response.
@@ -94,6 +122,9 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 //     "filtered by firewall"; we mark Open so the plugin pipeline still
 //     gets a chance to identify the service if the user supplied a
 //     port list.
+//   - resource-exhausted dial → (nil, StateFiltered, err): the error is
+//     the verdict the pool acts on (A4: raised UDP caps make this path
+//     reachable; swallowing it used to lose probes without evidence).
 //
 // The banner is returned AS RECEIVED (raw bytes, no trimASCII): UDP
 // responses are binary (DNS/SNMP/NBTStat), and trimASCII's
@@ -111,12 +142,15 @@ func (p *UDPProbe) Probe(ctx context.Context, host string, port int, timeout tim
 //     (nil, StateOpen)——UDP 沉默可能是"open 但静默"或"filtered"；
 //     我们标 Open 让插件流水线仍有机会识别服务（如果用户给了端口列
 //     表）。
+//   - dial 资源耗尽 → (nil, StateFiltered, err)：池据以行动的裁决就
+//     是这个错误（A4：UDP 上限提高后该路径可达；旧版吞掉它导致探测
+//     无证据丢失）。
 //
 // banner 按收到的原样返回（原始字节，不做 trimASCII）：UDP 响应是二
 // 进制（DNS/SNMP/NBTStat），trimASCII 的空格替换会毁掉可打印 ASCII
 // 之外的所有字节——行尾/二进制锚定的指纹规则永远无法匹配。显示路径
 // 会自行收敛。
-func probeOnce(ctx context.Context, host string, port int, payload []byte, dialTimeout, readTimeout time.Duration) (banner []byte, state State, rtt time.Duration) {
+func probeOnce(ctx context.Context, host string, port int, payload []byte, dialTimeout, readTimeout time.Duration) (banner []byte, state State, rtt time.Duration, probeErr error) {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	d := net.Dialer{Timeout: dialTimeout}
 	start := time.Now()
@@ -124,24 +158,33 @@ func probeOnce(ctx context.Context, host string, port int, payload []byte, dialT
 	if err != nil {
 		// "no route to host" or "host unreachable" → filtered.
 		// "refused" rarely happens on UDP since there's no listener
-		// to refuse; if it does, treat as closed.
+		// to refuse; if it does, treat as closed. Resource
+		// exhaustion surfaces as the probe's error — never as a
+		// silent Filtered result (A4: raised UDP caps make this
+		// path reachable; swallowing it used to lose probes without
+		// evidence).
 		// / "no route to host" 或 "host unreachable" → filtered。
 		// UDP 上"refused"很少（无 listener 拒）；如果发生，视为
-		// closed。
-		if isConnRefused(err) {
-			return nil, StateClosed, time.Since(start)
-		}
-		return nil, StateFiltered, time.Since(start)
+		// closed。资源耗尽以 probe 错误浮出——绝不做静默 Filtered
+		// 结果（A4：UDP 上限提高后该路径可达；旧版吞掉它导致探测
+		// 无证据丢失）。
+		state, perr := udpDialVerdict(err)
+		return nil, state, time.Since(start), perr
 	}
 	defer conn.Close()
 
 	// Send the payload. / 发 payload。
 	_ = conn.SetWriteDeadline(time.Now().Add(dialTimeout))
 	if _, err := conn.Write(payload); err != nil {
+		// Buffer exhaustion on send is starvation too — surface it.
+		// / 发送侧缓冲耗尽同样是饥饿——浮出。
+		if isResourceExhaustedError(err) {
+			return nil, StateFiltered, time.Since(start), err
+		}
 		// "network is unreachable" or similar → filtered. / 网络不可
 		// 达或类似 → filtered。
 		if isNetworkUnreachable(err) {
-			return nil, StateFiltered, time.Since(start)
+			return nil, StateFiltered, time.Since(start), nil
 		}
 	}
 
@@ -156,7 +199,7 @@ func probeOnce(ctx context.Context, host string, port int, payload []byte, dialT
 		// Service responded! Open. / 服务响应了！Open。
 		b := make([]byte, n)
 		copy(b, buf[:n])
-		return b, StateOpen, time.Since(start)
+		return b, StateOpen, time.Since(start), nil
 	}
 	if readErr != nil {
 		// "connection refused" on UDP usually means we got an ICMP
@@ -164,16 +207,23 @@ func probeOnce(ctx context.Context, host string, port int, payload []byte, dialT
 		// "connection refused" 通常意味着我们收到了 ICMP "port
 		// unreachable"——端口是 closed。
 		if isConnRefused(readErr) {
-			return nil, StateClosed, time.Since(start)
+			return nil, StateClosed, time.Since(start), nil
+		}
+		// Resource starvation can also surface on recv (WSAENOBUFS
+		// under load) — never launder it into a silent verdict.
+		// / 资源饥饿也会在 recv 浮出（高负载下 WSAENOBUFS）——绝不
+		// 洗成静默裁决。
+		if isResourceExhaustedError(readErr) {
+			return nil, StateFiltered, time.Since(start), readErr
 		}
 		// Timeout / i/o timeout → open|filtered (marked Open, see
 		// above). / 超时 → open|filtered（标 Open，见上）。
 		if isTimeout(readErr) {
-			return nil, StateOpen, time.Since(start)
+			return nil, StateOpen, time.Since(start), nil
 		}
 	}
 	// Fallthrough: ambiguous. / 兜底：模糊。
-	return nil, StateOpen, time.Since(start)
+	return nil, StateOpen, time.Since(start), nil
 }
 
 // isNetworkUnreachable returns true if err indicates the network or

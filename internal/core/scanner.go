@@ -734,12 +734,24 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 			if !cfg.TimeoutExplicit {
 				udpAdaptive = scan.NewAdaptiveTimeout(udpBase)
 			}
+			// Pool sizing: shipped UDP defaults unless the config
+			// overrides (bench injection surface — A4).
+			// / 池尺寸：默认 UDP 常量，Config 覆写优先（bench 注入表面
+			// ——A4）。
+			udpThreads := DefaultUDPThreads
+			if cfg.UDPThreads > 0 {
+				udpThreads = cfg.UDPThreads
+			}
+			udpMax := DefaultUDPMaxThreads
+			if cfg.UDPMaxThreads > 0 {
+				udpMax = cfg.UDPMaxThreads
+			}
 			us := scan.NewScanner(scan.ScanOptions{
 				Probe:      udpProbe,
 				Timeout:    udpBase,
 				Adaptive:   udpAdaptive,
-				Threads:    DefaultUDPThreads,
-				MaxThreads: DefaultUDPMaxThreads,
+				Threads:    udpThreads,
+				MaxThreads: udpMax,
 				Env:        poolEnv,
 				OnProbeError: func(_ scan.Item, err error) {
 					sess.Log.Warn("udp probe error: %v", err)

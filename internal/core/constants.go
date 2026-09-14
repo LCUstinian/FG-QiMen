@@ -26,19 +26,23 @@ const (
 	DefaultPluginWorkers = 16
 
 	// DefaultUDPThreads / DefaultUDPMaxThreads bound the UDP
-	// service-probe phase's adaptive pool. UDP "silence → open"
-	// results would push a freely-growing pool upward while every
-	// probe still waits out its full read deadline, so the pool is
-	// capped lower than the TCP pool (500). The UDP phase runs AFTER
-	// the TCP scan inside the same Stage-1 goroutine, so this also
-	// bounds its wall-clock interference.
+	// service-probe phase's adaptive pool. The A4 loopback sweep
+	// (BENCH-A4.md) showed the throughput knee at 800: 200 → 8.7s,
+	// 800 → 4.6s (-47%), 1600 → 4.4s (-3% only) with stable records
+	// and zero probe errors even at 2× the knee — so 800 ships as
+	// both the AIMD initial target and the hard cap (slow start still
+	// ramps target/4 → 2× → knee). Resource-exhausted dials surface
+	// to the AIMD controller, so FD starvation shrinks the pool
+	// instead of silently dropping probes.
 	// / DefaultUDPThreads / DefaultUDPMaxThreads 限制 UDP 服务探测阶
-	// 段的自适应池。UDP"静默 → open"的结果会让自由增长的池在每个
-	// probe 还在等满读超时时继续上推，因此上限比 TCP 池（500）低。
-	// UDP 阶段在 Stage-1 goroutine 内、TCP 扫描之后串行跑，这也限
-	// 制了它对总时长的干扰。
-	DefaultUDPThreads    = 128
-	DefaultUDPMaxThreads = 200
+	// 段的自适应池。A4 回环扫描（BENCH-A4.md）显示吞吐拐点在 800：
+	// 200 → 8.7s，800 → 4.6s（-47%），1600 → 4.4s（仅 -3%），记录数
+	// 恒定、2× 拐点处仍零探测错误——故 800 同时出厂为 AIMD 初始
+	// target 与硬上限（慢启动仍按 target/4 → 2× → 拐点爬坡）。资源
+	// 耗尽的 dial 会浮出给 AIMD 控制器，FD 饥饿触发缩容而不是悄悄
+	// 丢探测。
+	DefaultUDPThreads    = 800
+	DefaultUDPMaxThreads = 800
 
 	// DefaultUDPProbeTimeout caps the UDP phase's per-probe timeout
 	// regardless of --timeout: a slow-WAN-tuned 5s TCP timeout would
