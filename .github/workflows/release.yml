@@ -326,7 +326,7 @@ jobs:
       # 缩，对加壳二进制采集会得到空洞清单。下方的 cosign 签名与
       # SLSA provenance 仍覆盖最终（加壳后）字节。
       - name: install syft
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           syft-version: v1.51.0
           # Per-binary SBOM is generated manually below and shipped
@@ -539,7 +539,7 @@ jobs:
       # FG-QiMen-release.spdx.json 列为 Release 产物，这里基于
       # 13 个已校验的 binary 生成。
       - name: install syft (full SPDX SBOM)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           syft-version: v1.51.0
           # The full SPDX SBOM is generated manually below and shipped
