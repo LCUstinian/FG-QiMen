@@ -64,8 +64,17 @@ func udpSweepAxis(axis string, b udpSweepBase) ([]bench.UDPOptions, []string, er
 	return points, labels, nil
 }
 
+// runUDPFunc is the injection seam for the sweep test: tests swap in
+// a fake RunUDP so CI never runs two real farms at once (the
+// internal/bench farm tests already bind the same loopback ports —
+// go test runs packages in parallel).
+// / runUDPFunc 是 sweep 测试的注入缝：测试换入假 RunUDP，CI 就不会
+// 同时跑两个真实 farm（internal/bench 的 farm 测试已绑定同一批回环
+// 端口——go test 是跨包并行的）。
+var runUDPFunc = bench.RunUDP
+
 // runUDPSweep executes the grid and prints one curve line per point.
-// / runUDPSweep 执行网格并按点打印曲线行。
+// / runUDPSweep 执行网格并打印曲线行。
 func runUDPSweep(axis string, b udpSweepBase, outDir string) error {
 	points, labels, err := udpSweepAxis(axis, b)
 	if err != nil {
@@ -89,7 +98,7 @@ func runUDPSweep(axis string, b udpSweepBase, outDir string) error {
 	enc := json.NewEncoder(rec)
 
 	for i, p := range points {
-		res, err := bench.RunUDP(p)
+		res, err := runUDPFunc(p)
 		if err != nil {
 			return fmt.Errorf("%s: %w", labels[i], err)
 		}

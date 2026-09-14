@@ -4,7 +4,48 @@ package types
 
 import (
 	"testing"
+	"time"
 )
+
+// TestValidateUDPThreadOverrides covers the A4 UDP pool injection
+// surface's validation loop: zero means "shipped default" and must be
+// accepted; negatives and >10000 are rejected exactly like Threads.
+// / TestValidateUDPThreadOverrides 覆盖 A4 UDP 池注入表面的校验循环：
+// 零值表示"出厂默认"必须接受；负值与 >10000 与 Threads 同界拒绝。
+func TestValidateUDPThreadOverrides(t *testing.T) {
+	build := func(udpThreads, udpMax int) *Config {
+		return &Config{
+			Threads:         100,
+			Timeout:         time.Second,
+			ShutdownTimeout: 5 * time.Second,
+			UDPThreads:      udpThreads,
+			UDPMaxThreads:   udpMax,
+		}
+	}
+	tests := []struct {
+		name       string
+		udpThreads int
+		udpMax     int
+		wantErr    bool
+	}{
+		{"zero values = shipped defaults", 0, 0, false},
+		{"a4 knee 800/800", 800, 800, false},
+		{"max valid", 10000, 10000, false},
+		{"negative target", -1, 0, true},
+		{"negative cap", 0, -1, true},
+		{"too large target", 10001, 0, true},
+		{"too large cap", 0, 10001, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := build(tt.udpThreads, tt.udpMax).Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate(udp-threads=%d, udp-max=%d) error = %v, wantErr %v",
+					tt.udpThreads, tt.udpMax, err, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestValidateHost(t *testing.T) {
 	tests := []struct {

@@ -4,11 +4,92 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestUDPDialVerdict: the A4 error mapping — resource exhaustion MUST
+// surface as an error (the pool's AIMD congestion signal), refused
+// maps to closed, everything else to filtered with no error.
+// / TestUDPDialVerdict：A4 错误映射——资源耗尽必须以错误浮出（池的
+// AIMD 拥塞信号），refused 映射 closed，其余映射 filtered 无错误。
+func TestUDPDialVerdict(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantState State
+		wantErr   bool
+	}{
+		{
+			name:      "resource exhaustion surfaces",
+			err:       errors.New("dial udp: socket: too many open files"),
+			wantState: StateFiltered,
+			wantErr:   true,
+		},
+		{
+			name:      "refused maps to closed",
+			err:       errors.New("dial udp: connect: connection refused"),
+			wantState: StateClosed,
+			wantErr:   false,
+		},
+		{
+			name:      "unreachable maps to filtered",
+			err:       errors.New("dial udp: no route to host"),
+			wantState: StateFiltered,
+			wantErr:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, err := udpDialVerdict(tt.err)
+			if state != tt.wantState {
+				t.Errorf("udpDialVerdict(%v) state = %v, want %v", tt.err, state, tt.wantState)
+			}
+			if (err != nil) != tt.wantErr {
+				t.Errorf("udpDialVerdict(%v) err = %v, wantErr %v", tt.err, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestUDPProbeMeta: the Probe interface plumbing on both UDP probe
+// types. / TestUDPProbeMeta：两种 UDP probe 的 Probe 接口管道。
+func TestUDPProbeMeta(t *testing.T) {
+	generic := NewUDPProbe()
+	if generic.Name() != "udp" || generic.Method() != MethodUDP {
+		t.Errorf("generic probe meta = %q/%v", generic.Name(), generic.Method())
+	}
+	if err := generic.Available(); err != nil {
+		t.Errorf("generic Available() = %v, want nil", err)
+	}
+	svc := NewUDPServiceProbe(nil)
+	if svc.Name() != "udp-fp" || svc.Method() != MethodUDP {
+		t.Errorf("service probe meta = %q/%v", svc.Name(), svc.Method())
+	}
+	if err := svc.Available(); err != nil {
+		t.Errorf("service Available() = %v, want nil", err)
+	}
+}
+
+// TestIsNetworkUnreachable: message and errno classification for the
+// dial/write fallback verdict. / TestIsNetworkUnreachable：dial/write
+// 兜底裁决的消息与 errno 分类。
+func TestIsNetworkUnreachable(t *testing.T) {
+	if isNetworkUnreachable(nil) {
+		t.Error("nil is not unreachable")
+	}
+	for _, msg := range []string{"no route to host", "network is unreachable", "host unreachable"} {
+		if !isNetworkUnreachable(errors.New(msg)) {
+			t.Errorf("%q should be unreachable", msg)
+		}
+	}
+	if isNetworkUnreachable(errors.New("connection refused")) {
+		t.Error("refused must not classify as unreachable")
+	}
+}
 
 // TestUDPProbe_ConnRefused: closed UDP port returns StateClosed (or
 // filtered if no ICMP). / TestUDPProbe_ConnRefused：closed UDP 端口
