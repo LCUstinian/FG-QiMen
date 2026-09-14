@@ -33,6 +33,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,6 +71,20 @@ type Options struct {
 	// Jitter randomises ReadDelay by ±Jitter (uniform). Zero disables.
 	// / Jitter 对 ReadDelay 做 ±Jitter 均匀扰动。零值关闭。
 	Jitter time.Duration
+
+	// LoadDelay adds LoadDelay per concurrently-served connection —
+	// service think-time that scales with load, the loopback stand-in
+	// for "the service slows down as the scanner pushes harder". This
+	// is what gives the A3 AIMD sweep its signal: higher pool
+	// concurrency ⇒ more in-flight conns ⇒ longer per-conn latency ⇒
+	// the controller's RTT EMA ratio rises and the shrink path fires.
+	// Zero keeps per-conn latency independent of concurrency.
+	// / LoadDelay 为每个并发在服务中的连接追加 LoadDelay——随负载增
+	// 长的服务处理耗时，回环上"扫得越狠服务越慢"的替身。这正是 A3
+	// AIMD 扫描的信号来源：池并发越高 ⇒ 在途连接越多 ⇒ 单连接时延越
+	// 长 ⇒ 控制器 RTT EMA 比上升并触发缩容路径。零 = 单连接时延与并
+	// 发无关。
+	LoadDelay time.Duration
 }
 
 // Server is a TCP listener with injection semantics. Create with
@@ -81,6 +96,13 @@ type Server struct {
 	ln      net.Listener
 	opts    Options
 	handler func(net.Conn)
+
+	// active counts connections currently inside the normal-path
+	// handler (delay + handler run). LoadDelay multiplies it — the
+	// load-sensitive think-time. / active 计数正处于 normal 路径
+	// （延迟 + handler）内的连接。LoadDelay 与之相乘——负载敏感的
+	// 处理耗时。
+	active atomic.Int32
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -167,8 +189,20 @@ func (s *Server) handle(c net.Conn) {
 		// 或服务端关停。
 		_, _ = io.Copy(io.Discard, c)
 	default:
+		// The active count spans the whole serve (delay + handler):
+		// a blocked reader (memcached awaiting a probe payload) keeps
+		// its slot, so later connections wait longer — exactly the
+		// "service degrades under load" model the AIMD sweep needs.
+		// / active 计数覆盖整个服务期（延迟 + handler）：阻塞读的
+		// 连接（等 probe payload 的 memcached）持续占位，后续连接等
+		// 更久——正是 AIMD 扫描需要的"服务随负载退化"模型。
+		s.active.Add(1)
+		defer s.active.Add(-1)
 		if d := s.opts.ReadDelay; d > 0 {
 			time.Sleep(s.jittered(d))
+		}
+		if ld := s.opts.LoadDelay; ld > 0 {
+			time.Sleep(time.Duration(s.active.Load()) * ld)
 		}
 		if s.handler != nil {
 			s.handler(c)

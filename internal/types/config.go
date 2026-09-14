@@ -36,6 +36,21 @@ const (
 	ModeLinked RunMode = "linked"
 )
 
+// AIMDTuning mirrors scan.AIMDTuning (same zero-value-per-field
+// convention) so this package does not import core/scan — core/
+// scanner.go translates one to the other at wiring time, mirroring
+// the core.NetworkEnv → scan.Env pattern.
+// / AIMDTuning 镜像 scan.AIMDTuning（同一逐字段零值约定），使本包
+// 不必 import core/scan——core/scanner.go 在接线时互相翻译，对应
+// core.NetworkEnv → scan.Env 的模式。
+type AIMDTuning struct {
+	SlowStartDiv int     // slow-start birth = target/SlowStartDiv (default 4)
+	AIStepDiv    int     // additive increase = target/AIStepDiv (default 20)
+	MDStress     float64 // stressed shrink factor (default 0.85)
+	MDCongest    float64 // congested shrink factor (default 0.5)
+	RatchetRatio float64 // RTT fast/slow ratio that ratchets target down (default 3.0)
+}
+
 // Config is the immutable, fully-validated configuration for a single
 // fg-qimen invocation. It is built from CLI flags by cmd.BuildConfig.
 //
@@ -159,6 +174,24 @@ type Config struct {
 	// 模式）。
 	ThreadsExplicit bool
 	TimeoutExplicit bool
+
+	// AIMDTuning overrides the scan pool controller's policy
+	// constants for benchmark sweeps (A3). Nil = shipped defaults;
+	// zero fields inside a non-nil struct keep their defaults.
+	// Plumbing field — no CLI flag exposes it. Translated to
+	// scan.AIMDTuning by core/scanner.go (mirrors the
+	// core.NetworkEnv → scan.Env mapping pattern).
+	// / AIMDTuning 为基准扫描（A3）覆写扫描池控制器的策略常量。
+	// nil = 出厂默认；非 nil 结构体内的零值字段保持各自默认。管道字
+	// 段——不暴露 CLI flag。由 core/scanner.go 翻译为
+	// scan.AIMDTuning（对应 core.NetworkEnv → scan.Env 的映射模式）。
+	AIMDTuning *AIMDTuning
+
+	// AIMDAdjustInterval overrides the controller's evaluation period.
+	// Zero = pool default (500ms). Plumbing field, same audience as
+	// AIMDTuning. / AIMDAdjustInterval 覆写控制器评估周期。零 = 池默
+	// 认（500ms）。管道字段，受众同 AIMDTuning。
+	AIMDAdjustInterval time.Duration
 
 	// Credentials / 凭据
 	Users    []string

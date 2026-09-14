@@ -1,24 +1,31 @@
 // main.go — tools/bench: the operator-facing entry of the A1 judge.
 // Runs the loopback benchmark, prints the summary, optionally saves a
-// new local baseline and/or diffs against the existing one.
+// new local baseline and/or diffs against the existing one. The A3
+// -sweep mode runs a sensitivity grid over one controller axis
+// instead.
 //
 // Usage (via justfile or directly):
 //
 //	go run ./tools/bench -runs 5
 //	go run ./tools/bench -runs 5 -save        # refresh local baseline
 //	go run ./tools/bench -latency 50ms        # injected-RTT round
+//	go run ./tools/bench -sweep threads -topo farm
+//	go run ./tools/bench -sweep mdstress -topo farm -threads 128
 //
 // The judge reports regressions but never exits non-zero on latency —
 // the v8 plan keeps CI free of timing gates.
 //
 // / main.go —— tools/bench：A1 裁判的面向操作者入口。跑回环基准、
-// 打印汇总，可选地保存新本机基线并/或与现有基线 diff。
+// 打印汇总，可选地保存新本机基线并/或与现有基线 diff。A3 的
+// -sweep 模式改为沿单条控制器轴跑敏感度网格。
 //
 // 经 justfile 或直接调用：
 //
 //	go run ./tools/bench -runs 5
 //	go run ./tools/bench -runs 5 -save        # 刷新本机基线
 //	go run ./tools/bench -latency 50ms        # 注入 RTT 轮
+//	go run ./tools/bench -sweep threads -topo farm
+//	go run ./tools/bench -sweep mdstress -topo farm -threads 128
 //
 // 裁判报告回归但对时延不退出非零——v8 方案保持 CI 无时延门禁。
 package main
@@ -40,8 +47,10 @@ func main() {
 		topoName = flag.String("topo", "single", fmt.Sprintf("topology name: %v / 拓扑名", bench.TopologyNames()))
 		latency  = flag.Duration("latency", 0, "injected response delay per fake service / 每个假服务注入的响应延迟")
 		jitter   = flag.Duration("jitter", 0, "±jitter around -latency / -latency 的 ±扰动")
+		loaddel  = flag.Duration("loaddelay", 0, "per-concurrent-conn service delay (load-sensitive services; AIMD axes default 2ms) / 每并发连接的服务延迟（负载敏感服务；AIMD 轴默认 2ms）")
 		timeout  = flag.Duration("timeout", 2*time.Second, "explicit per-probe timeout / 显式 probe 超时")
 		threads  = flag.Int("threads", 64, "explicit thread pool cap / 显式线程池上限")
+		sweep    = flag.String("sweep", "", fmt.Sprintf("sensitivity sweep over one axis: %v (overrides the single-run mode) / 沿单轴跑敏感度扫描: %v（取代单次运行模式）", SweepAxes(), SweepAxes()))
 		save     = flag.Bool("save", false, "save the result as the local baseline / 把结果存为本机基线")
 		baseline = flag.String("baseline", "", "baseline path to compare against (default: <workspace>/bench/baseline.ndjson) / 对比用基线路径")
 		out      = flag.String("out", "", "write the NDJSON record to this path / 结果记录落盘路径")
@@ -52,6 +61,34 @@ func main() {
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown topology %q (available: %v)\n", *topoName, bench.TopologyNames())
 		os.Exit(2)
+	}
+
+	// A3 sweep mode: grid over one axis, no baseline interaction.
+	// Load-sensitive axes default -loaddelay to 2ms — without the
+	// load signal the controller never leaves the growth path and
+	// the curve is flat by construction.
+	// / A3 扫描模式：沿单轴跑网格，不碰基线。负载敏感轴把
+	// -loaddelay 默认为 2ms——没有负载信号控制器永远停在增长路径，
+	// 曲线按构造就是平的。
+	if *sweep != "" {
+		b := sweepBase{
+			runs:      *runs,
+			topo:      topo,
+			latency:   *latency,
+			jitter:    *jitter,
+			loaddelay: *loaddel,
+			threads:   *threads,
+			timeout:   *timeout,
+		}
+		if NeedsLoadDelay(*sweep) && b.loaddelay == 0 {
+			b.loaddelay = 2 * time.Millisecond
+			fmt.Println("note: load-sensitive axis with -loaddelay=0; defaulting to 2ms")
+		}
+		if err := runSweep(*sweep, b, workspace.Root()); err != nil {
+			fmt.Fprintf(os.Stderr, "bench: sweep: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Resolve the baseline path BEFORE Run: Run points the workspace

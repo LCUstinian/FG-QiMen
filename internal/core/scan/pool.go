@@ -102,6 +102,15 @@ type PoolOptions struct {
 	// probe（open / closed）喂 RTT 样本。只等满超时的探测（filtered、
 	// 静默 UDP 的 RTT=0）绝不喂入。nil = 固定超时（默认）。
 	Adaptive *AdaptiveTimeout
+
+	// Tuning overrides the AIMD policy constants (see aimd.go).
+	// Nil = shipped defaults; zero fields inside a non-nil struct
+	// keep their defaults. Measurement surface for the A3 bench
+	// sweep — not an operator surface.
+	// / Tuning 覆写 AIMD 策略常量（见 aimd.go）。nil = 出厂默认；
+	// 非 nil 结构体内的零值字段保持各自默认。A3 bench 扫描的测量表
+	// 面——非操作员表面。
+	Tuning *AIMDTuning
 }
 
 // DefaultPoolOptions returns a PoolOptions with sensible defaults.
@@ -126,6 +135,10 @@ type Pool struct {
 	// by the adaptive controller. / currentThreads 是当前并发级，
 	// 由自适应控制器调节。
 	currentThreads atomic.Int32
+
+	// tuning is opts.Tuning with defaults resolved — read-only after
+	// NewPool. / tuning 是解析默认后的 opts.Tuning——NewPool 后只读。
+	tuning AIMDTuning
 
 	// Controller state + shared signals. Controller-only fields
 	// (target, inSlowStart, prevSnap) are touched exclusively by the
@@ -176,6 +189,7 @@ func NewPool(opts PoolOptions) *Pool {
 		// Stop the timer immediately so it doesn't fire on the
 		// first Reset. / 立即停止 timer，避免首次 Reset 前就触发。
 		busyTimer: time.NewTimer(0),
+		tuning:    opts.Tuning.resolved(),
 	}
 	if !p.busyTimer.Stop() {
 		<-p.busyTimer.C
@@ -187,11 +201,11 @@ func NewPool(opts PoolOptions) *Pool {
 	return p
 }
 
-// slowStartStart computes the birth concurrency: target/4, floored
-// by the pool floor. / slowStartStart 计算出生并发：target/4，以池
-// 下限兜底。
+// slowStartStart computes the birth concurrency: target/SlowStartDiv,
+// floored by the pool floor. / slowStartStart 计算出生并发：
+// target/SlowStartDiv，以池下限兜底。
 func (p *Pool) slowStartStart() int32 {
-	start := p.target / 4
+	start := p.target / int32(p.tuning.SlowStartDiv)
 	if floor := p.floorThreads(); start < floor {
 		start = floor
 	}
@@ -536,14 +550,14 @@ func (p *Pool) adjust() {
 }
 
 // adjustSlowStart doubles per healthy interval until target; a
-// stressed/congested interval exits the phase immediately with a
-// halving. / adjustSlowStart 健康周期内逐周期翻倍至 target；出现压
-// 力/拥塞立即退出该阶段并减半。
+// stressed/congested interval exits the phase immediately with the
+// congestion decrease. / adjustSlowStart 健康周期内逐周期翻倍至
+// target；出现压力/拥塞立即退出该阶段并按拥塞因子缩减。
 func (p *Pool) adjustSlowStart(health HealthSignal, cur int32) int32 {
 	switch health {
 	case HealthCongested, HealthStressed:
 		p.inSlowStart = false
-		return int32(float64(cur) * 0.5)
+		return int32(float64(cur) * p.tuning.MDCongest)
 	default:
 		newSize := cur * 2
 		if newSize >= p.target {
@@ -561,11 +575,11 @@ func (p *Pool) adjustSlowStart(health HealthSignal, cur int32) int32 {
 func (p *Pool) adjustAIMD(health HealthSignal, cur int32) int32 {
 	switch health {
 	case HealthCongested:
-		return int32(float64(cur) * 0.5)
+		return int32(float64(cur) * p.tuning.MDCongest)
 	case HealthStressed:
-		return int32(float64(cur) * 0.85)
+		return int32(float64(cur) * p.tuning.MDStress)
 	case HealthGood:
-		inc := p.target / 20
+		inc := p.target / int32(p.tuning.AIStepDiv)
 		if inc < 1 {
 			inc = 1
 		}
@@ -576,16 +590,17 @@ func (p *Pool) adjustAIMD(health HealthSignal, cur int32) int32 {
 }
 
 // maybeReduceTarget lowers the AIMD target by 10% when the fast/slow
-// RTT ratio sustains above 3.0 — latency is escalating faster than
-// any single halving would suggest. One-way ratchet (never re-raised
-// within a scan) keeps the controller from oscillating on a flapping
-// path. Floor: max(floorThreads, MaxThreads/5).
-// / maybeReduceTarget 在 fast/slow RTT 比持续高于 3.0 时把 AIMD
-// target 压低 10%——延迟恶化速度比单次减半所暗示的更快。单向棘轮
-// （一次扫描内不再回升）避免控制器在抖动路径上震荡。下限：
+// RTT ratio sustains above Tuning.RatchetRatio — latency is
+// escalating faster than any single halving would suggest. One-way
+// ratchet (never re-raised within a scan) keeps the controller from
+// oscillating on a flapping path. Floor: max(floorThreads,
+// MaxThreads/5).
+// / maybeReduceTarget 在 fast/slow RTT 比持续高于 Tuning.RatchetRatio
+// 时把 AIMD target 压低 10%——延迟恶化速度比单次减半所暗示的更快。
+// 单向棘轮（一次扫描内不再回升）避免控制器在抖动路径上震荡。下限：
 // max(floorThreads, MaxThreads/5)。
 func (p *Pool) maybeReduceTarget() {
-	if p.metrics.RTTRatio() <= 3.0 {
+	if p.metrics.RTTRatio() <= p.tuning.RatchetRatio {
 		return
 	}
 	minTarget := int32(p.opts.MaxThreads / 5)

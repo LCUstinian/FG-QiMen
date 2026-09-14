@@ -33,6 +33,16 @@ type ScanOptions struct {
 	// / Env 为池的 AIMD 健康阈值刻画目标网络（见 metrics.go）。零值
 	// 映射到 WAN 档。
 	Env Env
+	// AdjustInterval overrides the adaptive controller's evaluation
+	// period. Zero = the pool default (500ms).
+	// / AdjustInterval 覆写自适应控制器的评估周期。零 = 池默认
+	// （500ms）。
+	AdjustInterval time.Duration
+	// Tuning overrides the AIMD policy constants (see aimd.go).
+	// Nil = shipped defaults. Measurement surface for the A3 bench
+	// sweep. / Tuning 覆写 AIMD 策略常量（见 aimd.go）。nil = 出厂
+	// 默认。A3 bench 扫描的测量表面。
+	Tuning *AIMDTuning
 	// OnProbeError forwards the pool's per-probe error signal to
 	// the caller. Same contract as PoolOptions.OnProbeError.
 	//
@@ -69,6 +79,12 @@ func NewScanner(opts ScanOptions) *Scanner {
 	}
 	if opts.Env != "" {
 		pOpts.Env = opts.Env
+	}
+	if opts.AdjustInterval > 0 {
+		pOpts.AdjustInterval = opts.AdjustInterval
+	}
+	if opts.Tuning != nil {
+		pOpts.Tuning = opts.Tuning
 	}
 	return &Scanner{pool: NewPool(pOpts)}
 }

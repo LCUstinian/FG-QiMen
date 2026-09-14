@@ -113,6 +113,24 @@ type Options struct {
 	// 程池上限。
 	Threads int
 
+	// LoadDelay is injected per concurrently-served connection into
+	// every normal fake server (service think-time that scales with
+	// load — the A3 AIMD sweep's signal source). Zero = latency
+	// independent of concurrency. / LoadDelay 注入每个正常假服务的并
+	// 发在途连接（随负载增长的服务处理耗时——A3 AIMD 扫描的信号源）
+	// 。零 = 时延与并发无关。
+	LoadDelay time.Duration
+
+	// AdjustInterval overrides the controller's evaluation period.
+	// Zero = pool default (500ms). / AdjustInterval 覆写控制器评估周
+	// 期。零 = 池默认（500ms）。
+	AdjustInterval time.Duration
+
+	// Tuning overrides the AIMD policy constants (nil = shipped
+	// defaults; zero fields keep defaults). / Tuning 覆写 AIMD 策略
+	// 常量（nil = 出厂默认；零值字段保持默认）。
+	Tuning *types.AIMDTuning
+
 	// WorkDir is the temp workspace root for outputs. Empty = a fresh
 	// os.MkdirTemp, removed after the run. / WorkDir 是输出的临时
 	// workspace 根。空 = 新建 os.MkdirTemp，跑完即删。
@@ -139,6 +157,7 @@ type Meta struct {
 	Topology        string        `json:"topology"`
 	Runs            int           `json:"runs"`
 	ReadDelay       time.Duration `json:"read_delay_ns"`
+	LoadDelay       time.Duration `json:"load_delay_ns,omitempty"`
 	GoVersion       string        `json:"go_version"`
 	GOMAXPROCS      int           `json:"gomaxprocs"`
 	OS              string        `json:"os"`
@@ -153,6 +172,15 @@ type Meta struct {
 	IdentNone       int64         `json:"ident_none"`
 	WallMean        time.Duration `json:"wall_mean_ns"` // per-run wall clock
 	PeakRSSMB       float64       `json:"peak_rss_mb"`
+
+	// A3 sweep identity: Label names the grid point ("threads=128");
+	// AdjustInterval/Tuning record the injected controller settings
+	// so the NDJSON record is self-contained. / A3 扫描身份：Label
+	// 命名网格点（"threads=128"）；AdjustInterval/Tuning 记录注入的
+	// 控制器设置，NDJSON 记录自含。
+	Label          string            `json:"label,omitempty"`
+	AdjustInterval time.Duration     `json:"aimd_adjust_ns,omitempty"`
+	Tuning         *types.AIMDTuning `json:"aimd_tuning,omitempty"`
 }
 
 // Result bundles the summary with per-port samples for inspection.
@@ -233,6 +261,9 @@ func Run(topo Topology, opts Options) (*Result, error) {
 	res.Meta.ProbeHitRate = ratio(float64(res.Meta.ProbeHits), float64(res.Meta.ProbePorts))
 	res.Meta.WallMean = wallSum / time.Duration(opts.Runs)
 	res.Meta.PeakRSSMB = peakRSSMB()
+	res.Meta.LoadDelay = opts.LoadDelay
+	res.Meta.AdjustInterval = opts.AdjustInterval
+	res.Meta.Tuning = opts.Tuning
 	return res, nil
 }
 
@@ -252,6 +283,7 @@ func runOnce(topo Topology, opts Options, run int, workDir string) (roundMeta, [
 		Mode:      fakeserver.ModeNormal,
 		ReadDelay: opts.ReadDelay,
 		Jitter:    opts.Jitter,
+		LoadDelay: opts.LoadDelay,
 	}
 	for _, kind := range topo.Services {
 		srv, err := fakeserver.NewTCP(srvOpts, serviceHandler(kind))
@@ -288,20 +320,22 @@ func runOnce(topo Topology, opts Options, run int, workDir string) (roundMeta, [
 	allPorts = append(allPorts, refusalPorts...)
 
 	cfg := &types.Config{
-		Mode:            types.ModeScan,
-		Host:            "127.0.0.1",
-		Ports:           joinPorts(allPorts),
-		ExpandScope:     "off",
-		NoState:         true,
-		NoICMP:          true,
-		NoSubnetProbe:   true,
-		Threads:         opts.Threads,
-		ThreadsExplicit: true,
-		Timeout:         opts.Timeout,
-		TimeoutExplicit: true,
-		PortTimeout:     opts.Timeout,
-		WebTimeout:      opts.Timeout,
-		ShutdownTimeout: 5 * time.Second,
+		Mode:               types.ModeScan,
+		Host:               "127.0.0.1",
+		Ports:              joinPorts(allPorts),
+		ExpandScope:        "off",
+		NoState:            true,
+		NoICMP:             true,
+		NoSubnetProbe:      true,
+		Threads:            opts.Threads,
+		ThreadsExplicit:    true,
+		Timeout:            opts.Timeout,
+		TimeoutExplicit:    true,
+		PortTimeout:        opts.Timeout,
+		WebTimeout:         opts.Timeout,
+		ShutdownTimeout:    5 * time.Second,
+		AIMDTuning:         opts.Tuning,
+		AIMDAdjustInterval: opts.AdjustInterval,
 	}
 	if err := cfg.Validate(); err != nil {
 		return roundMeta{}, nil, 0, fmt.Errorf("bench: config: %w", err)

@@ -587,6 +587,21 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 		if cfg.ThreadsExplicit {
 			maxThreads = cfg.Threads
 		}
+		// A3 bench sweep plumbing: translate the Config-level tuning
+		// mirror into the scan package's struct (nil stays nil, so the
+		// shipped defaults apply). / A3 bench 扫描管道：把 Config 层
+		// 的调优镜像翻译为 scan 包的结构体（nil 保持 nil，即得出厂默
+		// 认）。
+		var tuning *scan.AIMDTuning
+		if cfg.AIMDTuning != nil {
+			tuning = &scan.AIMDTuning{
+				SlowStartDiv: cfg.AIMDTuning.SlowStartDiv,
+				AIStepDiv:    cfg.AIMDTuning.AIStepDiv,
+				MDStress:     cfg.AIMDTuning.MDStress,
+				MDCongest:    cfg.AIMDTuning.MDCongest,
+				RatchetRatio: cfg.AIMDTuning.RatchetRatio,
+			}
+		}
 		sc := scan.NewScanner(scan.ScanOptions{
 			// Banner grabbing is wired (FirstBanner) so the Stage-0
 			// nmap-style fingerprint in the plugin worker has raw
@@ -604,6 +619,11 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 			MinThreads: DefaultMinThreads,
 			MaxThreads: maxThreads,
 			Env:        poolEnv,
+			Tuning:     tuning,
+			// Zero keeps the pool default (500ms); the bench sweep
+			// sets it per round. / 零保持池默认（500ms）；bench 扫描
+			// 逐轮设置。
+			AdjustInterval: cfg.AIMDAdjustInterval,
 			// P3 / F12 audit fix: surface probe errors (ctx cancel,
 			// conn reset, etc.) to the session log instead of
 			// silently dropping them. The pool worker records the
