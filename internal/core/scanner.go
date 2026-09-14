@@ -523,6 +523,35 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 						return true
 					}
 					if r.State != scan.StateOpen {
+						// A4/F4: a UDP Closed verdict (ICMP
+						// port-unreachable) is evidence too — every
+						// (host, port) probe must emit exactly one
+						// record. Linux/macOS deliver the ICMP promptly
+						// (fast StateClosed) while Windows times out
+						// into Open, so the record must be written HERE,
+						// not via the Open-only item path, or closed
+						// ports silently vanish from the output on
+						// Linux/macOS. TCP closed stays dropped (a real
+						// scan yields millions and the pipeline was
+						// never designed to store them); strict-mode
+						// Filtered stays dropped by design (silent →
+						// filtered → no noise).
+						// / A4/F4：UDP 的 Closed 裁决（ICMP
+						// port-unreachable）同样是证据——每个（主机，
+						// 端口）探测必须恰好产出一条记录。Linux/macOS
+						// 及时投递 ICMP（快速 StateClosed），Windows 则
+						// 超时落入 Open——所以这条记录必须在此写出，而
+						// 不是走 Open-only 的 item 路径，否则 closed 端
+						// 口在 Linux/macOS 上会从输出里无声消失。TCP 的
+						// closed 保持丢弃（真实扫描百万量级，管线设计
+						// 从不存储）；strict 模式的 Filtered 按设计丢弃
+						//（静默 → filtered → 无噪音）。
+						if protocol == types.ProtocolUDP && r.State == scan.StateClosed && sess.Out != nil {
+							ev := &types.Result{Time: r.Time, Host: r.Host, Port: r.Port}
+							if err := sess.Out.WriteResult(ev); err != nil {
+								sess.Log.Warn("udp closed evidence write failed: %v", err)
+							}
+						}
 						continue
 					}
 					sess.State.Counters.Ports.Add(1)
