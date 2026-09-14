@@ -1,5 +1,5 @@
-// layout_test.go — additional layout / state-transition tests for
-// the dashboard. P5.4 (audit roadmap).
+// layout_test.go — layout / state-transition tests for the TUI v3
+// lattice dashboard. P5.4 (audit roadmap) + spec §5.3 budget contract.
 package tui
 
 import (
@@ -9,25 +9,6 @@ import (
 
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
-
-// TestTwoColumn_NarrowWidthCollapses verifies the layout collapses to
-// a single column when the terminal is narrower than minWidth. /
-// 验证终端宽度低于 minWidth 时布局塌缩为单列。
-func TestTwoColumn_NarrowWidthCollapses(t *testing.T) {
-	m := newTestModel()
-	m.width = 79 // one below minWidth=80
-	if m.twoColumn() {
-		t.Errorf("twoColumn() = true at width 79, want false (below minWidth=80)")
-	}
-	m.width = 80
-	if !m.twoColumn() {
-		t.Errorf("twoColumn() = false at width 80, want true (at minWidth=80)")
-	}
-	m.width = 200
-	if !m.twoColumn() {
-		t.Errorf("twoColumn() = false at width 200, want true")
-	}
-}
 
 // TestUpdate_PromotesRunStateIdleToScanning verifies the state
 // machine promotes runIdle → runScanning on the first statsMsg. /
@@ -62,9 +43,9 @@ func TestUpdate_PromotesScanningToDone(t *testing.T) {
 }
 
 // TestWindowSizeMsg_ReValidatesLayout verifies a WindowSizeMsg after
-// the model is constructed sets the new width (so twoColumn() reflects
-// it). P6.4 (audit roadmap). / 验证构造后 WindowSizeMsg 设置新宽度
-// （让 twoColumn() 反映）。
+// the model is constructed sets the new width (so pickBreakpoint
+// reflects it). P6.4 (audit roadmap). / 验证构造后 WindowSizeMsg 设
+// 置新宽度（让 pickBreakpoint 反映）。
 func TestWindowSizeMsg_ReValidatesLayout(t *testing.T) {
 	m := newTestModel()
 	if m.width != 0 {
@@ -74,12 +55,12 @@ func TestWindowSizeMsg_ReValidatesLayout(t *testing.T) {
 	if m.width != 60 {
 		t.Errorf("width = %d after WindowSizeMsg, want 60", m.width)
 	}
-	if m.twoColumn() {
-		t.Errorf("twoColumn() = true at width 60, want false")
+	if got := pickBreakpoint(m.width); got != BreakNarrow {
+		t.Errorf("pickBreakpoint(60) = %d, want BreakNarrow", got)
 	}
 	dispatcher{&m}.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	if !m.twoColumn() {
-		t.Errorf("twoColumn() = false at width 120, want true")
+	if got := pickBreakpoint(m.width); got != BreakWide {
+		t.Errorf("pickBreakpoint(120) = %d, want BreakWide", got)
 	}
 }
 
@@ -116,59 +97,124 @@ func TestPickBreakpoint(t *testing.T) {
 	}
 }
 
-// TestRegions_AllBreakpoints verifies the region heights for each
-// breakpoint are non-negative and sum to <= total height. / 验证
-// 每个 breakpoint 的区域行数为非负且总和小于等于总高度。
-func TestRegions_AllBreakpoints(t *testing.T) {
+// TestRegionsV2_ExactFill verifies the spec §5.3 budget contract on
+// comfortable terminals: budgets are non-negative, footer is always
+// 1 row, errors defaults to 1 collapsed row, and the composed frame
+// is exactly totalHeight rows (the elastic region absorbs leftovers).
+// / 验证舒适终端上 spec §5.3 预算契约：预算非负、footer 恒 1 行、
+// errors 默认折叠 1 行，且组合帧恰好 totalHeight 行（弹性区吸收余
+// 量）。
+func TestRegionsV2_ExactFill(t *testing.T) {
+	for _, bp := range []Breakpoint{BreakNarrow, BreakMedium, BreakWide} {
+		for _, h := range []int{16, 20, 24, 30, 40, 50} {
+			b := regionsV2(bp, h, false)
+			if b.progress < 0 || b.events < 0 || b.plugins < 0 || b.header < 1 {
+				t.Errorf("regionsV2(%v, %d): bad budget %+v", bp, h, b)
+			}
+			if b.footer != 1 {
+				t.Errorf("regionsV2(%v, %d): footer = %d, want 1 (never cut)", bp, h, b.footer)
+			}
+			if b.errors != 1 {
+				t.Errorf("regionsV2(%v, %d): errors = %d, want 1 (collapsed)", bp, h, b.errors)
+			}
+			if got := b.frameHeight(bp); got != h {
+				t.Errorf("regionsV2(%v, %d): frameHeight = %d, want %d (budget %+v)",
+					bp, h, got, h, b)
+			}
+		}
+	}
+}
+
+// TestRegionsV2_TinyTerminal verifies budgets stay non-negative below
+// the exact-fill floor; the frame may exceed the terminal there and
+// the View-layer reconciliation truncates (the documented 兜底).
+// / 验证极小终端（低于精确满帧下限）下预算非负；此时帧可能超终端，
+// 由 View 层对账截断（即文档化的兜底）。
+func TestRegionsV2_TinyTerminal(t *testing.T) {
+	for _, bp := range []Breakpoint{BreakNarrow, BreakMedium, BreakWide} {
+		b := regionsV2(bp, 12, false)
+		if b.progress < 0 || b.events < 0 || b.plugins < 0 || b.header < 1 || b.errors < 1 || b.footer != 1 {
+			t.Errorf("regionsV2(%v, 12): bad budget %+v", bp, b)
+		}
+	}
+}
+
+// TestRegionsV2_ErrorsExpanded verifies the expanded ERRORS cell
+// costs errExpandedRows and the frame still fills the terminal
+// exactly on a comfortable height. / 验证展开态 ERRORS 占
+// errExpandedRows 行，且舒适高度下帧仍恰好填满终端。
+func TestRegionsV2_ErrorsExpanded(t *testing.T) {
+	for _, bp := range []Breakpoint{BreakNarrow, BreakMedium, BreakWide} {
+		b := regionsV2(bp, 30, true)
+		if b.errors != errExpandedRows {
+			t.Errorf("regionsV2(%v, 30, expanded): errors = %d, want %d",
+				bp, b.errors, errExpandedRows)
+		}
+		if got := b.frameHeight(bp); got != 30 {
+			t.Errorf("regionsV2(%v, 30, expanded): frameHeight = %d, want 30 (budget %+v)",
+				bp, got, b)
+		}
+	}
+}
+
+// TestRegionsV2_ContractionOrder pins the spec §5.3 shrink order on
+// medium (plugins → progress → header line 2 → EVENTS floor 3 → 0)
+// with hand-computed budgets. / 用手算预算钉住 medium 的 spec §5.3
+// 收缩序（plugins → progress → header 第 2 行 → EVENTS 触底 3 → 0）。
+func TestRegionsV2_ContractionOrder(t *testing.T) {
+	// avail = h - 7 - errors(1). Initial sum = header(2) + progress(6)
+	// + events(6) + plugins(4) = 18. After contraction the elastic
+	// absorption tops EVENTS back up against the true chrome (a zeroed
+	// cell frees its separator row).
+	// / avail = h - 7 - errors(1)。初始 sum = 2+6+6+4 = 18。收缩后弹
+	// 性吸收按真实 chrome 把 EVENTS 补回（被清零的格腾出自己的分隔
+	// 线行）。
 	cases := []struct {
-		bp     Breakpoint
-		width  int
-		height int
+		height                            int
+		header, progress, events, plugins int
 	}{
-		{BreakNarrow, 60, 20},
-		{BreakMedium, 100, 30},
-		{BreakWide, 140, 40},
-		// Edge: very small terminal — body clamp must hold.
-		{BreakNarrow, 60, 5},
-		{BreakMedium, 100, 7},
-		{BreakWide, 140, 9},
+		// avail=16: plugins 4→2, everything else intact, no leftover.
+		{24, 2, 6, 6, 2},
+		// avail=12: plugins→0 frees a separator row; EVENTS absorbs it
+		// (6+1=7).
+		{20, 2, 4, 7, 0},
+		// avail=11: progress→4 forces header 2→1 (drop rate line);
+		// EVENTS absorbs the plugins row (6+1=7).
+		{19, 1, 4, 7, 0},
+		// avail=8: EVENTS stops at the floor of 3, then absorbs the
+		// two freed rows (3+1=4).
+		{16, 1, 4, 4, 0},
+		// avail=5: EVENTS gives up the floor entirely as the last
+		// resort; a zeroed EVENTS cell absorbs nothing.
+		{13, 1, 4, 0, 0},
 	}
 	for _, c := range cases {
-		h, ev, l, r, e, f := regions(c.bp, c.width, c.height)
-		if h < 0 || ev < 0 || l < 0 || r < 0 || e < 0 || f < 0 {
-			t.Errorf("regions(%v, %d, %d): negative height h=%d ev=%d l=%d r=%d e=%d f=%d",
-				c.bp, c.width, c.height, h, ev, l, r, e, f)
+		b := regionsV2(BreakMedium, c.height, false)
+		if b.header != c.header || b.progress != c.progress ||
+			b.events != c.events || b.plugins != c.plugins {
+			t.Errorf("regionsV2(medium, %d) = %+v, want header=%d progress=%d events=%d plugins=%d",
+				c.height, b, c.header, c.progress, c.events, c.plugins)
 		}
-		// Chrome: title 2 + header 2 + errors 1 + footer 1.
-		// / chrome：标题栏 2 + header 2 + errors 1 + footer 1。
-		if h != 2 {
-			t.Errorf("regions(%v): header = %d, want 2", c.bp, h)
-		}
-		if f != 1 {
-			t.Errorf("regions(%v): footer = %d, want 1", c.bp, f)
-		}
-		if e != 1 {
-			t.Errorf("regions(%v): errors = %d, want 1 (collapsed)", c.bp, e)
-		}
-		// events: 0 for Narrow; Medium 8 / Wide 12 capped to the body
-		// budget (max(4, height-6)) on tiny terminals.
-		// / events：Narrow 0；Medium 8 / Wide 12 在极小终端被钳到
-		// body 预算（max(4, height-6)）。
-		body := c.height - 6
-		if body < 4 {
-			body = 4
-		}
-		var wantEvents int
-		switch c.bp {
-		case BreakNarrow:
-			wantEvents = 0
-		case BreakMedium:
-			wantEvents = min(8, body)
-		case BreakWide:
-			wantEvents = min(12, body)
-		}
-		if ev != wantEvents {
-			t.Errorf("regions(%v): events = %d, want %d", c.bp, ev, wantEvents)
-		}
+	}
+}
+
+// TestRegionsV2_BreakpointShapes pins the per-breakpoint defaults:
+// wide fills the right column from the body budget, narrow hides
+// TOP PLUGINS and LIVE EVENTS and hands the body to PROGRESS.
+// / 钉住各断点的默认形态：wide 右列吃满 body 预算，narrow 隐藏
+// TOP PLUGINS 与 LIVE EVENTS、主体交给 PROGRESS。
+func TestRegionsV2_BreakpointShapes(t *testing.T) {
+	// Wide h=40: body = 40 - 7 - header(2) - errors(1) = 30 → right
+	// column 30 rows; left column keeps PROGRESS 6 + TOP PLUGINS 6.
+	b := regionsV2(BreakWide, 40, false)
+	if b.events != 30 || b.progress != 6 || b.plugins != 6 || b.header != 2 {
+		t.Errorf("regionsV2(wide, 40) = %+v, want events=30 progress=6 plugins=6 header=2", b)
+	}
+
+	// Narrow h=24: no plugins, no events, header drops to 1, PROGRESS
+	// takes avail = 24 - 5 - errors(1) - header(1) = 17.
+	b = regionsV2(BreakNarrow, 24, false)
+	if b.plugins != 0 || b.events != 0 || b.header != 1 || b.progress != 17 {
+		t.Errorf("regionsV2(narrow, 24) = %+v, want plugins=0 events=0 header=1 progress=17", b)
 	}
 }

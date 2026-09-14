@@ -17,22 +17,33 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
-// TestRenderBar verifies the progress-bar glyph math.
-// / 验证进度条字符数学。
+// TestRenderBar verifies the progress-bar glyph math on the single
+// eighth-fraction family (spec §5.5): █ full, ▏▎▍▌▋▊▉ fractional,
+// ░ empty. / 验证进度条字符数学（单八分块字族，spec §5.5）：█ 满、
+// ▏▎▍▌▋▊▉ 小数格、░ 空。
 func TestRenderBar(t *testing.T) {
 	cases := []struct {
 		filled, total, w int
 		want             string
 	}{
 		{0, 10, 10, "░░░░░░░░░░"},
-		{5, 10, 10, "▓▓▓▓▓░░░░░"},
-		{10, 10, 10, "▓▓▓▓▓▓▓▓▓▓"},
+		{5, 10, 10, "█████░░░░░"},
+		{10, 10, 10, "██████████"},
 		// total=0 → empty bar of width w
 		{0, 0, 8, "░░░░░░░░"},
 		// w=0 → empty
 		{5, 10, 0, ""},
 		// over-filled clamped to 100%
-		{15, 10, 10, "▓▓▓▓▓▓▓▓▓▓"},
+		{15, 10, 10, "██████████"},
+		// Sub-character precision: 1/16 at w=8 → half cell → ▌ (1/2
+		// of the family between ░ and █). / 亚字符精度：1/16 在 w=8
+		// → 半格 → ▌。
+		{1, 16, 8, "▌░░░░░░░"},
+		// 1/8 at w=8 → exactly one full cell.
+		{1, 8, 8, "█░░░░░░░"},
+		// 15/16 at w=8 → 7 full + a half cell (frac 0.5 → 4/8 → ▌).
+		// / 15/16 在 w=8 → 7 整格 + 半格（frac 0.5 → 4/8 → ▌）。
+		{15, 16, 8, "███████▌"},
 	}
 	for _, c := range cases {
 		got := renderBar(c.filled, c.total, c.w)
@@ -127,6 +138,44 @@ func TestSymFor(t *testing.T) {
 			t.Errorf("symFor(%q) = %q, want %q", c.kind, got, c.want)
 		}
 	}
+	// Column-purity guard: every severity token fits the 4-column slot
+	// (padTo completes the alignment at row level — see render.go), so
+	// event rows align by construction and no token can overflow the
+	// column. The unknown fallback rides on the row-level padTo.
+	// / 列纯度守卫：每个严重度令牌不得超出 4 列槽位（行级 padTo 完成
+	// 补位对齐——见 render.go），事件行天然对齐且任何令牌都不会撑破
+	// 列宽。unknown 兜底由行级 padTo 覆盖。
+	for _, sym := range []string{symCriticalHit, symInfoHit, symCredSuccess, symMiss, symWarn} {
+		if w := lipgloss.Width(sym); w > evSymW {
+			t.Errorf("severity symbol %q is %d columns, want <= %d", sym, w, evSymW)
+		}
+	}
+}
+
+// TestFormatHostPort pins the fixed-width host:port column: IPv6 gets
+// brackets, truncation eats the host side but never the port, and
+// short values are space-padded.
+// / 钉住定宽 host:port 列：IPv6 加方括号，截断只吃主机侧绝不动端口，
+// 不足右侧空格补位。
+func TestFormatHostPort(t *testing.T) {
+	cases := []struct {
+		host string
+		port int
+		want string
+	}{
+		{"10.0.0.2", 80, "10.0.0.2:80          "},
+		{"host-with-a-very-long-name.example.com", 443, "host-with-a-ve...:443"},
+		{"fe80::1", 445, "[fe80::1]:445        "},
+	}
+	for _, c := range cases {
+		got := formatHostPort(c.host, c.port, evHostW)
+		if got != c.want {
+			t.Errorf("formatHostPort(%q, %d) = %q, want %q", c.host, c.port, got, c.want)
+		}
+		if w := lipgloss.Width(got); w != evHostW {
+			t.Errorf("formatHostPort(%q, %d) width = %d, want %d", c.host, c.port, w, evHostW)
+		}
+	}
 }
 
 // TestSeverityColor verifies the color returned for each event kind.
@@ -136,23 +185,23 @@ func TestSeverityColor(t *testing.T) {
 	m := Model{}
 	e := eventEntry{Host: "1.2.3.4", Port: 80, Kind: "hit"}
 
-	// No flash → severity color for "hit" = colorWarn.
-	if got := m.severityColor(e); got != colorWarn {
-		t.Errorf("no-flash hit: severityColor = %v, want colorWarn", got)
+	// No flash → severity color for "hit" = cWarn.
+	if got := m.severityColor(e); got != cWarn {
+		t.Errorf("no-flash hit: severityColor = %v, want cWarn", got)
 	}
 
-	// With active flash → colorErr regardless of kind.
+	// With active flash → cErr regardless of kind.
 	m.flashUntil = map[string]time.Time{
 		"1.2.3.4:80": time.Now().Add(1 * time.Second),
 	}
-	if got := m.severityColor(e); got != colorErr {
-		t.Errorf("active flash: severityColor = %v, want colorErr", got)
+	if got := m.severityColor(e); got != cErr {
+		t.Errorf("active flash: severityColor = %v, want cErr", got)
 	}
 
 	// Expired flash → back to severity color.
 	m.flashUntil["1.2.3.4:80"] = time.Now().Add(-1 * time.Second)
-	if got := m.severityColor(e); got != colorWarn {
-		t.Errorf("expired flash: severityColor = %v, want colorWarn", got)
+	if got := m.severityColor(e); got != cWarn {
+		t.Errorf("expired flash: severityColor = %v, want cWarn", got)
 	}
 
 	// Different kinds map to different colors.
@@ -160,10 +209,10 @@ func TestSeverityColor(t *testing.T) {
 		kind string
 		want lipgloss.Color
 	}{
-		{"cred_success", colorOk},
-		{"miss", colorFgDim},
-		{"warn", colorWarn},
-		{"unknown", colorFg},
+		{"cred_success", cOk},
+		{"miss", cDim},
+		{"warn", cWarn},
+		{"unknown", cText},
 	} {
 		e.Kind = c.kind
 		if got := m.severityColor(e); got != c.want {
@@ -196,12 +245,13 @@ func headerTestModel(width, height int) Model {
 }
 
 // TestViewHeader_NarrowBreakpoint verifies the narrow-mode header
-// renders the stage badge, sparkline glyphs, and counters line in
-// compact form. / 验证 narrow 模式 header 渲染 stage badge、sparkline
-// 字符与 counters 行，紧凑形式。
+// renders the stage badge and sparkline in compact form; height=1
+// (the narrow budget) drops the rate line. / 验证 narrow 模式 header
+// 紧凑渲染 stage badge 与 sparkline；height=1（narrow 预算）丢 rate
+// 行。
 func TestViewHeader_NarrowBreakpoint(t *testing.T) {
 	m := headerTestModel(60, 24)
-	got := m.viewHeader(1, BreakNarrow)
+	got := m.viewHeader(1, 58)
 
 	// Header must contain the stage badge — StageIdentify → "IDENTIFY".
 	if !strings.Contains(got, "IDENTIFY") {
@@ -211,18 +261,20 @@ func TestViewHeader_NarrowBreakpoint(t *testing.T) {
 	if !strings.ContainsAny(got, "▁▂▃▄▅▆▇█") {
 		t.Errorf("narrow header missing sparkline glyphs: %q", got)
 	}
-	// Must contain a counter — either "rate:" or "ports:".
-	if !strings.Contains(got, "rate:") && !strings.Contains(got, "ports:") {
-		t.Errorf("narrow header missing counter line: %q", got)
+	// height=1 drops the rate row even when rates are positive.
+	// / height=1 时即便速率 > 0 也丢 rate 行。
+	if strings.Contains(got, "rate:") {
+		t.Errorf("narrow header (height=1) should drop the rate row: %q", got)
 	}
 }
 
 // TestViewHeader_MediumBreakpoint verifies the medium-mode header
-// adds ETA/elapsed on the right side. / 验证 medium 模式 header 在
-// 右侧加 ETA/elapsed。
+// adds ETA/elapsed on the right side and the rate row fits the
+// 2-row budget. / 验证 medium 模式 header 在右侧加 ETA/elapsed，
+// 且 rate 行装进 2 行预算。
 func TestViewHeader_MediumBreakpoint(t *testing.T) {
 	m := headerTestModel(100, 30)
-	got := m.viewHeader(1, BreakMedium)
+	got := m.viewHeader(2, 98)
 
 	if !strings.Contains(got, "IDENTIFY") {
 		t.Errorf("medium header missing stage badge: %q", got)
@@ -231,6 +283,9 @@ func TestViewHeader_MediumBreakpoint(t *testing.T) {
 	if !strings.Contains(got, "ETA") && !strings.Contains(got, "~30s") && !strings.Contains(got, "elapsed") {
 		t.Errorf("medium header missing right-edge ETA/elapsed: %q", got)
 	}
+	if !strings.Contains(got, "rate:") {
+		t.Errorf("medium header (height=2) missing rate row: %q", got)
+	}
 }
 
 // TestViewHeader_WideBreakpoint verifies the wide-mode header is
@@ -238,16 +293,17 @@ func TestViewHeader_MediumBreakpoint(t *testing.T) {
 // 包含 sparkline。
 func TestViewHeader_WideBreakpoint(t *testing.T) {
 	m := headerTestModel(140, 40)
-	got := m.viewHeader(1, BreakWide)
+	got := m.viewHeader(2, 138)
 
 	if !strings.Contains(got, "IDENTIFY") {
 		t.Errorf("wide header missing stage badge: %q", got)
 	}
-	// Wide mode must include a sparkline glyph (140 cols → plenty of room).
+	// Wide mode must include a sparkline glyph (138 cols → plenty of room).
 	if !strings.ContainsAny(got, "▁▂▃▄▅▆▇█") {
 		t.Errorf("wide header missing sparkline: %q", got)
 	}
-	// Wide should be at least 2 lines: stage badge + rate row.
+	// Wide budget is 2 rows: stage badge + rate row.
+	// / wide 预算 2 行：stage badge + rate 行。
 	if strings.Count(got, "\n") < 1 {
 		t.Errorf("wide header should be >=2 lines, got %q", got)
 	}
@@ -258,10 +314,10 @@ func TestViewHeader_WideBreakpoint(t *testing.T) {
 // / 验证 height<=0 guard 返回空，调用方不会渲染多余的空行。
 func TestViewHeader_ZeroHeightReturnsEmpty(t *testing.T) {
 	m := headerTestModel(100, 30)
-	if got := m.viewHeader(0, BreakMedium); got != "" {
+	if got := m.viewHeader(0, 98); got != "" {
 		t.Errorf("viewHeader(0) = %q, want empty", got)
 	}
-	if got := m.viewHeader(-1, BreakMedium); got != "" {
+	if got := m.viewHeader(-1, 98); got != "" {
 		t.Errorf("viewHeader(-1) = %q, want empty", got)
 	}
 }
@@ -346,7 +402,7 @@ func TestUptimeLine(t *testing.T) {
 // / 验证空状态的占位。
 func TestViewLiveEvents_Empty(t *testing.T) {
 	m := newTestModel()
-	got := m.viewLiveEvents(8, BreakMedium)
+	got := m.viewLiveEvents(8, 78)
 	if !strings.Contains(got, "no events") {
 		t.Errorf("empty viewLiveEvents missing placeholder: %q", got)
 	}
@@ -367,8 +423,10 @@ func TestViewLiveEvents_RendersRecentEvents(t *testing.T) {
 			At:      time.Unix(int64(1700000000+i), 0),
 		})
 	}
-	got := m.viewLiveEvents(3, BreakMedium)
-	// 3 rows visible → should show 10.0.0.2, 10.0.0.3, 10.0.0.4 (last 3).
+	// height includes the title row: 4 → title + last 3 events, which
+	// are 10.0.0.2, 10.0.0.3, 10.0.0.4.
+	// / height 含标题行：4 → 标题 + 最近 3 条，即 10.0.0.2/3/4。
+	got := m.viewLiveEvents(4, 78)
 	for _, want := range []string{"10.0.0.2", "10.0.0.3", "10.0.0.4"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("viewLiveEvents missing %q: %q", want, got)
@@ -386,14 +444,14 @@ func TestViewLiveEvents_RendersRecentEvents(t *testing.T) {
 	}
 }
 
-// TestViewLiveEvents_NarrowHides verifies height=0 returns empty.
-// / 验证 height=0 时返回空（narrow 隐藏面板）。
-func TestViewLiveEvents_NarrowHides(t *testing.T) {
+// TestViewLiveEvents_ZeroHeightHides verifies height=0 returns empty.
+// / 验证 height=0 时返回空（隐藏面板）。
+func TestViewLiveEvents_ZeroHeightHides(t *testing.T) {
 	m := newTestModel()
 	m.pushEvent(eventEntry{Host: "1.1.1.1", Port: 80, Kind: "hit"})
-	got := m.viewLiveEvents(0, BreakNarrow)
+	got := m.viewLiveEvents(0, 58)
 	if got != "" {
-		t.Errorf("narrow viewLiveEvents = %q, want empty", got)
+		t.Errorf("height=0 viewLiveEvents = %q, want empty", got)
 	}
 }
 
@@ -402,7 +460,7 @@ func TestViewLiveEvents_NarrowHides(t *testing.T) {
 func TestViewErrors_Collapsed(t *testing.T) {
 	m := newTestModel()
 	m.errorsExpanded = false
-	got := m.viewErrors(1)
+	got := m.viewErrors(1, 78)
 	if !strings.Contains(got, "ERRORS") && !strings.Contains(got, "errors") {
 		t.Errorf("collapsed viewErrors missing header: %q", got)
 	}
@@ -417,7 +475,7 @@ func TestViewErrors_Collapsed(t *testing.T) {
 func TestViewErrors_Expanded(t *testing.T) {
 	m := newTestModel()
 	m.errorsExpanded = true
-	got := m.viewErrors(4)
+	got := m.viewErrors(4, 78)
 	// Should be ≤4 lines.
 	lines := strings.Count(got, "\n") + 1
 	if lines > 4 {
@@ -425,8 +483,9 @@ func TestViewErrors_Expanded(t *testing.T) {
 	}
 }
 
-// TestViewStage_ProgressBars verifies alive + ports use the new
-// progress bar glyphs. / 验证 alive + ports 用新进度条字符。
+// TestViewStage_ProgressBars verifies alive + ports use the
+// sub-character progress bar family. / 验证 alive + ports 用亚字符
+// 进度条字族。
 func TestViewStage_ProgressBars(t *testing.T) {
 	st := newTestState(t)
 	st.TotalHosts.Store(24)
@@ -434,9 +493,9 @@ func TestViewStage_ProgressBars(t *testing.T) {
 	m := newTestModelWithState(st)
 	m.counters.AliveProbed = 18
 	m.counters.Ports = 142
-	got := m.viewStage(10, BreakMedium)
-	// Should contain both ▓ and ░ (filled + empty bar segments).
-	if !strings.Contains(got, "▓") {
+	got := m.viewStage(10, 98)
+	// Should contain both █ and ░ (filled + empty bar segments).
+	if !strings.Contains(got, "█") {
 		t.Errorf("viewStage missing filled bar: %q", got)
 	}
 	if !strings.Contains(got, "░") {
@@ -445,23 +504,18 @@ func TestViewStage_ProgressBars(t *testing.T) {
 }
 
 // TestViewFooter_TruncatedToWidth pins the P1 fix: the footer hint
-// line is cut to the terminal width. Without the cut, JoinVertical
-// pads every other region to the footer's 89-col width and the whole
-// dashboard wraps on ≤89-col terminals (found by the 80×24 probe).
-// / 钉住 P1 修复：footer 提示行裁剪到终端宽度。不裁的话
-// JoinVertical 会把其他区域 pad 到 footer 的 89 列宽，≤89 列终端
-// 整个 dashboard 折行（80×24 探针发现）。
+// line is cut to the cell width. Without the cut, an overflowing
+// footer breaks the lattice width law (wide) or wraps the line
+// (medium/narrow). / 钉住 P1 修复：footer 提示行裁剪到格宽。不裁的
+// 话溢出 footer 破坏 lattice 宽度律（wide）或折行（medium/narrow）。
 func TestViewFooter_TruncatedToWidth(t *testing.T) {
-	m := newTestModel()
-	m.width = 60
-	if got := lipgloss.Width(m.viewFooter(1)); got > 60 {
-		t.Errorf("footer width = %d at m.width=60, want <= 60", got)
+	if got := lipgloss.Width(newTestModel().viewFooter(1, 58)); got > 58 {
+		t.Errorf("footer width = %d at width=58, want <= 58", got)
 	}
 	// 0-width start-up race → 80-col fallback applies.
 	// / 0 宽启动竞态 → 应用 80 列回退。
-	m2 := newTestModel()
-	if got := lipgloss.Width(m2.viewFooter(1)); got > 80 {
-		t.Errorf("footer width = %d at m.width=0, want <= 80 (fallback)", got)
+	if got := lipgloss.Width(newTestModel().viewFooter(1, 0)); got > 80 {
+		t.Errorf("footer width = %d at width=0, want <= 80 (fallback)", got)
 	}
 }
 
@@ -471,7 +525,7 @@ func TestViewFooter_TruncatedToWidth(t *testing.T) {
 // 2 空格（且仍恰好 1 行）。
 func TestViewErrors_Collapsed_IndentedDim(t *testing.T) {
 	m := newTestModel()
-	got := m.viewErrorsCollapsed()
+	got := m.viewErrorsCollapsed(78)
 	if !strings.HasPrefix(got, "  ERRORS:") {
 		t.Errorf("collapsed errors line not indented: %q", got)
 	}
@@ -480,19 +534,23 @@ func TestViewErrors_Collapsed_IndentedDim(t *testing.T) {
 	}
 }
 
-// TestRenderTopPlugins_NoBlankLines pins the P4 fix: the unboxed
-// TOP PLUGINS part carries no blank lines — a margin or trailing
-// newline injects ragged gaps into the JoinVertical composition.
-// / 钉住 P4 修复：无框 TOP PLUGINS 部件不含空行——边距或结尾换行
-// 会往 JoinVertical 组合里注入参差空隙。
-func TestRenderTopPlugins_NoBlankLines(t *testing.T) {
+// TestViewTopPlugins_NoBlankLines pins the P4 fix: the TOP PLUGINS
+// cell carries no blank lines — a margin or trailing newline injects
+// ragged gaps into the lattice band composition.
+// / 钉住 P4 修复：TOP PLUGINS 格不含空行——边距或结尾换行会往
+// lattice band 组合里注入参差空隙。
+func TestViewTopPlugins_NoBlankLines(t *testing.T) {
 	m := newTestModel()
-	got := m.renderTopPluginsPanel(0) // unboxed path / 无框路径
+	got := m.viewTopPlugins(6, 40)
 	if strings.Contains(got, "\n\n") {
-		t.Errorf("top plugins part has blank lines: %q", got)
+		t.Errorf("top plugins cell has blank lines: %q", got)
 	}
 	if strings.HasSuffix(got, "\n") {
-		t.Errorf("top plugins part has trailing newline: %q", got)
+		t.Errorf("top plugins cell has trailing newline: %q", got)
+	}
+	// Empty state renders the placeholder. / 空态渲染占位符。
+	if !strings.Contains(got, "(no hits yet)") {
+		t.Errorf("top plugins cell missing empty placeholder: %q", got)
 	}
 }
 
@@ -529,7 +587,7 @@ func TestViewExpandedErrorsRenders(t *testing.T) {
 		t.Errorf("expanded mode still shows collapsed summary: %q",
 			truncate(view, 200))
 	}
-	if !strings.Contains(view, "timeout") || !strings.Contains(view, "▓") {
+	if !strings.Contains(view, "timeout") || !strings.Contains(view, "█") {
 		t.Errorf("expanded mode missing category bar rows in View")
 	}
 	if lines := strings.Split(strings.TrimRight(view, "\n"), "\n"); len(lines) > 24 {
@@ -603,21 +661,30 @@ func TestViewFrameFitsTerminal(t *testing.T) {
 					break
 				}
 			}
-			// Footer must survive the frame on normal terminals. The
-			// frame may end in pad rows, so check the last non-blank
-			// line. / 常规终端上 footer 必须存活。帧末尾可能是补行，
-			// 检查最后一个非空行。
+			// Footer must survive the frame on normal terminals. On
+			// medium/narrow the footer rides OUTSIDE the frame (last
+			// content line); on wide it sits INSIDE, followed only by
+			// the bottom border. Accept either shape.
+			// / 常规终端上 footer 必须存活。medium/narrow 的 footer 在
+			// 框外（最后的内容行）；wide 在框内，后面只有底边框。两种
+			// 形态都接受。
 			if c.h >= 16 {
-				last := ""
-				for i := len(lines) - 1; i >= 0; i-- {
+				nonBlank := []string{}
+				for i := len(lines) - 1; i >= 0 && len(nonBlank) < 2; i-- {
 					if strings.TrimSpace(lines[i]) != "" {
-						last = lines[i]
+						nonBlank = append(nonBlank, lines[i])
+					}
+				}
+				found := false
+				for _, ln := range nonBlank {
+					if strings.Contains(ln, "[q] quit") {
+						found = true
 						break
 					}
 				}
-				if !strings.Contains(last, "[q] quit") {
-					t.Errorf("[%dx%d paused=%v]: footer not the last content line: %q",
-						c.w, c.h, paused, last)
+				if !found {
+					t.Errorf("[%dx%d paused=%v]: footer not in the last content lines: %q",
+						c.w, c.h, paused, nonBlank)
 				}
 			}
 		}

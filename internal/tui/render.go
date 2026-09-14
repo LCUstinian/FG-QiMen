@@ -145,26 +145,6 @@ func computeETA(start, now time.Time, stage int32, view types.CountersView, tota
 	return ""
 }
 
-// bar renders a fixed-width horizontal bar made of filled + empty
-// Unicode blocks. ratio is clamped to [0, 1] so callers don't have
-// to validate. The block characters are intentionally distinct so
-// even a 6-char bar reads as a bar (vs. a row of equal-width
-// digits).
-//
-// bar 渲染由填色 + 空心 Unicode block 组成的固定宽度水平条。
-// ratio 钳到 [0, 1]，调用方不用校验。block 字符刻意选用有强对比
-// 的两种，让 6 字符的 bar 也读作 bar（而非一排等宽数字）。
-func bar(ratio float64, w int) string {
-	if ratio < 0 {
-		ratio = 0
-	}
-	if ratio > 1 {
-		ratio = 1
-	}
-	filled := int(float64(w) * ratio)
-	return strings.Repeat("█", filled) + strings.Repeat("░", w-filled)
-}
-
 // ── v0.7.0 Spec B Task 5: header composition helpers ──
 // v0.7.0 Spec B Task 5：header 组合辅助函数
 //
@@ -240,30 +220,33 @@ func (m Model) uptimeLine() string {
 	return fmt.Sprintf("up %dm", int(d.Minutes()))
 }
 
-// viewHeader renders the top status line. The format adapts per
-// breakpoint: narrow is compact (stage + counters only); medium
-// adds the right-edge ETA/elapsed; wide adds uptime. The sparkline
-// is appended at the right edge (after ETA/uptime) when there is at
-// least 8 columns of remaining width — the same 8-col threshold the
-// spec uses for other minimum-sized UI affordances.
+// viewHeader renders the top status cell. The format adapts per
+// breakpoint (derived from the model width): narrow is compact (stage
+// + counters only); medium adds the right-edge ETA/elapsed; wide adds
+// uptime. The sparkline is appended at the right edge (after
+// ETA/uptime) when there is at least 8 columns of remaining width —
+// the same 8-col threshold the spec uses for other minimum-sized UI
+// affordances.
 //
-// height is the number of rows the header occupies (always 1 in
-// v0.7.0, but the parameter is accepted for layout-region uniformity
-// with viewEvents / viewCounters etc.).
+// height is the cell's row budget (1 drops the rate line); width is
+// the cell's column budget — both lines are truncated to it. The
+// composed cell is capped to height from the top, so line 1 (badge)
+// always survives.
 //
-// / viewHeader 渲染顶部状态行。格式按 breakpoint 适配：narrow 紧
-// 凑（只 stage + counters）；medium 加右端 ETA/elapsed；wide 加
-// uptime。sparkline 在右侧剩余宽度 >=8 列时附加（在 ETA/uptime 之
-// 后）。height 是 header 占的行数（v0.7.0 始终是 1，但参数保留以便
-// 与 viewEvents / viewCounters 等区域渲染器统一）。
-func (m Model) viewHeader(height int, bp Breakpoint) string {
+// / viewHeader 渲染顶部状态格。格式按 breakpoint（由 model 宽度推
+// 导）适配：narrow 紧凑（只 stage + counters）；medium 加右端
+// ETA/elapsed；wide 加 uptime。sparkline 在右侧剩余宽度 >=8 列时附
+// 加（在 ETA/uptime 之后）。height 是格的行预算（1 = 丢 rate 行）；
+// width 是列预算——两行都裁到它。格从顶部按 height 截断，第 1 行
+// （badge）永远存活。
+func (m Model) viewHeader(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
-	width := m.width
 	if width <= 0 {
 		width = 80
 	}
+	bp := pickBreakpoint(m.width)
 
 	// Line 1: stage badge (left) + ETA/elapsed (middle-right) +
 	// uptime (right of ETA) + sparkline (far right). We compose the
@@ -307,10 +290,11 @@ func (m Model) viewHeader(height int, bp Breakpoint) string {
 	sb.WriteString(truncate(line1.String(), width))
 
 	// Line 2: rate row (counters) — only when at least one rate is
-	// positive. Preserves the existing tui.go View() behavior.
-	// 第 2 行：rate 行（counters）——仅在至少一个速率 > 0 时渲染，
-	// 保持 tui.go View() 既有行为。
-	if counters := m.countersLine(); counters != "" {
+	// positive and the cell budget has room for a second row.
+	// Preserves the existing tui.go View() behavior.
+	// 第 2 行：rate 行（counters）——仅在至少一个速率 > 0 且格预算
+	// 装得下第二行时渲染，保持 tui.go View() 既有行为。
+	if counters := m.countersLine(); counters != "" && height >= 2 {
 		sb.WriteString("\n")
 		sb.WriteString(truncate(counters, width))
 	}
@@ -322,44 +306,79 @@ func (m Model) viewHeader(height int, bp Breakpoint) string {
 	return sb.String()
 }
 
-// viewLiveEvents renders the last N events with severity colors and
-// status symbols. height=0 hides the panel (narrow mode) unless the
-// 'L' overlay is on, in which case the last 5 rows show anyway.
-// / viewLiveEvents 渲染最近 N 个事件，带 severity 颜色和状态符号。
-// height=0 隐藏面板（narrow 模式），除非 'L' overlay 开启——此时
-// 强制显示最近 5 条。
-func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
-	if height == 0 {
-		if !m.showLiveOverlay {
-			return ""
-		}
-		height = 5 // 'L' overlay: reveal last 5 / overlay：显示最近 5 条
+// Event row column widths (spec §5.1 column law). Fixed-width columns
+// keep every row a table: the symbol is a 3-column bracket token,
+// host:port sits at 21 columns (padded with spaces when short), and
+// the service name is padded to 12. Shorter values never shift the
+// columns after them.
+// / 事件行列宽（spec §5.1 列律）。定宽列让每行都是一张表：符号是 3 列
+// 方括号令牌，host:port 恒为 21 列（不足右侧空格补位），协议名补位到
+// 12。短值不推动后面的列。
+const (
+	evSymW  = 3
+	evHostW = 21
+	evSvcW  = 12
+)
+
+// formatHostPort renders "host:port" in exactly maxW columns. IPv6
+// hosts get RFC3986 brackets so the port stays unambiguous; truncation
+// eats the host side only and never the port; short values are padded
+// with spaces on the right.
+// / formatHostPort 渲染恰好 maxW 列的 "host:port"。IPv6 主机加 RFC3986
+// 方括号保证端口无歧义；截断只吃主机侧、绝不动端口；不足右侧空格
+// 补位。
+func formatHostPort(host string, port, maxW int) string {
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
 	}
+	portStr := fmt.Sprintf("%d", port)
+	budget := maxW - len(portStr) - 1 // ':'
+	if budget < 1 {
+		budget = 1
+	}
+	return padTo(truncate(host, budget)+":"+portStr, maxW)
+}
+
+// viewLiveEvents renders the LIVE EVENTS cell: a panel title row plus
+// the last N events with severity colors and status symbols. Fixed
+// columns per the spec §5.1 law: 2-space pad, timestamp (8), 2-space
+// gap, symbol (3), 2-space gap, host:port (21), 2-space gap, service
+// (12). Rows are truncated to width BEFORE styling so the cell can
+// never overflow. height=0 hides the cell (narrow mode) unless the
+// 'L' overlay is on, in which case the last 5 rows show anyway.
+// / viewLiveEvents 渲染 LIVE EVENTS 格：面板标题行 + 最近 N 个事件
+// （带 severity 颜色与状态符号）。按 spec §5.1 固定列律：2 空格缩
+// 进、时间戳（8）、2 空格间隔、符号（3）、2 空格间隔、host:port
+// （21）、2 空格间隔、协议名（12）。行在上色**前**裁到 width，格永
+// 不溢出。height=0 隐藏（narrow 模式），除非 'L' overlay 开启——此
+// 时强制显示最近 5 条。
+func (m Model) viewLiveEvents(height, width int) string {
+	if height <= 0 {
+		return ""
+	}
+	rows := []string{stPanelHeader.Render("  LIVE EVENTS")}
 	events := m.eventsOrdered()
 	if len(events) == 0 {
-		return lipgloss.NewStyle().
-			Foreground(colorFgDim).
-			Render("  (no events yet)")
+		rows = append(rows, lipgloss.NewStyle().
+			Foreground(cDim).
+			Render("  (no events yet)"))
+		return strings.Join(rows, "\n")
 	}
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
-	// Take last `height` events, newest at bottom.
+	// Take last height-1 events (the title row occupies one slot),
+	// newest at bottom. / 取最后 height-1 条（标题行占一格），最新在底。
 	n := len(events)
 	start := 0
-	if n > height {
-		start = n - height
+	if n > height-1 {
+		start = n - (height - 1)
 	}
-	rows := make([]string, 0, len(events[start:]))
 	for _, e := range events[start:] {
 		c := m.severityColor(e)
-		sym := symFor(e.Kind)
+		sym := padTo(symFor(e.Kind), evSymW)
 		ts := e.At.Format("15:04:05")
-		hostPort := truncate(fmt.Sprintf("%s:%d", e.Host, e.Port), 21)
-		svc := truncate(e.Service, 12)
+		hostPort := formatHostPort(e.Host, e.Port, evHostW)
+		svc := padTo(truncate(e.Service, evSvcW), evSvcW)
 		rows = append(rows, lipgloss.NewStyle().Foreground(c).Render(
-			truncate(fmt.Sprintf("  [%s] %s %s %s", ts, sym, hostPort, svc), width)))
+			truncate(fmt.Sprintf("  %s  %s  %s  %s", ts, sym, hostPort, svc), width)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -368,20 +387,19 @@ func (m Model) viewLiveEvents(height int, bp Breakpoint) string {
 // shows a single summary line; expanded shows up to 4 rows of top
 // error categories by count. / viewErrors 渲染底部 errors 面板。
 // 折叠态（默认）显示单行汇总；展开态显示最多 4 行 top 错误类别。
-func (m Model) viewErrors(height int) string {
-	if m.errorsExpanded && height >= 4 {
-		return m.viewErrorsExpanded(4)
+func (m Model) viewErrors(height, width int) string {
+	if m.errorsExpanded && height >= errExpandedRows {
+		return m.viewErrorsExpanded(errExpandedRows, width)
 	}
-	return m.viewErrorsCollapsed()
+	return m.viewErrorsCollapsed(width)
 }
 
 // viewErrorsCollapsed renders a single summary line: "ERRORS: timeout 42 refused 15 dns 7 reset 3".
 // Indented 2 spaces + dim like every other region, and truncated to
-// the terminal width so a wide category list can't wrap the frame.
+// the cell width so a wide category list can't wrap the frame.
 // / viewErrorsCollapsed 渲染单行汇总。与其他区域一致缩进 2 空格 +
-// dim 色，并按终端宽度裁剪，防止类别过多撑折画面。
-func (m Model) viewErrorsCollapsed() string {
-	width := m.width
+// dim 色，并按格宽裁剪，防止类别过多撑折画面。
+func (m Model) viewErrorsCollapsed(width int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -395,23 +413,35 @@ func (m Model) viewErrorsCollapsed() string {
 	if len(parts) == 1 {
 		parts = append(parts, "(none)")
 	}
-	return lipgloss.NewStyle().Foreground(colorFgDim).
+	return lipgloss.NewStyle().Foreground(cDim).
 		Render(truncate("  "+strings.Join(parts, " "), width))
 }
 
 // viewErrorsExpanded renders up to 4 rows of top error categories
 // with severity-colored bars. / viewErrorsExpanded 渲染最多 4 行
 // top 错误类别，带 severity 颜色 bar。
-func (m Model) viewErrorsExpanded(maxRows int) string {
+func (m Model) viewErrorsExpanded(maxRows, width int) string {
 	cats := m.topErrorCategories(maxRows)
 	if len(cats) == 0 {
-		return lipgloss.NewStyle().Foreground(colorFgDim).Render("  (no errors)")
+		return lipgloss.NewStyle().Foreground(cDim).Render("  (no errors)")
 	}
 	rows := make([]string, 0, len(cats))
 	for _, c := range cats {
-		// Each row: "  timeout ▓▓▓▓▓▓▓▓▓░░ 42"
-		bar := renderBar(int(c.count), int(c.maxCount), 20)
-		rows = append(rows, fmt.Sprintf("  %-8s %s %d", c.name, bar, c.count))
+		// Each row: "  timeout ████████████████████ 42"
+		barW := 20
+		if width-14 < barW {
+			barW = width - 14
+		}
+		if barW < 1 {
+			barW = 1
+		}
+		bar := renderBar(int(c.count), int(c.maxCount), barW)
+		// Truncate BEFORE styling — truncate counts runes and would
+		// cut ANSI escapes on a styled string.
+		// / 先截断再上色——truncate 按 rune 数计，对已上色字符串会
+		// 切断 ANSI 转义序列。
+		plain := truncate(fmt.Sprintf("  %-8s %s %d", c.name, bar, c.count), width)
+		rows = append(rows, lipgloss.NewStyle().Foreground(cDim).Render(plain))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -468,22 +498,26 @@ func (m Model) totalPorts() int64 {
 	return m.state.TotalPorts.Load()
 }
 
-// viewStage renders the stage/progress region: alive and ports get
-// renderBar progress bars against their State-cached totals;
-// results / creds / errors stay as plain counters (no denominator).
-// height<=0 hides the region; rows are capped to height.
-// / viewStage 渲染 stage/进度区域：alive 与 ports 依据 State 缓存
-// 的总数画 renderBar 进度条；results / creds / errors 保持纯计数
-// （无分母）。height<=0 隐藏该区域；行数按 height 截断。
-func (m Model) viewStage(height int, bp Breakpoint) string {
+// viewStage renders the PROGRESS cell: a panel title row, then alive
+// and ports with renderBar sub-character progress bars against their
+// State-cached totals; results / creds / errors stay as plain
+// counters (no denominator). The cell is capped to height from the
+// top so the title row survives; rows are truncated to width.
+// / viewStage 渲染 PROGRESS 格：面板标题行 + alive/ports 依据 State
+// 缓存总数画 renderBar 亚字符进度条；results / creds / errors 保持
+// 纯计数（无分母）。格从顶部按 height 截断，标题行存活；行裁到
+// width。
+func (m Model) viewStage(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
+	bp := pickBreakpoint(m.width)
 	barW := 20
 	if bp == BreakNarrow {
 		barW = 10
 	}
 	rows := []string{
+		stPanelHeader.Render("  PROGRESS"),
 		fmt.Sprintf("  %-8s %s %d/%d", "alive",
 			renderBar(int(m.counters.AliveProbed), int(m.totalHosts()), barW),
 			m.counters.AliveProbed, m.totalHosts()),
@@ -497,40 +531,65 @@ func (m Model) viewStage(height int, bp Breakpoint) string {
 	if len(rows) > height {
 		rows = rows[:height]
 	}
+	// Truncate plain rows only — the styled title row must never pass
+	// through truncate (rune-counting would cut ANSI escapes).
+	// / 只截纯文本行——上色的标题行绝不能过 truncate（按 rune 数切
+	// 会切断 ANSI 转义序列）。
+	for i := 1; i < len(rows); i++ {
+		rows[i] = truncate(rows[i], width)
+	}
 	return strings.Join(rows, "\n")
 }
 
-// viewTopPlugins renders the top-plugins region. Same body as the
-// existing renderTopPluginsPanel; breakpoint decides whether the
-// boxed variant is used (narrow stacks unboxed).
-// / viewTopPlugins 渲染 top-plugins 区域。内容与现有
-// renderTopPluginsPanel 相同；breakpoint 决定是否用带框变体
-// （narrow 无框堆叠）。
-func (m Model) viewTopPlugins(height int, bp Breakpoint) string {
+// viewTopPlugins renders the TOP PLUGINS cell: a panel title row plus
+// the top-5 hit-count bars, capped to the cell budget from the top so
+// the title survives. Rows are truncated to width.
+// / viewTopPlugins 渲染 TOP PLUGINS 格：面板标题行 + top-5 命中柱
+// 条，从顶部按格预算截断保证标题存活。行裁到 width。
+func (m Model) viewTopPlugins(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
-	width := m.width
-	if bp == BreakNarrow {
-		width = 0 // unboxed stack / 无框堆叠
+	rows := []string{stPanelHeader.Render("  TOP PLUGINS")}
+	if len(m.topPlugins) == 0 {
+		rows = append(rows, "  (no hits yet)")
+	} else {
+		for _, p := range m.topPlugins {
+			// Count → 12-char bar → name. The bar length is fixed at
+			// 12 chars so the panel reads as a column even when counts
+			// span 1 → 9999. Static half-fill (renderBar(6, 12, 12))
+			// rather than count-proportional: proportional makes a hit
+			// count of 1 look indistinguishable from a glitch.
+			// 计数 → 12 字符 bar → 名称。bar 固定 12 字符让面板读作
+			// 一列，即使计数跨 1 → 9999。静态半填充
+			// （renderBar(6, 12, 12)）而非按计数比例——按比例的话
+			// 1 命中看起来跟"故障"没区别。
+			rows = append(rows, fmt.Sprintf("  %-10s %s  %s",
+				p[1], renderBar(6, 12, 12), p[0]))
+		}
 	}
-	return m.renderTopPluginsPanel(width)
+	if len(rows) > height {
+		rows = rows[:height]
+	}
+	// Plain rows only (see viewStage) — skip the styled title.
+	// / 只截纯文本行（见 viewStage）——跳过上色标题。
+	for i := 1; i < len(rows); i++ {
+		rows[i] = truncate(rows[i], width)
+	}
+	return strings.Join(rows, "\n")
 }
 
 // viewFooter renders the bottom keymap hint line. Always 1 row.
-// The joined hint line is truncated to the terminal width: without
-// the cut, JoinVertical pads every other region to the footer's
-// width and the whole dashboard wraps on ≤89-col terminals
-// (found by the 80×24 probe — 18 of 20 lines overflowed).
-// / viewFooter 渲染底部 keymap 提示行。始终 1 行。拼接结果按终端
-// 宽度裁剪：不裁的话 JoinVertical 会把其他区域都 pad 到 footer 的
-// 宽度，≤89 列终端整个 dashboard 折行（80×24 探针实测 20 行里 18
-// 行溢出）。
-func (m Model) viewFooter(height int) string {
+// Truncated to the cell width: inside the lattice (wide) an
+// overflowing footer would break the frame's width law; outside
+// (medium/narrow) it would wrap.
+// / viewFooter 渲染底部 keymap 提示行。始终 1 行。裁到格宽：在
+// lattice 内（wide）溢出的 footer 破坏帧宽度律；框外（medium/
+// narrow）则折行。
+func (m Model) viewFooter(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
-	width := m.width
 	if width <= 0 {
 		width = 80
 	}
@@ -543,6 +602,6 @@ func (m Model) viewFooter(height int) string {
 		km.Help.Help().Key + " " + km.Help.Help().Desc,
 	}
 	return lipgloss.NewStyle().
-		Foreground(colorFgDim).
+		Foreground(cDim).
 		Render(truncate(strings.Join(parts, "  "), width))
 }

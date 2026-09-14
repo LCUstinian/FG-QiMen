@@ -1,0 +1,40 @@
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                       ┌────────────────────────────────────────────────────────────────────────┐                       
+                       │                                                                        │                       
+                       │  KEYMAP                                                                │                       
+                       │                                                                        │                       
+                       │      ?    toggle this help overlay                                     │                       
+                       │      E    collapse the errors panel                                    │                       
+                       │      L    toggle the live-events overlay (narrow mode)                 │                       
+                       │      e    toggle the errors panel (collapsed summary / expanded bars)  │                       
+                       │      p    pause the dashboard display (pipeline keeps running)         │                       
+                       │      q / Ctrl-C    quit the scan                                       │                       
+                       │      r    resume the dashboard display                                 │                       
+                       │                                                                        │                       
+                       │  press ? or esc to close                                               │                       
+                       │                                                                        │                       
+                       └────────────────────────────────────────────────────────────────────────┘                       
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

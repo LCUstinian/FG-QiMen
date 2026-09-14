@@ -15,18 +15,18 @@
 // （tea.WithoutSignalHandler），由 main goroutine 负责关闭流程
 // （见 cmd/root.go）。
 //
-// Layout model:
-//   - width >= minWidth  → two columns side-by-side
-//   - width <  minWidth  → single column stack (stats above events)
-//   - height is used to clamp the events list so the dashboard never
-//     overflows the terminal. chromeLines (in styles.go) accounts
-//     for the title bar, stats bar, keymap and blank lines.
+// Layout model (spec §5, TUI v3 lattice):
+//   - pickBreakpoint maps width to narrow (<80) / medium (80–119) /
+//     wide (≥120); regionsV2 computes per-region row budgets with the
+//     EVENTS ≥3 floor and the documented contraction order.
+//   - View() composes a single-layer shared-border lattice frame
+//     (frame.go) sized to exactly m.height rows; height reconciliation
+//     below stays as the last-resort guard.
 //
-// 布局模型：
-//   - width >= minWidth  → 两栏并排
-//   - width <  minWidth  → 单列堆叠（统计在上，事件在下）
-//   - height 用于裁剪事件列表，避免 dashboard 溢出终端。chromeLines
-//     （见 styles.go）覆盖标题栏、状态条、按键提示和空行。
+// 布局模型（spec §5，TUI v3 lattice）：pickBreakpoint 把宽度映射为
+// narrow（<80）/ medium（80–119）/ wide（≥120）；regionsV2 计算各区
+// 域行预算（EVENTS 保底 3、约定收缩序）。View() 用 frame.go 组合单
+// 层共享边框 lattice 帧，恰好 m.height 行；高度对账保留为兜底守卫。
 package tui
 
 import (
@@ -362,21 +362,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the dashboard. Returns a single string that lipgloss
-// will then lay out.
-// View 渲染 dashboard。返回 lipgloss 将布局的单个字符串。
+// View renders the dashboard as a lattice frame (spec §5.1/§5.2):
+// one-layer shared-border grid with the title embedded in the top
+// border. Region budgets come from regionsV2; every cell is padded to
+// its budget so the frame has exactly one row per terminal line (the
+// height reconciliation below stays as the last-resort guard).
 //
-// v0.7.0 (Spec B): the body is a 6-region composition — header,
-// live events, stage, top plugins, errors, footer — placed by
-// regions() per breakpoint. Wide terminals put STAGE + TOP PLUGINS
-// side-by-side; medium/narrow stack them. The title bar, help
-// overlay, pause chip, quit/summary paths and the height fill are
-// chrome kept verbatim from v0.5.2.
+// Wide (≥120) puts PROGRESS + TOP PLUGINS in the left column and LIVE
+// EVENTS in the right column, joined by a shared border with ┬/┴
+// junctions. Medium/narrow stack full-width cells; the footer sits
+// outside the frame. PAUSED renders as an extra chip in the title
+// border (zero budget impact).
 //
-// v0.7.0（Spec B）：主体是 6 区域组合——header、实时事件、stage、
-// top plugins、errors、footer——由 regions() 按断点放置。宽终端
-// STAGE + TOP PLUGINS 并排；medium/narrow 堆叠。标题栏、帮助浮层、
-// 暂停芯片、退出/摘要路径和高度填充是 v0.5.2 原样保留的 chrome。
+// / View 把 dashboard 渲染为 lattice 帧（spec §5.1/§5.2）：单层共享
+// 边框网格，标题嵌在顶边框里。区域预算来自 regionsV2；每个格都补
+// 齐到预算，帧的行数恰好等于终端行数（下面的高度对账保留为兜底守
+// 卫）。
+//
+// 宽屏（≥120）左列为 PROGRESS + TOP PLUGINS，右列为 LIVE EVENTS，
+// 中缝共享边框用 ┬/┴ 三通衔接。medium/narrow 全宽堆叠，footer 在框
+// 外。PAUSED 作为附加芯片渲染在标题边框里（零预算影响）。
 func (m Model) View() string {
 	if m.quitting {
 		return m.finalSummary + "\n"
@@ -384,156 +389,121 @@ func (m Model) View() string {
 	if m.uiMode == modeHelp {
 		return m.renderHelp()
 	}
-	var sb strings.Builder
 
-	// Title bar — plain text + thin dim separator, kept verbatim
-	// from v0.5.2 (see the git history for the three-box rationale).
-	// 标题栏——纯文本 + 细 dim 分割线，v0.5.2 原样保留（三层框的
-	// 取舍见 git 历史）。
-	titleChip := m.runStateChip()
-	title := fmt.Sprintf(
-		" FG-QIMEN %s  project: %s   mode: %s   %s",
-		version.Value, m.project, m.mode, titleChip,
-	)
-	sb.WriteString(stTitle.Render(title))
-	sb.WriteString("\n")
-	sb.WriteString(stDim.Render(m.titleSeparator()))
-	sb.WriteString("\n")
-
-	// ── v0.7.0 six-region body (Spec B) ──
-	// v0.7.0 六区域主体（Spec B）
-	bp := pickBreakpoint(m.width)
-	h, ev, l, r, e, f := regions(bp, m.width, m.height)
-	// Expanded errors need 4 rows (1 header-equivalent + up to 4 bars);
-	// regions() doesn't know the toggle state, so widen the budget here.
-	// The measured fixed-accounting below picks up the real height and
-	// re-clamps events, so a 24-row terminal just shows fewer events.
-	// / 展开态 errors 需要 4 行；regions() 不知道开关状态，在这里
-	// 加宽预算。下面的实测 fixed 记账会取真实高度并重新钳 events，
-	// 24 行终端只是少显示几条事件。
-	if m.errorsExpanded {
-		e = 4
-	}
-
-	// Render the fixed regions first and MEASURE them, then clamp the
-	// events budget to whatever height is actually left. regions() is
-	// a static guess; this is the ground truth, so the composed frame
-	// never exceeds the terminal (the probe showed the old order
-	// overflowing 80×24 by 3 rows once events filled).
-	// 先渲染固定区域并"实测"高度，再把 events 预算钳到实际剩余。
-	// regions() 是静态预估；这里才是真实值，保证整帧不超终端
-	// （探针显示旧顺序在 events 填满时 80×24 会溢出 3 行）。
-	header := m.viewHeader(h, bp)
-	stage := m.viewStage(l, bp)
-	topPlugins := m.viewTopPlugins(r, bp)
-	errorsPanel := m.viewErrors(e)
-	footer := m.viewFooter(f)
-
-	fixed := 2 + lipgloss.Height(header) + lipgloss.Height(errorsPanel) +
-		lipgloss.Height(footer)
-	if m.uiMode == modePaused {
-		fixed++ // [PAUSED] chip / 暂停芯片
-	}
-	if bp == BreakWide {
-		fixed += max(lipgloss.Height(stage), lipgloss.Height(topPlugins))
-	} else {
-		fixed += lipgloss.Height(stage) + lipgloss.Height(topPlugins)
-	}
-	// Narrow 'L' overlay default (5 rows) is applied inside
-	// viewLiveEvents when ev==0; pre-request it here so the clamp
-	// below can shave it. / narrow 的 'L' overlay 默认 5 行由
-	// viewLiveEvents 在 ev==0 时套用；这里先预申请，让下面的钳制
-	// 能削它。
-	if bp == BreakNarrow && m.showLiveOverlay {
-		ev = 5
-	}
-	if rem := m.height - fixed; rem < ev {
-		ev = rem
-	}
-	if ev < 0 {
-		ev = 0
-	}
-	events := m.viewLiveEvents(ev, bp)
-
-	// Pause chip rides directly under the header so the operator
-	// can tell at a glance the dashboard is frozen (the pipeline
-	// keeps running). / 暂停芯片紧贴 header 下方，操作员一眼看出
-	// dashboard 已冻结（pipeline 仍在跑）。
-	parts := []string{header}
-	if m.uiMode == modePaused {
-		parts = append(parts, "  "+stWarn.Render("[PAUSED]"))
-	}
-	if bp == BreakWide {
-		// Side-by-side: STAGE | TOP PLUGINS. / 并排：STAGE | TOP PLUGINS。
-		body := lipgloss.JoinHorizontal(lipgloss.Top, stage, topPlugins)
-		parts = append(parts, events, body, errorsPanel, footer)
-	} else {
-		// Stacked; empty regions (e.g. narrow hides events) are
-		// skipped so no stray blank lines appear. / 堆叠；空区域
-		// （如 narrow 隐藏 events）跳过，避免多余空行。
-		for _, region := range []string{events, stage, topPlugins, errorsPanel, footer} {
-			if region != "" {
-				parts = append(parts, region)
-			}
-		}
-	}
-	sb.WriteString(lipgloss.JoinVertical(lipgloss.Left, parts...))
-	sb.WriteString("\n")
-
-	// Height reconciliation: pad short frames (ghost-content guard)
-	// and hard-truncate overframes. The measured events clamp keeps
-	// overframes impossible above ~16 rows; the truncate is the
-	// last-resort for absurdly small terminals (where losing the
-	// footer beats scrolling the frame).
-	//
-	// CRITICAL: bubbletea's standard renderer counts frame lines as
-	// strings.Split(view, "\n") and drops the TOP lines when the
-	// count exceeds the terminal height (standard_renderer.go:186).
-	// A trailing "\n" therefore costs one real top row per frame —
-	// the live smoke probe caught the title bar (and the runState
-	// chip on it) vanishing from every frame. The reconciled frame
-	// must have EXACTLY m.height split elements: join content
-	// without a trailing newline, then pad with bare "\n"s whose
-	// split artifacts are the pad rows.
-	//
-	// 高度对账：短帧补行（防残影），超帧硬裁。实测 events 钳制使
-	// ~16 行以上的终端不可能超帧；裁剪是极小终端的兜底（那种情况
-	// 下丢 footer 好过整帧滚动）。
-	//
-	// 关键：bubbletea 标准 renderer 用 strings.Split(view, "\n") 数
-	// 帧行数，超出终端高度时丢弃**顶部**行（standard_renderer.go:186）。
-	// 尾随 "\n" 因此每帧吃掉一行真实顶行——实机冒烟探针抓到标题栏
-	// （连同其上的 runState 芯片）每帧消失。对账后的帧必须恰好有
-	// m.height 个 split 元素：内容 Join 不带尾随换行，再用裸 "\n"
-	// 补行——其 split 产物就是补的空行。
-	if m.height > 0 {
-		frame := strings.TrimRight(sb.String(), "\n")
-		lines := strings.Split(frame, "\n")
-		if len(lines) > m.height {
-			lines = lines[:m.height]
-		}
-		sb.Reset()
-		sb.WriteString(strings.Join(lines, "\n"))
-		for i := len(lines); i < m.height; i++ {
-			sb.WriteString("\n")
-		}
-	}
-
-	return sb.String()
-}
-
-// titleSeparator returns a single dim row of `─` characters
-// sized to the current terminal width. Falls back to 80 on
-// 0-width (start-up race) so the very first render still has
-// a coherent header line.
-// titleSeparator 返回一行 dim 色的 `─`，宽与终端同。0 宽时（启
-// 动竞态）回退 80，让首帧也有连贯的 header 行。
-func (m Model) titleSeparator() string {
 	w := m.width
 	if w <= 0 {
 		w = 80
 	}
-	return strings.Repeat(boxH, w)
+	// Height fallback for the 0-size start-up race: without it
+	// regionsV2 contracts to the tiny-terminal floor and drops whole
+	// cells (TOP PLUGINS, LIVE EVENTS) on the first frames.
+	// / 高度为 0 的启动竞态回退：否则 regionsV2 收缩到极小终端下限，
+	// 首帧就丢掉整格（TOP PLUGINS、LIVE EVENTS）。
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	bp := pickBreakpoint(w)
+	b := regionsV2(bp, h, m.errorsExpanded)
+
+	// Narrow 'L' overlay: 5 event rows, paid for by PROGRESS (min 2
+	// so the cell keeps its title + one stat row).
+	// / narrow 的 'L' overlay：5 行事件，由 PROGRESS 支付（保底 2，
+	// 让格保留标题 + 一行统计）。
+	if bp == BreakNarrow && m.showLiveOverlay {
+		b.events = 5
+		b.progress -= 6
+		if b.progress < 2 {
+			b.progress = 2
+		}
+	}
+
+	// Title border: prefix + status chip (+ PAUSED chip).
+	// / 标题边框：前缀 + 状态芯片（+ PAUSED 芯片）。
+	chip := m.runStateChip()
+	if m.uiMode == modePaused {
+		chip += " " + stWarn.Render("[PAUSED]")
+	}
+	title := fmt.Sprintf("FG-QIMEN %s ─ project: %s ─ mode: %s",
+		version.Value, m.project, m.mode)
+
+	cellW := w - 2
+	lines := []string{titleRow(w, title, chip)}
+
+	// Header cell. / header 格。
+	lines = append(lines, borderedRows(cellRows(m.viewHeader(b.header, cellW), b.header, cellW))...)
+	lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+
+	switch bp {
+	case BreakWide:
+		leftW, rightW := wideSplit(w)
+		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, boxDn, leftW+1)))
+
+		// Left column: PROGRESS + blank separator + TOP PLUGINS; the
+		// compose loop pads (or caps) to the body height. Rows past the
+		// left content pad as blank so the shared border has no gaps.
+		// / 左列：PROGRESS + 空行分隔 + TOP PLUGINS；组合循环补齐
+		// （或裁掉）到 body 高度。左列内容耗尽的行补空白，共享边框无
+		// 断口。
+		left := m.viewStage(b.progress, leftW)
+		if b.plugins > 0 {
+			left += "\n\n" + m.viewTopPlugins(b.plugins, leftW)
+		}
+		leftRows := strings.Split(left, "\n")
+		rightRows := cellRows(m.viewLiveEvents(b.events, rightW), b.events, rightW)
+		blank := strings.Repeat(" ", leftW)
+		for i := 0; i < b.events; i++ {
+			l := blank
+			if i < len(leftRows) {
+				l = padTo(leftRows[i], leftW)
+			}
+			lines = append(lines, rowTwo(l, rightRows[i]))
+		}
+		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, boxUp, leftW+1)))
+		lines = append(lines, borderedRows(cellRows(m.viewErrors(b.errors, cellW), b.errors, cellW))...)
+		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+		lines = append(lines, rowCell(padTo(m.viewFooter(b.footer, cellW), cellW)))
+		lines = append(lines, stFrame.Render(hBorder(w, boxBL, boxBR, "", 0)))
+
+	default: // medium / narrow: stacked full-width cells, footer outside
+		if b.progress > 0 {
+			lines = append(lines, borderedRows(cellRows(m.viewStage(b.progress, cellW), b.progress, cellW))...)
+			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+		}
+		if b.events > 0 {
+			lines = append(lines, borderedRows(cellRows(m.viewLiveEvents(b.events, cellW), b.events, cellW))...)
+			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+		}
+		if b.plugins > 0 {
+			lines = append(lines, borderedRows(cellRows(m.viewTopPlugins(b.plugins, cellW), b.plugins, cellW))...)
+			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+		}
+		lines = append(lines, borderedRows(cellRows(m.viewErrors(b.errors, cellW), b.errors, cellW))...)
+		lines = append(lines, stFrame.Render(hBorder(w, boxBL, boxBR, "", 0)))
+		// Footer rides outside the frame on medium/narrow.
+		// / medium/narrow 上 footer 在框外。
+		lines = append(lines, m.viewFooter(b.footer, cellW))
+	}
+
+	// Height reconciliation (unchanged contract, last-resort guard):
+	// bubbletea's standard renderer counts frame lines as
+	// strings.Split(view, "\n") and drops the TOP lines when the
+	// count exceeds the terminal height. regionsV2 + cellRows make
+	// the composed frame exactly m.height rows; the truncation below
+	// only fires on arithmetic drift (and beats scrolling a frame).
+	// 高度对账（契约不变，兜底守卫）：bubbletea 标准 renderer 用
+	// strings.Split(view, "\n") 数帧行数，超终端高时丢**顶部**行。
+	// regionsV2 + cellRows 已让帧恰好 m.height 行；下面的截断只在
+	// 计算漂移时触发（丢行好过整帧滚动）。
+	if m.height > 0 {
+		for len(lines) > m.height {
+			lines = lines[:len(lines)-1]
+		}
+		for len(lines) < m.height {
+			lines = append(lines, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // runStateChip returns the right-edge status chip + text for the
@@ -555,7 +525,7 @@ func (m Model) runStateChip() string {
 	case runDone:
 		return stFinished.Render(" DONE ")
 	default:
-		return stIdle.Render(" IDLE ")
+		return stIdleChip.Render(" IDLE ")
 	}
 }
 
@@ -580,12 +550,29 @@ func (m Model) renderHelp() string {
 	// 稳定排序，浮层每次读起来一致。
 	sort.Slice(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
 
+	// Width law: the overlay must never exceed the terminal. Budget:
+	// box 6 (border 2 + h-padding 4) + leading indent 2 + hint (key+2)
+	// + gap 2. Truncate the longest key column first, then descs.
+	// / 宽度律：浮层绝不超终端。预算：框 6（边框 2 + 横向 padding 4）
+	// + 行首缩进 2 + 键位提示（key+2）+ 间隔 2。先按最长键位列算，再
+	// 截描述。
+	maxKey := 0
+	for _, r := range rows {
+		if n := lipgloss.Width(r.key); n > maxKey {
+			maxKey = n
+		}
+	}
+	descBudget := m.width - (6 + 2 + maxKey + 2) - 2 // hint padding
+	if descBudget < 8 {
+		descBudget = 8 // keep something readable on absurd terminals
+	}
+
 	var sb strings.Builder
 	sb.WriteString(stPanelHeader.Render("KEYMAP"))
 	sb.WriteString("\n\n")
 	for _, r := range rows {
 		kb := stKeyHint.Render(" " + r.key + " ")
-		sb.WriteString(fmt.Sprintf("  %s  %s\n", kb, r.desc))
+		sb.WriteString(fmt.Sprintf("  %s  %s\n", kb, truncate(r.desc, descBudget)))
 	}
 	sb.WriteString("\n")
 	sb.WriteString(stMuted.Render("press ? or esc to close"))
@@ -596,14 +583,6 @@ func (m Model) renderHelp() string {
 	return body
 }
 
-// twoColumn reports whether the current width supports the
-// two-column layout. minWidth is the floor; below it we stack
-// to avoid horizontal overflow on 80×24 terminals.
-//
-// twoColumn 报告当前宽度是否支持两栏布局。minWidth 是下限；低于
-// 此值时堆叠以避免 80×24 终端横向溢出。
-func (m Model) twoColumn() bool { return m.width >= minWidth }
-
 // totalHosts returns the State-cached total host count, or 0 when
 // the State is nil. Used by the rate row's "probed N / M" display.
 // totalHosts 返回 State 缓存的总主机数；State 为 nil 时返回 0。
@@ -613,43 +592,4 @@ func (m Model) totalHosts() int64 {
 		return 0
 	}
 	return m.state.TotalHosts.Load()
-}
-
-// renderTopPluginsPanel builds the right "TOP PLUGINS" panel —
-// the top-5 hit-count bars. Renders "(no hits yet)" placeholder
-// when m.topPlugins is empty. Rows are joined without trailing
-// newlines and the header uses the flush style: a margin or a
-// trailing "\n" would inject stray blank lines into the
-// JoinVertical composition (visible as ragged gaps in the probe).
-//
-// renderTopPluginsPanel 构建右侧 "TOP PLUGINS" 面板——top-5
-// 命中柱状图。m.topPlugins 为空时渲染 "(no hits yet)" 占位符。
-// 行拼接不带结尾换行、标题用 flush 样式：边距或结尾 "\n" 会往
-// JoinVertical 组合里注入多余空行（探针里表现为参差空隙）。
-func (m Model) renderTopPluginsPanel(width int) string {
-	var body strings.Builder
-	body.WriteString("  ")
-	body.WriteString(stPanelHeaderFlush.Render("TOP PLUGINS"))
-	if len(m.topPlugins) == 0 {
-		body.WriteString("\n  (no hits yet)")
-	} else {
-		for _, p := range m.topPlugins {
-			// Count → 12-char bar → name. The bar length is fixed
-			// at 12 chars so the panel reads as a column even when
-			// counts span 1 → 9999. We use a static bar (0.5 fill)
-			// rather than a count-proportional one because the
-			// proportional version makes a hit count of 1 look
-			// indistinguishable from a glitch.
-			// 计数 → 12 字符 bar → 名称。bar 长度固定 12 字符，
-			// 让面板读作一列，即使计数跨 1 → 9999。用静态 bar
-			// （0.5 填充）而非按计数比例，因为按比例的话 1 命中
-			// 看起来跟"故障"没区别。
-			fmt.Fprintf(&body, "\n  %-10s %s  %s",
-				p[1], bar(0.5, 12), p[0])
-		}
-	}
-	if width >= 100 {
-		return stBox.Width(statsColWidth).Render(body.String())
-	}
-	return body.String()
 }

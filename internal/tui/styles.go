@@ -1,7 +1,33 @@
-// tui/styles.go — Sliver C2 inspired terminal palette.
+// tui/styles.go — TUI v3 role-token visual system (spec §6).
 //
-// Dark navy background, cyan accents, minimal borders.
-// Professional operator terminal aesthetic.
+// tui/styles.go — TUI v3 角色令牌视觉系统（spec §6）。
+//
+// ONE palette, expressed as role tokens in four domains (spec §6.1):
+// background (cBg/cPanel), neutral (cBorder/cText/cDim/cMuted), signal
+// (cAccent/cOk/cErr/cWarn), focus (cZone/cIdle). The v0.7.0 era mixed
+// a Sliver-C2 palette and a GitHub-Dark palette in the same frame —
+// both are retired; every color reference in the package must go
+// through these tokens.
+//
+// 一套调色板，以四大域的角色令牌表达（spec §6.1）：背景（cBg/cPanel）、
+// 中性（cBorder/cText/cDim/cMuted）、信号（cAccent/cOk/cErr/cWarn）、
+// 焦点（cZone/cIdle）。v0.7.0 时代同一帧里混用 Sliver C2 与 GitHub
+// Dark 两套色——全部废弃；包内一切颜色引用必须走这些令牌。
+//
+// ONE symbol table (spec §6.3): spinner + event symbols + state
+// symbols. The legacy symSuccess/symError/symCredHit/symWarnTag aliases
+// are deleted.
+//
+// 一套符号表（spec §6.3）：spinner + 事件符号 + 状态符号。legacy 的
+// symSuccess/symError/symCredHit/symWarnTag 别名已删除。
+//
+// ONE progress-bar implementation (spec §5.5): renderBar with
+// sub-character precision on the single glyph family
+// {░▏▎▍▌▋▊▉█}. The dual-glyph ▓/░ bars are retired — one family,
+// one baseline, no misalignment.
+//
+// 一套进度条实现（spec §5.5）：renderBar 以单字族 {░▏▎▍▌▋▊▉█} 做
+// 亚字符精度。双字形 ▓/░ 条已废弃——一字族、一基线、无错位。
 //
 // Palette honours the NO_COLOR env var (https://no-color.org/).
 package tui
@@ -15,146 +41,171 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color palette — Sliver C2 inspired
-const (
-	colBg     = "#0a0e14" // deep navy (Sliver dark)
-	colPanel  = "#0d1117" // subtle panel fill (GitHub dark-ish)
-	colAccent = "#00d4ff" // electric cyan (Sliver primary)
-	colAmber  = "#ffb347" // warm amber (creds)
-	colRed    = "#ff4757" // coral red (errors)
-	colCyan   = "#00d4ff" // cyan (scanning/live)
-	colYellow = "#ffd700" // gold (transitional)
-	colViolet = "#a78bfa" // soft violet (idle)
-	colDim    = "#4a5568" // slate gray (secondary)
-	colMuted  = "#718096" // light slate (tertiary)
-	colBright = "#e2e8f0" // off-white (primary text)
-	colBorder = "#1a202c" // dark border (subtle)
+// ── Role tokens (spec §6.1) ──
+// ── 角色令牌（spec §6.1）──
+var (
+	// background domain / 背景域
+	cBg    = lipgloss.Color("#0b0e14")
+	cPanel = lipgloss.Color("#0d1117")
+
+	// neutral domain / 中性域
+	cBorder = lipgloss.Color("#1c2333")
+	cText   = lipgloss.Color("#e6edf3")
+	cDim    = lipgloss.Color("#8b949e")
+	cMuted  = lipgloss.Color("#6e7681")
+
+	// signal domain / 信号域
+	cAccent = lipgloss.Color("#00e5ff")
+	cOk     = lipgloss.Color("#2bd576")
+	cErr    = lipgloss.Color("#ff5c57")
+	cWarn   = lipgloss.Color("#ffb347")
+
+	// focus domain / 焦点域
+	cZone = lipgloss.Color("#58a6ff") // T3 wires zone accent / T3 接线 zone accent
+	cIdle = lipgloss.Color("#a78bfa")
 )
 
-// Symbols
+// Compile-time references to palette tokens not yet wired to a renderer
+// (T3 zone accent). Keeps the tokens in the single palette without
+// tripping the unused linter. / 尚未接线到渲染器的调色板令牌的编译期
+// 引用（T3 zone accent）。让令牌留在唯一调色板里又不触发 unused。
+var _ = cZone
+
+// ── Symbols (spec §6.3, single table) ──
+// ── 符号表（spec §6.3，唯一一表）──
 const (
 	spinnerFrames = "◐◓◑◒"
-	symSpinner    = "◐"
-	symSuccess    = "▸"
-	symError      = "✗"
-	symCredHit    = "✓" // legacy cred-tag glyph (renamed from symDone in v0.7.0)
-	symWarnTag    = "⚠" // legacy warn-tag glyph (renamed from symWarn in v0.7.0)
-	symActive     = "▶"
-	symDot        = "·"
+
+	// Event severity symbols. Every token is a fixed 3-column bracket
+	// tag: pure ASCII, unambiguous width in every monospace font (the
+	// old ✓/✗ glyphs are ambiguous-width in some fonts and sized
+	// unevenly), and all differentiation rides on the signal color.
+	// / 事件严重度符号。每个令牌都是固定 3 列的方括号标记：纯 ASCII，
+	// 在任何等宽字体下列宽无歧义（旧 ✓/✗ 字形在部分字体里是 ambiguous
+	// width 且大小不齐），语义差异完全由信号色承担。
+	symCriticalHit = "[!]" // default-creds accepted (red flag)
+	symInfoHit     = "[+]" // service identified (yellow)
+	symCredSuccess = "[*]" // credential success (green)
+	symMiss        = "[-]" // refused/timeout/dns (gray)
+	symWarn        = "[~]" // partial / TLS handshake fail
+
+	// Pipeline state symbols. / 管线状态符号。
+	symActive = "▶"
+	symDone   = "●"
+	symIdle   = "○"
 )
 
-// Box drawing
-// Box-drawing characters used by the dashboard layout. The
-// top-left / bottom-right corners (boxTL / boxBR) were unused since
-// v0.2's box-banner removal; deleted in v0.3.1 (P6.2 of the audit
-// roadmap). / 仪表板布局用的方框字符。左上 / 右下角（boxTL / boxBR）
-// 自 v0.2 移除方框 banner 后就没用；v0.3.1 删除（审计路线图 P6.2）。
+// ── Lattice box drawing (spec §5.1, shared borders) ──
+// ── Lattice 框字符（spec §5.1，共享边框）──
 const (
 	boxH  = "─"
 	boxV  = "│"
+	boxTL = "┌"
 	boxTR = "┐"
 	boxBL = "└"
+	boxBR = "┘"
+	boxLS = "├"
+	boxRS = "┤"
+	boxDn = "┬" // body-top junction (wide two-column) / 主体上分隔的三通（宽屏双列）
+	boxUp = "┴" // body-bottom junction / 主体下分隔的三通
 )
 
-// Layout
-const (
-	minWidth      = 80
-	statsColWidth = 28
-)
+// barFracs is the eighth-fraction glyph family used between ░ (empty)
+// and █ (full), index 0 = 1/8 filled. / barFracs 是 ░（空）与 █（满）
+// 之间的八分块字族，索引 0 = 1/8 填充。
+const barFracs = "▏▎▍▌▋▊▉"
 
-// Styles
+// Styles. / 样式。
 var (
 	stTitle       lipgloss.Style
-	stDim         lipgloss.Style
 	stMuted       lipgloss.Style
 	stWarn        lipgloss.Style
-	stBox         lipgloss.Style
+	stFrame       lipgloss.Style
 	stPanelHeader lipgloss.Style
-	// stPanelHeaderFlush is stPanelHeader without the bottom margin —
-	// for in-flow panels (TOP PLUGINS) where a margin would inject a
-	// stray blank line into the JoinVertical composition.
-	// / stPanelHeaderFlush 是无下边距的 stPanelHeader——用于流内面板
-	// （TOP PLUGINS），带边距会往 JoinVertical 组合里注入多余空行。
-	stPanelHeaderFlush lipgloss.Style
-	stKeyHint          lipgloss.Style
-	stHelp             lipgloss.Style
-	stRunning          lipgloss.Style
-	stIdle             lipgloss.Style
-	stFinished         lipgloss.Style
+	stKeyHint     lipgloss.Style
+	stHelp        lipgloss.Style
+	stRunning     lipgloss.Style
+	stIdleChip    lipgloss.Style
+	stFinished    lipgloss.Style
 )
 
 func init() {
-	accent := colAccent
-	dimFg := colDim
-	mutedFg := colMuted
 	if isNoColor() {
-		accent = colDim
-		dimFg = colDim
-		mutedFg = colDim
+		// Signal + focus roles degrade to dim; neutrals stay. The
+		// finer truecolor→256→grayscale ladder is lipgloss's job
+		// (spec §6.2); NO_COLOR is the explicit kill switch.
+		// 信号与焦点角色降为 dim；中性不变。truecolor→256→灰度的
+		// 细阶梯由 lipgloss 负责（spec §6.2）；NO_COLOR 是显式总闸。
+		cAccent = cDim
+		cOk = cDim
+		cErr = cDim
+		cWarn = cDim
+		cZone = cDim
+		cIdle = cDim
 	}
 
-	// Title: cyan bold, no background
+	// Title text inside the lattice top border: accent bold.
+	// lattice 顶边框内的标题文本：accent 加粗。
 	stTitle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(accent)).
+		Foreground(cAccent).
 		Bold(true)
-
-	stDim = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(dimFg))
 
 	stMuted = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(mutedFg))
+		Foreground(cMuted)
 
 	stWarn = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colAmber)).
+		Foreground(cWarn).
 		Bold(true)
 
-	// Panel box: subtle dark border
-	stBox = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(colBorder)).
-		Padding(0, 1)
+	// Lattice frame glyphs (borders, separators, corners).
+	// lattice 框字形（边框、分隔线、角）。
+	stFrame = lipgloss.NewStyle().
+		Foreground(cBorder)
 
-	// Panel header: cyan bold
+	// Panel header: accent bold. Single flush variant — the margin
+	// variant is retired; inside the lattice a margin would inject
+	// stray blank rows into band composition.
+	// 面板标题：accent 加粗。仅保留 flush 变体——带边距变体已废弃；
+	// lattice 内边距会往 band 组合里注入多余空行。
 	stPanelHeader = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(accent)).
-		Bold(true).
-		MarginBottom(1)
-
-	// Flush variant: no margin (see var-block comment).
-	// / 无边距变体（见 var 块注释）。
-	stPanelHeaderFlush = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(accent)).
+		Foreground(cAccent).
 		Bold(true)
 
-	// Key hint: cyan bg, dark text
+	// Key hint: accent bg, dark text. / 键位提示：accent 底、深色字。
 	stKeyHint = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBg)).
-		Background(lipgloss.Color(accent)).
+		Foreground(cBg).
+		Background(cAccent).
 		Bold(true).
 		Padding(0, 1)
 
-	// Help overlay: dark panel, cyan border
+	// Help overlay: panel bg, accent border. / 帮助浮层：panel 底、accent 边框。
 	stHelp = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBright)).
-		Background(lipgloss.Color(colPanel)).
+		Foreground(cText).
+		Background(cPanel).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(accent)).
+		BorderForeground(cAccent).
 		Padding(1, 2)
 
-	// Status chips
+	// Status chips (inverse-video). / 状态芯片（反白）。
 	stRunning = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBg)).
-		Background(lipgloss.Color(colCyan)).
+		Foreground(cBg).
+		Background(cAccent).
 		Bold(true)
 
-	stIdle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBright)).
-		Background(lipgloss.Color(colViolet)).
+	// stIdleChip (was stIdle): IDLE chip on the idle-role violet.
+	// Renamed to avoid confusion with the symIdle constant.
+	// stIdleChip（原 stIdle）：IDLE 芯片用 idle 角色紫。改名以避免
+	// 与 symIdle 常量混淆。
+	stIdleChip = lipgloss.NewStyle().
+		Foreground(cText).
+		Background(cIdle).
 		Bold(true)
 
+	// DONE chip on the ok-role green: success is the semantic.
+	// DONE 芯片用 ok 角色绿：语义即"成功"。
 	stFinished = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colBg)).
-		Background(lipgloss.Color(accent)).
+		Foreground(cBg).
+		Background(cOk).
 		Bold(true)
 }
 
@@ -169,44 +220,14 @@ func isNoColor() bool {
 	return true
 }
 
-// --- v0.7.0 additions: severity colors, symbols, progress bars, sparkline ---
-
-// GitHub Dark palette — well-tested for legibility, contrast >=4.5:1.
-// / GitHub Dark 调色板——可读性经过验证，对比度 >=4.5:1。
+// renderBar renders a width-w progress bar with sub-character
+// precision: full cells are █, a fractional cell takes the nearest
+// eighth glyph (▏▎▍▌▋▊▉), the rest are ░. filled/total=0 (unknown
+// denominator) renders w empty cells; over-fill clamps to 100%.
 //
-// renderers in Spec B Tasks 5-9; declared here in Task 2 to lock the
-// contract early. Will become used as soon as Task 5's header renderer
-// lands.
-//
-//nolint:unused // colorBg / colorAccent / colorBorder are wired by region
-var (
-	colorBg     = lipgloss.Color("#0e1116") // almost-black
-	colorFg     = lipgloss.Color("#e6edf3") // off-white
-	colorFgDim  = lipgloss.Color("#8b949e") // dimmed gray
-	colorAccent = lipgloss.Color("#58a6ff") // cyan-blue (brand)
-	colorOk     = lipgloss.Color("#3fb950") // green (credential success)
-	colorWarn   = lipgloss.Color("#d29922") // yellow (info hit / partial)
-	colorErr    = lipgloss.Color("#f85149") // red (critical hit / default-creds)
-	colorBorder = lipgloss.Color("#30363d") // subtle dividers
-)
-
-// Symbol table — no emoji; terminal fallback safe. / 符号表——
-// 无 emoji；terminal 回退安全。
-const (
-	symCriticalHit = "!!"  // default-creds accepted (red flag)
-	symInfoHit     = "✓"   // service identified (yellow)
-	symCredSuccess = "✓✓"  // credential success (green)
-	symMiss        = "✗"   // refused/timeout/dns (gray)
-	symWarn        = "⚠"   // partial / TLS handshake fail
-	symScanning    = "..." // spinner uses Bubbletea spinner.Model
-	symDone        = "●"
-	symIdle        = "○"
-)
-
-// renderBar renders a progress bar of width w filled to ratio.
-// Width-0 / total-0 returns w empty glyphs. Over-filled clamps to 100%.
-// / renderBar 渲染宽度 w、按 ratio 填充的进度条。w=0 或 total=0
-// 返回 w 个空字符。超填钳到 100%。
+// renderBar 以亚字符精度渲染宽度 w 的进度条：整格 █，小数格取最
+// 接近的八分块字形（▏▎▍▌▋▊▉），其余 ░。filled/total=0（未知分母）
+// 渲染 w 个空格；超填钳到 100%。
 func renderBar(filled, total, w int) string {
 	if w <= 0 {
 		return ""
@@ -221,15 +242,36 @@ func renderBar(filled, total, w int) string {
 	if ratio < 0 {
 		ratio = 0
 	}
-	f := int(float64(w) * ratio)
-	return strings.Repeat("▓", f) + strings.Repeat("░", w-f)
+	pos := float64(w) * ratio
+	full := int(pos)
+	frac := pos - float64(full)
+
+	var sb strings.Builder
+	sb.WriteString(strings.Repeat("█", full))
+	if full < w {
+		used := full
+		if eighths := int(frac * 8); eighths > 0 {
+			// barFracs is a string, so slicing is byte-based; go through
+			// []rune to grab one whole 3-byte glyph.
+			// / barFracs 是 string，切片按字节；经 []rune 取完整的
+			// 3 字节字形。
+			sb.WriteRune([]rune(barFracs)[eighths-1])
+			used++
+		}
+		sb.WriteString(strings.Repeat("░", w-used))
+	}
+	return sb.String()
 }
 
 // sparkline returns a string of `width` Unicode block-element glyphs
 // representing the samples normalized to [0, 1]. Empty samples or
 // width<=0 → empty string. Samples shorter than width are padded
-// with the lowest glyph. / sparkline 返回 `width` 个 Unicode 块元
-// 素字符的字符串，表示归一化到 [0, 1] 的样本。
+// with the lowest glyph. (Fixed-scale P95 normalization lands in T3 —
+// spec §6.4; the windowed max keeps T0 visually unchanged.)
+//
+// sparkline 返回 `width` 个 Unicode 块元素字符的字符串，表示归一化
+// 到 [0, 1] 的样本。（P95 固定尺度归一化 T3 落地——spec §6.4；
+// T0 沿用窗口 max，视觉不变。）
 func sparkline(samples []float64, width int) string {
 	if len(samples) == 0 || width <= 0 {
 		return ""
@@ -307,34 +349,30 @@ func symFor(kind string) string {
 
 // severityColor returns the right color for an event kind. Honors
 // flash expiry: if host:port is currently flashing, return the flash
-// color — red (colorErr) for most kinds, but green (colorOk) for
-// cred_success. A credential hit is the scan's most valuable finding;
-// flashing it in the same red as errors made operators misread wins
-// as failures (the "flash colour tuning" leftover from TUI v2 Spec
-// C). The steady-state color below the flash window is unchanged.
+// color — err red for most kinds, but ok green for cred_success (a
+// credential hit is the scan's most valuable finding; flashing it in
+// the same red as errors made operators misread wins as failures).
 // / severityColor 返回事件类型对应的颜色。遵循 flash 过期：如果
-// host:port 当前在 flash，返回 flash 色——多数事件红色（colorErr），
-// 但 cred_success 用绿色（colorOk）。凭据命中是扫描中价值最高的发
-// 现；与错误同色闪红会让操作员把命中误读为失败（TUI v2 Spec C 遗
-// 留的"flash 颜色调优"项）。flash 窗口之后的稳态色不变。
+// host:port 当前在 flash，返回 flash 色——多数事件 err 红，但
+// cred_success 用 ok 绿（凭据命中价值最高，闪红会被误读为失败）。
 func (m Model) severityColor(e eventEntry) lipgloss.Color {
 	key := fmt.Sprintf("%s:%d", e.Host, e.Port)
 	if until, ok := m.flashUntil[key]; ok && time.Now().Before(until) {
 		if e.Kind == "cred_success" {
-			return colorOk
+			return cOk
 		}
-		return colorErr
+		return cErr
 	}
 	switch e.Kind {
 	case "cred_success":
-		return colorOk
+		return cOk
 	case "hit":
-		return colorWarn
+		return cWarn
 	case "warn":
-		return colorWarn
+		return cWarn
 	case "miss":
-		return colorFgDim
+		return cDim
 	default:
-		return colorFg
+		return cText
 	}
 }

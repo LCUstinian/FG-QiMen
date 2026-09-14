@@ -1,0 +1,24 @@
+                                                            
+                                                            
+                                                            
+                                                            
+   ┌───────────────────────────────────────────────────┐    
+   │                                                   │    
+   │  KEYMAP                                           │    
+   │                                                   │    
+   │      ?    toggle this help overlay                │    
+   │      E    collapse the errors panel               │    
+   │      L    toggle the live-events overlay (nar...  │    
+   │      e    toggle the errors panel (collapsed ...  │    
+   │      p    pause the dashboard display (pipeli...  │    
+   │      q / Ctrl-C    quit the scan                  │    
+   │      r    resume the dashboard display            │    
+   │                                                   │    
+   │  press ? or esc to close                          │    
+   │                                                   │    
+   └───────────────────────────────────────────────────┘    
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
