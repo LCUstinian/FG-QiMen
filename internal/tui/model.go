@@ -240,6 +240,77 @@ type Model struct {
 	// 突变都留在 Update goroutine 内。
 	nextEventID uint64
 
+	// ── v0.10.0 T2: EVENTS scroll & display dynamics (spec §5.4) ──
+	// v0.10.0 T2：EVENTS 滚动与显示动态（spec §5.4）。
+
+	// browse is true when the EVENTS viewport is decoupled from the
+	// tail (manual scroll). New events keep entering the ring but
+	// only accumulate browseLag — the viewport never jumps (spec
+	// §4.1 browse 语义).
+	// / browse 为 true 时 EVENTS 视口与尾部脱钩（手动滚动）。新事件
+	// 照常进 ring 但只累计 browseLag——视口绝不自动跳动（spec §4.1
+	// browse 语义）。
+	browse bool
+	// browseID anchors the viewport: the ID of the newest event whose
+	// row sits at the viewport bottom. ID (not index) so appended
+	// events never slide the viewport; ring eviction clamps to the
+	// oldest available row.
+	// / browseID 锚定视口：视口底部那一行所属最新事件的 ID。用 ID
+	// （非下标）让追加事件不会滑动视口；ring 淘汰时钳到最老可用行。
+	browseID uint64
+	// browseLag counts events ingested while browsing — rendered as
+	// `↓N new` in the title (cap 999 → `↓999+`).
+	// / browseLag 统计 browse 期间摄入的事件数——标题渲染为
+	// `↓N new`（上限 999 → `↓999+`）。
+	browseLag int
+	// expandedRun is the first ID of the ×N run replayed by Enter
+	// (0 = all collapsed). The run itself is a render-layer view;
+	// this only marks which one to expand.
+	// / expandedRun 是 Enter 重放的 ×N run 的首 ID（0 = 全部折叠）。
+	// run 本身是渲染层视图；这里只标记展开哪一个。
+	expandedRun uint64
+
+	// hostW is the current host:port column width under hysteresis
+	// (0 = uninitialized → evHostW). Growth applies immediately,
+	// shrink needs hostWHold consecutive narrow frames (spec §5.4
+	// 列宽滞回).
+	// / hostW 是滞回下的 host:port 列宽（0 = 未初始化 → evHostW）。
+	// 增长立即生效，收缩需连续 hostWHold 帧窄值（spec §5.4 列宽滞
+	// 回）。
+	hostW int
+	// hostStreak counts consecutive frames with need < hostW.
+	// / hostStreak 统计 need < hostW 的连续帧数。
+	hostStreak int
+
+	// frozenView snapshots the whole frame at pause entry — paused
+	// freezes the *viewport* (spec §4.1), hub keeps collecting.
+	// Empty fallback renders live (golden/test models built directly).
+	// / frozenView 在暂停入口拍下整帧——paused 冻结的是*视口*
+	// （spec §4.1），hub 继续收集。为空时回退实时渲染（golden/测试
+	// 直接构造的 model）。
+	frozenView string
+	// pauseAnchorID / pauseIngest0 snapshot the event frontier at
+	// pause entry; resume derives the exact hidden count from the
+	// ingested delta (快照精确值非估计, spec §4.1).
+	// / pauseAnchorID / pauseIngest0 在暂停入口拍下事件前沿；恢复时
+	// 用 ingested 差值导出精确隐藏数（快照精确值非估计，spec §4.1）。
+	pauseAnchorID uint64
+	pauseIngest0  int
+	// gapAfterID / gapCount mark the hidden-while-paused gap: the
+	// `··· N hidden while paused ···` separator renders right after
+	// the event with ID == gapAfterID. Once that event leaves the
+	// ring the separator disappears with it (self-cleaning).
+	// / gapAfterID / gapCount 标记暂停隐藏缺口：`··· N hidden while
+	// paused ···` 分隔行渲染在 ID == gapAfterID 的事件之后。该事件
+	// 离开 ring 后分隔行随之消失（自清理）。
+	gapAfterID uint64
+	gapCount   int
+	// critTotal counts every critical ever pushed — the storm view
+	// shows sidecar rows individually plus a count for evicted ones.
+	// / critTotal 累计所有进过侧车的 critical——风暴视图逐条显示侧
+	// 车行，被淘汰的以计数呈现。
+	critTotal int
+
 	// showLiveOverlay is the narrow-mode 'L' toggle: when the
 	// events region is hidden (height=0), the overlay reveals the
 	// last 5 events anyway. / showLiveOverlay 是 narrow 模式的 'L'
@@ -336,6 +407,7 @@ func (m *Model) pushCritical(e eventEntry) {
 		m.critBuf = make([]eventEntry, critSidecarCap)
 		m.critCap = critSidecarCap
 	}
+	m.critTotal++
 	m.critBuf[m.critHead] = e
 	m.critHead = (m.critHead + 1) % m.critCap
 	if m.critHead == 0 {
@@ -370,11 +442,203 @@ func (m *Model) critOrdered() []eventEntry {
 func (m *Model) appendBatch(entries []eventEntry, ingested, dropped int) {
 	m.ingested += ingested
 	m.dropped += dropped
+	if m.browse {
+		// browse 语义: new events only bump the ↓N counter, the
+		// anchored viewport never jumps. / browse 语义：新事件只累计
+		// ↓N 计数，锚定视口不跳动。
+		m.browseLag += len(entries)
+	}
 	for _, e := range entries {
 		m.pushEvent(e)
 		if isCriticalKind(e.Kind) {
 			m.pushCritical(e)
 		}
+	}
+}
+
+// ── v0.10.0 T2: scroll & column dynamics (spec §4.1 / §5.4) ──
+
+// follow reattaches the viewport to the tail: browse cleared, lag
+// reset, any expanded fold collapsed.
+// / follow 把视口重新吸底：清除 browse、清零 lag、收起展开的折叠。
+func (m *Model) follow() {
+	m.browse = false
+	m.browseID = 0
+	m.browseLag = 0
+	m.expandedRun = 0
+}
+
+// anchorIndex locates the browse anchor in the ordered ring: the
+// first event with ID ≥ browseID. An anchor evicted by the ring
+// clamps to the oldest entry; one beyond the newest clamps to the
+// last.
+// / anchorIndex 在有序 ring 中定位 browse 锚点：第一个 ID ≥
+// browseID 的事件。被 ring 淘汰的锚点钳到最老；超出最新的钳到最后。
+func (m *Model) anchorIndex(events []eventEntry) int {
+	for i, e := range events {
+		if e.ID >= m.browseID {
+			return i
+		}
+	}
+	return len(events) - 1
+}
+
+// enterBrowse switches into browse mode anchored at the newest event
+// (no movement) — shared entry for keys that need browse semantics.
+// / enterBrowse 进入 browse 模式，锚点定在最新事件（不移动）——需
+// 要 browse 语义的按键共用此入口。
+func (m *Model) enterBrowse() {
+	if !m.browse {
+		m.browse = true
+		m.browseLag = 0
+		if events := m.eventsOrdered(); len(events) > 0 {
+			m.browseID = events[len(events)-1].ID
+		}
+	}
+}
+
+// scrollUp moves the anchor one event older, entering browse on the
+// way (the viewport slides up one row). No-op on an empty ring.
+// / scrollUp 把锚点上移一个事件，途中进入 browse（视口上滑一行）。
+// ring 为空时空操作。
+func (m *Model) scrollUp() {
+	events := m.eventsOrdered()
+	switch len(events) {
+	case 0:
+		return
+	case 1:
+		m.enterBrowse() // anchor the only event; nothing to move / 锚定唯一事件，无处可移
+	default:
+		m.enterBrowse()
+		m.browseID = events[m.anchorIndex(events)-1].ID
+	}
+}
+
+// scrollDown moves the anchor one event newer; at the bottom it
+// re-enters follow (the G contract: bottom == follow).
+// / scrollDown 把锚点下移一个事件；到底即回到 follow（G 契约：
+// 底 == follow）。
+func (m *Model) scrollDown() {
+	if !m.browse {
+		return
+	}
+	events := m.eventsOrdered()
+	if idx := m.anchorIndex(events); idx >= len(events)-1 {
+		m.follow()
+		return
+	} else if idx+1 < len(events) {
+		m.browseID = events[idx+1].ID
+	}
+}
+
+// scrollTop jumps to the oldest event (g key). Enters browse when
+// coming from follow; the lag counter keeps running otherwise.
+// / scrollTop 跳到最老事件（g 键）。从 follow 进入时切 browse；已
+// 在 browse 时 lag 继续累计。
+func (m *Model) scrollTop() {
+	events := m.eventsOrdered()
+	if len(events) == 0 {
+		return
+	}
+	m.enterBrowse()
+	m.browseID = events[0].ID
+	m.expandedRun = 0
+}
+
+// scrollPage moves the anchor a page of events (PgUp / PgDn). Paging
+// down at the bottom re-enters follow.
+// / scrollPage 把锚点移动一页事件（PgUp / PgDn）。底部再下翻即回
+// follow。
+func (m *Model) scrollPage(up bool, page int) {
+	if page < 1 {
+		page = 1
+	}
+	for i := 0; i < page; i++ {
+		if up {
+			m.scrollUp()
+		} else {
+			// scrollDown at the bottom flips to follow; further
+			// iterations are no-ops. / 底部的 scrollDown 会翻回
+			// follow，后续迭代成为空操作。
+			if !m.browse {
+				break
+			}
+			m.scrollDown()
+		}
+	}
+}
+
+// toggleExpand Enter-replays the ×N run at the browse anchor (spec
+// §5.4: ≤10 originals, replayed from the ring). A second Enter on
+// the same run collapses it again.
+// / toggleExpand 用 Enter 重放 browse 锚点处的 ×N run（spec §5.4：
+// ≤10 条原文，重放自 ring）。同一 run 再按一次 Enter 收起。
+func (m *Model) toggleExpand() {
+	if !m.browse {
+		return
+	}
+	events := m.eventsOrdered()
+	if len(events) == 0 {
+		return
+	}
+	first, _, size := runBounds(events, m.anchorIndex(events))
+	if size < 2 {
+		m.expandedRun = 0
+		return
+	}
+	firstID := events[first].ID
+	if m.expandedRun == firstID {
+		m.expandedRun = 0
+		return
+	}
+	m.expandedRun = firstID
+}
+
+// curHostW is the effective host:port column width (hysteresis-aware;
+// 0 means the spec default).
+// / curHostW 是生效的 host:port 列宽（感知滞回；0 表示 spec 默认）。
+func (m Model) curHostW() int {
+	if m.hostW > 0 {
+		return m.hostW
+	}
+	return evHostW
+}
+
+// hostNeed scans the ring for the widest untruncated host:port and
+// clamps the result to [evHostW, hostWMax].
+// / hostNeed 扫描 ring 求最宽的不截断 host:port，并把结果钳到
+// [evHostW, hostWMax]。
+func (m *Model) hostNeed() int {
+	need := evHostW
+	for _, e := range m.eventsOrdered() {
+		if n := hostPortNeed(e.Host, e.Port); n > need {
+			need = n
+		}
+	}
+	if need > hostWMax {
+		need = hostWMax
+	}
+	return need
+}
+
+// stepHostWidth is the hysteresis law (spec §5.4): growth applies
+// immediately and resets the streak; shrink needs hostWHold
+// consecutive narrow frames — killing the IPv6 flap that plagued
+// earlier revisions.
+// / stepHostWidth 是滞回律（spec §5.4）：增长立即生效并清零连续
+// 计数；收缩需连续 hostWHold 帧窄值——根除早期版本 IPv6 进出的抖动。
+func stepHostWidth(cur, need, streak int) (w, newStreak int) {
+	switch {
+	case need > cur:
+		return need, 0
+	case need < cur:
+		streak++
+		if streak >= hostWHold {
+			return need, 0
+		}
+		return cur, streak
+	default:
+		return cur, 0
 	}
 }
 

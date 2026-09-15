@@ -1,24 +1,24 @@
                                                             
                                                             
-                                                            
-                                                            
-   ┌───────────────────────────────────────────────────┐    
-   │                                                   │    
-   │  KEYMAP                                           │    
-   │                                                   │    
-   │      ?    toggle this help overlay                │    
-   │      E    collapse the errors panel               │    
-   │      L    toggle the live-events overlay (nar...  │    
-   │      e    toggle the errors panel (collapsed ...  │    
-   │      p    pause the dashboard display (pipeli...  │    
-   │      q / Ctrl-C    quit the scan                  │    
-   │      r    resume the dashboard display            │    
-   │                                                   │    
-   │  press ? or esc to close                          │    
-   │                                                   │    
-   └───────────────────────────────────────────────────┘    
-                                                            
-                                                            
-                                                            
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  KEYMAP                                                  │
+│                                                          │
+│      ?    toggle this help overlay                       │
+│      E    collapse the errors panel                      │
+│      Enter    expand a ×N folded event row (browse)      │
+│      L    toggle the live-events overlay (na...          │
+│      PgUp / PgDn    page the events panel                │
+│      e    toggle the errors panel (collapsed...          │
+│      f / Esc    events panel back to follow              │
+│      g / G    events panel top / bottom (G = fol...      │
+│      p    pause the dashboard display (pipel...          │
+│      q / Ctrl-C    quit the scan                         │
+│      r    resume the dashboard display                   │
+│      ↑/k · ↓/j    scroll the events panel (enters br...  │
+│                                                          │
+│  press ? or esc to close                                 │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
                                                             
                                                             

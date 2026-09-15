@@ -3,26 +3,26 @@
                                                                                                     
                                                                                                     
                                                                                                     
-                                                                                                    
-                                                                                                    
              ┌────────────────────────────────────────────────────────────────────────┐             
              │                                                                        │             
              │  KEYMAP                                                                │             
              │                                                                        │             
              │      ?    toggle this help overlay                                     │             
              │      E    collapse the errors panel                                    │             
+             │      Enter    expand a ×N folded event row (browse)                    │             
              │      L    toggle the live-events overlay (narrow mode)                 │             
+             │      PgUp / PgDn    page the events panel                              │             
              │      e    toggle the errors panel (collapsed summary / expanded bars)  │             
+             │      f / Esc    events panel back to follow                            │             
+             │      g / G    events panel top / bottom (G = follow)                   │             
              │      p    pause the dashboard display (pipeline keeps running)         │             
              │      q / Ctrl-C    quit the scan                                       │             
              │      r    resume the dashboard display                                 │             
+             │      ↑/k · ↓/j    scroll the events panel (enters browse)              │             
              │                                                                        │             
              │  press ? or esc to close                                               │             
              │                                                                        │             
              └────────────────────────────────────────────────────────────────────────┘             
-                                                                                                    
-                                                                                                    
-                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     

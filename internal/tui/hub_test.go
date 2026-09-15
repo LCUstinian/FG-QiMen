@@ -382,12 +382,17 @@ func TestDispatcher_EventsBatchMsg(t *testing.T) {
 	}
 }
 
-// TestDispatcher_EventsBatchMsg_PausedDrops — paused mode drops the
-// whole batch on the floor (freeze display): no ring growth, no
-// counter change, no storm mirror.
-// / TestDispatcher_EventsBatchMsg_PausedDrops — 暂停态整批丢弃（冻
-// 结显示）：ring 不增长、计数不变、风暴不镜像。
-func TestDispatcher_EventsBatchMsg_PausedDrops(t *testing.T) {
+// TestDispatcher_EventsBatchMsg_PausedCounts — paused mode freezes
+// the viewport, not collection (spec §4.1): the batch's entries are
+// dropped (no ring growth — a pause-length burst would risk OOM),
+// but the counters keep accumulating (the resume path derives the
+// exact hidden-count from the ingested delta) and the storm mirror
+// stays live.
+// / TestDispatcher_EventsBatchMsg_PausedCounts — 暂停冻结的是视口，
+// 不是收集（spec §4.1）：批次条目被丢弃（ring 不增长——缓冲整个
+// 暂停期的事件爆发有 OOM 风险），但计数继续累计（恢复路径用
+// ingested 差值导出精确隐藏数），风暴镜像保持活跃。
+func TestDispatcher_EventsBatchMsg_PausedCounts(t *testing.T) {
 	m := NewModel(nil)
 	m.uiMode = modePaused
 	d := dispatcher{inner: &m}
@@ -401,14 +406,18 @@ func TestDispatcher_EventsBatchMsg_PausedDrops(t *testing.T) {
 		stormRate: 999,
 	}
 	d.Update(batch)
-	if m.ingested != 0 || m.dropped != 0 {
-		t.Errorf("paused batch mutated counters: (%d, %d), want (0, 0)",
+	if m.ingested != 1 || m.dropped != 2 {
+		t.Errorf("paused counters = (%d, %d), want (1, 2) — pause must count",
 			m.ingested, m.dropped)
 	}
-	if m.storm || m.stormRate != 0 {
-		t.Errorf("paused batch mirrored storm: (%v, %d)", m.storm, m.stormRate)
+	if !m.storm || m.stormRate != 999 {
+		t.Errorf("paused storm mirror = (%v, %d), want (true, 999)",
+			m.storm, m.stormRate)
 	}
 	if got := len(m.eventsOrdered()); got != 0 {
-		t.Errorf("paused batch grew ring: %d entries", got)
+		t.Errorf("paused batch grew ring: %d entries, want 0", got)
+	}
+	if m.browseLag != 0 {
+		t.Errorf("paused batch bumped browseLag: %d, want 0 (entries dropped)", m.browseLag)
 	}
 }

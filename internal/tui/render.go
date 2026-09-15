@@ -339,65 +339,316 @@ func formatHostPort(host string, port, maxW int) string {
 	return padTo(truncate(host, budget)+":"+portStr, maxW)
 }
 
-// viewLiveEvents renders the LIVE EVENTS cell: a panel title row plus
-// the last N events with severity colors and status symbols. Fixed
-// columns per the spec §5.1 law: 2-space pad, timestamp (8), 2-space
-// gap, symbol (3), 2-space gap, host:port (21), 2-space gap, service
-// (12), then the evidence text when present (elastic, outer-truncated).
-// The title row carries the hub counters (spec §7.2): `· N in` once
-// ingesting and `· N dropped` whenever drops occurred — silent loss is
-// forbidden. Rows are truncated to width BEFORE styling so the cell
-// can never overflow. height=0 hides the cell (narrow mode) unless the
-// 'L' overlay is on, in which case the last 5 rows show anyway.
-// / viewLiveEvents 渲染 LIVE EVENTS 格：面板标题行 + 最近 N 个事件
-// （带 severity 颜色与状态符号）。按 spec §5.1 固定列律：2 空格缩
-// 进、时间戳（8）、2 空格间隔、符号（3）、2 空格间隔、host:port
-// （21）、2 空格间隔、协议名（12），有证据文本时接 text 列（弹性，
-// 外层截断）。标题行携带 hub 计数（spec §7.2）：开始摄入后显示
-// `· N in`，发生丢弃就显示 `· N dropped`——禁止静默丢失。行在上色
-// **前**裁到 width，格永不溢出。height=0 隐藏（narrow 模式），除非
-// 'L' overlay 开启——此时强制显示最近 5 条。
+// hostPortNeed returns the rune width needed to render host:port
+// untruncated — the input to the column-width hysteresis.
+// / hostPortNeed 返回不截断渲染 host:port 所需的 rune 宽度——列宽
+// 滞回的输入。
+func hostPortNeed(host string, port int) int {
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return len(host) + 1 + len(fmt.Sprintf("%d", port)) // ':' / '：' 分隔
+}
+
+// Column hysteresis bounds (spec §5.4): the column grows for IPv6 up
+// to the longest [addr]:port and shrinks back only after hostWHold
+// consecutive narrow frames (2s at the 100ms beat).
+// / 列宽滞回边界（spec §5.4）：IPv6 使列长最高增长到最长
+// [addr]:port，收缩需连续 hostWHold 帧窄值（100ms 节拍下 2s）。
+const (
+	hostWMax  = 45
+	hostWHold = 20
+)
+
+// ── ×N render-layer merge (spec §5.4: storage never folds) ──
+// ── ×N 渲染层合并（spec §5.4：存储层不折叠）──
+
+// mergeWindow is the max gap between adjacent same-source events for
+// ×N merging (spec §5.4: 间隔 ≤1s).
+// / mergeWindow 是相邻同源事件合并的最大间隔（spec §5.4：≤1s）。
+const mergeWindow = time.Second
+
+// mergeable reports whether two chronologically adjacent events merge
+// into one ×N row: same source (host, port, kind), ≤1s apart, same
+// local display date (a date separator breaks the run).
+// / mergeable 判定两条时间相邻事件是否合并为一行 ×N：同源
+// （host, port, kind）、间隔 ≤1s、显示日期相同（日期分隔行打断 run）。
+func mergeable(a, b eventEntry) bool {
+	return a.Host == b.Host && a.Port == b.Port && a.Kind == b.Kind &&
+		b.At.Sub(a.At) >= 0 && b.At.Sub(a.At) <= mergeWindow &&
+		a.At.Format("2006-01-02") == b.At.Format("2006-01-02")
+}
+
+// runBounds expands idx out to the full merge run containing it.
+// / runBounds 把 idx 扩展到包含它的完整合并 run。
+func runBounds(events []eventEntry, idx int) (first, last, size int) {
+	first = idx
+	for first > 0 && mergeable(events[first-1], events[first]) {
+		first--
+	}
+	last = idx
+	for last < len(events)-1 && mergeable(events[last], events[last+1]) {
+		last++
+	}
+	return first, last, last - first + 1
+}
+
+// replayMax caps an expanded run's replay (spec §5.4: ≤10 条原文).
+// / replayMax 限制展开 run 的重放条数（spec §5.4：≤10 条原文）。
+const replayMax = 10
+
+// evRow is one decorated display row: an event (possibly a merged ×N
+// run, possibly expanded into its originals) or a separator.
+// / evRow 是一行装饰后的显示行：事件（可能是合并的 ×N run，也可能
+// 已展开为原文）或分隔行。
+type evRow struct {
+	typ     int // rowEvent | rowDateSep | rowGapSep
+	entry   eventEntry
+	run     int // ≥1; >1 renders the ×N suffix / >1 渲染 ×N 后缀
+	firstID uint64
+	lastID  uint64
+	replay  []eventEntry // non-nil when the run is Enter-expanded / run 被 Enter 展开时非 nil
+	label   string       // separator text / 分隔行文本
+}
+
+const (
+	rowEvent = iota
+	rowDateSep
+	rowGapSep
+)
+
+// decorateEvents builds the display rows from the ring chronology:
+// adjacent same-source events merge to ×N, day boundaries insert date
+// separators, and the paused-gap separator lands right after its
+// anchor event (self-cleaning: gone once the anchor leaves the ring).
+// Returns the rows plus the count of entries currently folded away
+// (the title's `· N merged`).
+// / decorateEvents 从 ring 时序构建显示行：相邻同源合并为 ×N，跨日
+// 插入日期分隔行，暂停缺口分隔行落在锚事件之后（自清理：锚事件离
+// 开 ring 即消失）。返回行 + 当前被折叠省略的条数（标题的
+// `· N merged`）。
+func decorateEvents(events []eventEntry, expandedRun, gapAfterID uint64, gapCount int) ([]evRow, int) {
+	var rows []evRow
+	merged := 0
+	i := 0
+	for i < len(events) {
+		e := events[i]
+		if len(rows) > 0 {
+			if prev := rows[len(rows)-1]; prev.typ == rowEvent &&
+				prev.entry.At.Format("2006-01-02") != e.At.Format("2006-01-02") {
+				// Local day boundary (events carry local time per the
+				// pipeline contract). / 跨日边界（按管线契约事件携带本地
+				// 时间）。
+				rows = append(rows, evRow{typ: rowDateSep,
+					label: e.At.Format("2006-01-02")})
+			}
+		}
+		first, last, size := runBounds(events, i)
+		rep := events[first]
+		row := evRow{typ: rowEvent, entry: rep, run: size,
+			firstID: rep.ID, lastID: events[last].ID}
+		if size > 1 && expandedRun == rep.ID {
+			// Replay the newest ≤replayMax originals, chronologically.
+			// / 按时间序重放最新的 ≤replayMax 条原文。
+			n := size
+			if n > replayMax {
+				n = replayMax
+			}
+			row.replay = events[last+1-n : last+1]
+		}
+		merged += size - 1
+		if row.replay != nil {
+			merged -= len(row.replay) - 1
+		}
+		rows = append(rows, row)
+		if gapCount > 0 && rep.ID <= gapAfterID && gapAfterID <= events[last].ID {
+			rows = append(rows, evRow{typ: rowGapSep,
+				label: fmt.Sprintf("··· %d hidden while paused ···", gapCount)})
+		}
+		i = last + 1
+	}
+	return rows, merged
+}
+
+// eventLine formats one event row: fixed columns per spec §5.1 plus
+// the evidence text; the host column uses the hysteresis width.
+// / eventLine 格式化一行事件：spec §5.1 定宽列 + 证据文本；host 列
+// 使用滞回宽度。
+func (m Model) eventLine(e eventEntry) string {
+	sym := padTo(symFor(e.Kind), evSymW)
+	ts := e.At.Format("15:04:05")
+	hostPort := formatHostPort(e.Host, e.Port, m.curHostW())
+	svc := padTo(truncate(e.Service, evSvcW), evSvcW)
+	line := fmt.Sprintf("  %s  %s  %s  %s", ts, sym, hostPort, svc)
+	if e.Text != "" {
+		// Evidence text trails the fixed columns; the outer
+		// truncate caps it to the cell width. / 证据文本缀在定宽
+		// 列之后；外层 truncate 负责裁到格宽。
+		line += "  " + e.Text
+	}
+	return line
+}
+
+// eventsTitle builds the LIVE EVENTS title row: hub counters on the
+// left (spec §7.2 — drop>0 must surface), the scroll-state chip on
+// the right (follow ▼ / browse ▲ ↓N new).
+// / eventsTitle 构建 LIVE EVENTS 标题行：左侧 hub 计数（spec §7.2
+// ——drop>0 必须上屏），右侧滚动状态芯片（follow ▼ / browse ▲
+// ↓N new）。
+func (m Model) eventsTitle(width, merged int) string {
+	left := "  LIVE EVENTS"
+	if m.ingested > 0 {
+		left += fmt.Sprintf(" · %d in", m.ingested)
+	}
+	if m.dropped > 0 {
+		left += fmt.Sprintf(" · %d dropped", m.dropped)
+	}
+	if merged > 0 {
+		left += fmt.Sprintf(" · %d merged", merged)
+	}
+	chip := "follow ▼"
+	if m.browse {
+		chip = "browse ▲"
+		if m.browseLag > 0 {
+			n := fmt.Sprintf("%d", m.browseLag)
+			if m.browseLag > 999 {
+				n = "999+"
+			}
+			chip += " ↓" + n + " new"
+		}
+	}
+	leftS := stPanelHeader.Render(left)
+	chipS := stMuted.Render(chip)
+	gap := width - lipgloss.Width(leftS) - lipgloss.Width(chipS)
+	if gap < 1 {
+		return leftS
+	}
+	return leftS + strings.Repeat(" ", gap) + chipS
+}
+
+// viewLiveEvents renders the LIVE EVENTS cell (spec §5.4): title row
+// with hub counters + scroll chip, then the decorated event rows —
+// follow glues to the tail, browse shows a viewport anchored at
+// browseID with the newest rows hidden behind the ↓N counter. Storm
+// mode swaps the content for the critical-only summary view. Rows are
+// truncated to width BEFORE styling so the cell can never overflow;
+// height=0 hides the cell unless the 'L' overlay is on.
+// / viewLiveEvents 渲染 LIVE EVENTS 格（spec §5.4）：标题行含 hub 计
+// 数 + 滚动芯片，下面是装饰后的事件行——follow 吸底，browse 显示以
+// browseID 锚定的视口、最新行藏在 ↓N 计数之后。风暴态把内容换成
+// critical-only 摘要视图。行在上色**前**裁到 width，格永不溢出；
+// height=0 隐藏，除非 'L' overlay 开启。
 func (m Model) viewLiveEvents(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
-	title := "  LIVE EVENTS"
-	if m.ingested > 0 {
-		title += fmt.Sprintf(" · %d in", m.ingested)
+	if m.storm {
+		return m.viewStormEvents(height, width)
 	}
-	if m.dropped > 0 {
-		title += fmt.Sprintf(" · %d dropped", m.dropped)
-	}
-	rows := []string{stPanelHeader.Render(title)}
 	events := m.eventsOrdered()
-	if len(events) == 0 {
-		rows = append(rows, lipgloss.NewStyle().
-			Foreground(cDim).
-			Render("  (no events yet)"))
-		return strings.Join(rows, "\n")
-	}
-	// Take last height-1 events (the title row occupies one slot),
-	// newest at bottom. / 取最后 height-1 条（标题行占一格），最新在底。
-	n := len(events)
-	start := 0
-	if n > height-1 {
-		start = n - (height - 1)
-	}
-	for _, e := range events[start:] {
-		c := m.severityColor(e)
-		sym := padTo(symFor(e.Kind), evSymW)
-		ts := e.At.Format("15:04:05")
-		hostPort := formatHostPort(e.Host, e.Port, evHostW)
-		svc := padTo(truncate(e.Service, evSvcW), evSvcW)
-		line := fmt.Sprintf("  %s  %s  %s  %s", ts, sym, hostPort, svc)
-		if e.Text != "" {
-			// Evidence text trails the fixed columns; the outer
-			// truncate caps it to the cell width. / 证据文本缀在定宽
-			// 列之后；外层 truncate 负责裁到格宽。
-			line += "  " + e.Text
+	rows, merged := decorateEvents(events, m.expandedRun, m.gapAfterID, m.gapCount)
+	title := m.eventsTitle(width, merged)
+	var window []evRow
+	switch {
+	case len(rows) == 0:
+		return title + "\n" + lipgloss.NewStyle().Foreground(cDim).Render("  (no events yet)")
+	case m.browse:
+		// Viewport bottom = the row containing the anchor event;
+		// evicted anchors clamp to the oldest row.
+		// / 视口底 = 锚点事件所在行；被淘汰的锚点钳到最老行。
+		bottom := len(rows) - 1
+		for i, r := range rows {
+			if r.typ == rowEvent && r.lastID >= m.browseID {
+				bottom = i
+				break
+			}
 		}
-		rows = append(rows, lipgloss.NewStyle().Foreground(c).Render(
-			truncate(line, width)))
+		start := bottom - (height - 2)
+		if start < 0 {
+			start = 0
+		}
+		window = rows[start : bottom+1]
+	default: // follow: glue to the tail / follow：吸底
+		start := len(rows) - (height - 1)
+		if start < 0 {
+			start = 0
+		}
+		window = rows[start:]
+	}
+	out := make([]string, 0, len(window)+1)
+	out = append(out, title)
+	for _, r := range window {
+		switch r.typ {
+		case rowDateSep:
+			out = append(out, lipgloss.NewStyle().Foreground(cDim).
+				Render(truncate("  ── "+r.label+" ──", width)))
+		case rowGapSep:
+			out = append(out, lipgloss.NewStyle().Foreground(cDim).
+				Render(truncate("  "+r.label, width)))
+		default:
+			if r.replay != nil {
+				for _, e := range r.replay {
+					out = append(out, lipgloss.NewStyle().
+						Foreground(m.severityColor(e)).
+						Render(truncate(m.eventLine(e), width)))
+				}
+				continue
+			}
+			line := m.eventLine(r.entry)
+			if r.run > 1 {
+				line += fmt.Sprintf(" ×%d", r.run)
+			}
+			out = append(out, lipgloss.NewStyle().
+				Foreground(m.severityColor(r.entry)).
+				Render(truncate(line, width)))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// viewStormEvents renders the storm-mode EVENTS cell (spec §5.4 风暴
+// 显示): one summary line (rate · hits% · critical only) at 2Hz-ish
+// freshness, then the critical sidecar rows individually (≤8) and a
+// count for sidecar-evicted criticals.
+// / viewStormEvents 渲染风暴态的 EVENTS 格（spec §5.4 风暴显示）：
+// 顶部一行摘要（速率 · 命中率 · critical only），下面 critical 侧车
+// 行逐条上屏（≤8），被侧车淘汰的 critical 以计数呈现。
+func (m Model) viewStormEvents(height, width int) string {
+	title := m.eventsTitle(width, 0)
+	// hits% derived from the ring window (≤64 samples) — cumulative
+	// counters would smear the storm window with pre-storm history.
+	// / hits% 从 ring 窗口导出（≤64 样本）——累计计数会把风暴前历
+	// 史糊进窗口。
+	total := len(m.eventsOrdered())
+	hits := 0
+	for _, e := range m.eventsOrdered() {
+		if isHitKind(e.Kind) {
+			hits++
+		}
+	}
+	pct := 0
+	if total > 0 {
+		pct = hits * 100 / total
+	}
+	summary := lipgloss.NewStyle().Foreground(cWarn).Render(truncate(
+		fmt.Sprintf("  ▲ %d ev/s · %d%% hits · critical only", m.stormRate, pct), width))
+	rows := []string{title, summary}
+	crit := m.critOrdered()
+	if m.critTotal > len(crit) {
+		rows = append(rows, lipgloss.NewStyle().Foreground(cDim).Render(truncate(
+			fmt.Sprintf("  + %d more criticals", m.critTotal-len(crit)), width)))
+	}
+	// Fill the remaining viewport with the newest sidecar rows.
+	// / 剩余视口填最新的侧车行。
+	n := height - len(rows)
+	if n > 0 {
+		if n > len(crit) {
+			n = len(crit)
+		}
+		for _, e := range crit[len(crit)-n:] {
+			rows = append(rows, lipgloss.NewStyle().Foreground(m.severityColor(e)).
+				Render(truncate(m.eventLine(e), width)))
+		}
 	}
 	return strings.Join(rows, "\n")
 }

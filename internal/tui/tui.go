@@ -284,6 +284,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// eventMsg 到达时它们推 runState 前进，但 spinner 必
 		// 须独立于数据流继续转（否则空闲扫描看起来冻住了）。
 		m.frameIdx = (m.frameIdx + 1) % len(spinnerFrames)
+		// Column hysteresis step (spec §5.4): the tick is the
+		// frame beat, so the grow-immediate / shrink-after-20
+		// law lives here — all mutations stay in this goroutine.
+		// / 列宽滞回步进（spec §5.4）：tick 就是帧拍，增长立即/
+		// 收缩 20 帧的律法落在这里——所有突变都留在本 goroutine。
+		m.hostW, m.hostStreak = stepHostWidth(m.curHostW(), m.hostNeed(), m.hostStreak)
 		// Linger countdown: in runDone we keep ticking the
 		// spinner for `lingerLeft` more frames so the operator
 		// can read the final summary inside the TUI frame.
@@ -334,14 +340,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		case "p":
-			// Toggle pause / 切换暂停
+			// Pause: freeze the *viewport* (spec §4.1 paused 语义升
+			// 级) — snapshot the whole frame so nothing re-renders,
+			// while the hub keeps collecting. The event frontier
+			// (last ID + ingested counter) is captured for the exact
+			// hidden-count on resume.
+			// / 暂停：冻结*视口*（spec §4.1 paused 语义升级）——拍下
+			// 整帧不再重渲染，hub 继续收集。事件前沿（最后 ID +
+			// ingested 计数）在此捕获，供恢复时算精确隐藏数。
 			if m.uiMode == modeRun {
+				m.frozenView = m.View()
+				m.pauseAnchorID = m.nextEventID
+				m.pauseIngest0 = m.ingested
 				m.uiMode = modePaused
 			}
 		case "r":
-			// Resume from pause / 从暂停恢复
+			// Resume: unfreeze and mark the hidden gap. N = ingested
+			// delta over the pause (snapshot-exact, not an estimate);
+			// the separator renders right after the pre-pause anchor
+			// and self-cleans when that event leaves the ring.
+			// / 恢复：解冻并标记隐藏缺口。N = 暂停期间 ingested 差值
+			// （快照精确值非估计）；分隔行渲染在暂停前锚事件之后，该
+			// 事件离开 ring 时自清理。
 			if m.uiMode == modePaused {
 				m.uiMode = modeRun
+				m.frozenView = ""
+				if n := m.ingested - m.pauseIngest0; n > 0 {
+					m.gapAfterID = m.pauseAnchorID
+					m.gapCount = n
+				}
 			}
 		case "?":
 			m.uiMode = modeHelp
@@ -357,6 +384,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle the narrow-mode live-events overlay. / 切换
 			// narrow 模式的实时事件 overlay。
 			m.showLiveOverlay = !m.showLiveOverlay
+		case "up", "k":
+			m.scrollUp()
+		case "down", "j":
+			m.scrollDown()
+		case "pgup":
+			m.scrollPage(true, m.eventsPage())
+		case "pgdown":
+			m.scrollPage(false, m.eventsPage())
+		case "g":
+			m.scrollTop()
+		case "G", "f":
+			m.follow()
+		case "enter":
+			m.toggleExpand()
+		case "esc":
+			// Esc outside help returns to follow (spec §4.2); help
+			// mode's esc is consumed by the overlay branch above.
+			// / help 之外的 Esc 回到 follow（spec §4.2）；help 态的
+			// esc 已被上面的浮层分支消费。
+			m.follow()
 		}
 	}
 	return m, cmd
@@ -388,6 +435,16 @@ func (m Model) View() string {
 	}
 	if m.uiMode == modeHelp {
 		return m.renderHelp()
+	}
+	// Paused freezes the whole frame (spec §4.1): the snapshot taken
+	// at pause entry renders unchanged no matter what data lands.
+	// Empty fallback renders live — golden/test models are built
+	// directly without a pause transition.
+	// / Paused 冻结整帧（spec §4.1）：暂停入口拍的快照原样渲染，无
+	// 视 arriving 数据。为空时回退实时渲染——golden/测试 model 是直
+	// 接构造的，没有暂停转换。
+	if m.uiMode == modePaused && m.frozenView != "" {
+		return m.frozenView
 	}
 
 	w := m.width
@@ -506,6 +563,27 @@ func (m Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
+// eventsPage is the PgUp/PgDn page size in events: the EVENTS region
+// budget minus the title row, clamped ≥1.
+// / eventsPage 是 PgUp/PgDn 的页大小（事件数）：EVENTS 区域预算减标
+// 题行，钳到 ≥1。
+func (m Model) eventsPage() int {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	b := regionsV2(pickBreakpoint(w), h, m.errorsExpanded)
+	p := b.events - 1
+	if p < 1 {
+		p = 1
+	}
+	return p
+}
+
 // runStateChip returns the right-edge status chip + text for the
 // title bar. Mapping:
 //
@@ -541,6 +619,11 @@ func (m Model) renderHelp() string {
 		{"q / Ctrl-C", "quit the scan"},
 		{"p", "pause the dashboard display (pipeline keeps running)"},
 		{"r", "resume the dashboard display"},
+		{"↑/k · ↓/j", "scroll the events panel (enters browse)"},
+		{"PgUp / PgDn", "page the events panel"},
+		{"g / G", "events panel top / bottom (G = follow)"},
+		{"f / Esc", "events panel back to follow"},
+		{"Enter", "expand a ×N folded event row (browse)"},
 		{"e", "toggle the errors panel (collapsed summary / expanded bars)"},
 		{"E", "collapse the errors panel"},
 		{"L", "toggle the live-events overlay (narrow mode)"},

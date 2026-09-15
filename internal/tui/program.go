@@ -214,15 +214,26 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Telemetry Hub per-beat delivery (spec §3.2): append the
 		// whole batch through the single ingestion path, mirror the
 		// storm snapshot, and promote runState on first contact.
-		// Paused mode drops the batch on the floor for now — the
-		// "hidden while paused" semantics upgrade is T2 scope.
-		// Telemetry Hub 每拍投递（spec §3.2）：整批经唯一摄入路径追
-		// 加，镜像风暴快照，首次接触提升 runState。暂停态暂时整批丢
-		// 弃——"隐藏于暂停"的语义升级是 T2 范畴。
+		// / Telemetry Hub 每拍投递（spec §3.2）：整批经唯一摄入路径追
+		// 加，镜像风暴快照，首次接触提升 runState。
 		if d.inner.runState == runIdle {
 			d.inner.runState = runScanning
 		}
 		if d.inner.uiMode == modePaused {
+			// Paused freezes the *viewport* (spec §4.1), not
+			// collection: counters and the storm mirror keep
+			// accumulating (the resume path derives the exact
+			// hidden-count from the ingested delta), only the
+			// entries are dropped — buffering a pause-length burst
+			// would risk OOM.
+			// / 暂停冻结的是*视口*（spec §4.1），不是收集：计数与风
+			// 暴镜像继续累计（恢复路径用 ingested 差值导出精确隐藏
+			// 数），只有条目被丢弃——缓冲一整个暂停期的事件爆发有
+			// OOM 风险。
+			d.inner.ingested += m.ingested
+			d.inner.dropped += m.dropped
+			d.inner.storm = m.storm
+			d.inner.stormRate = m.stormRate
 			return d, nil
 		}
 		d.inner.appendBatch(m.entries, m.ingested, m.dropped)
