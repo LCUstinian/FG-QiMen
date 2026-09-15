@@ -533,7 +533,13 @@ func TestOpenOutputSinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if err := openOutputSinks(sess, cfg, time.Now()); err != nil {
+	// Single wall-clock snapshot: the sink stamp comes from this same
+	// `now`, so a second boundary falling mid-test cannot desync the
+	// expected filename from the actual one. / 单一墙钟快照：sink 盖
+	// 章与期望路径共用同一 `now`，秒边界落在测试中途也不会让期望文件
+	// 名与实际文件名错位。
+	now := time.Now()
+	if err := openOutputSinks(sess, cfg, now); err != nil {
 		t.Fatalf("openOutputSinks: %v", err)
 	}
 	if sess.Out == nil {
@@ -541,8 +547,8 @@ func TestOpenOutputSinks(t *testing.T) {
 	}
 	wantTXT := filepath.Join(
 		"fgqm_workspace", "default",
-		time.Now().Format("2006-01-02"),
-		"fgqm_result_"+time.Now().Format("15-04-05")+".txt",
+		now.Format("2006-01-02"),
+		"fgqm_result_"+now.Format("15-04-05")+".txt",
 	)
 	if _, err := os.Stat(wantTXT); err != nil {
 		t.Errorf("expected %s to exist; stat err = %v", wantTXT, err)
