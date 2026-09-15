@@ -52,7 +52,8 @@ deduction — measure first, then scan.
 - ✅ **44 plugins · 3,333 web fingerprint rules · 84 UDP probes** — nmap-grade service identification (EHole-compatible custom rulesets) across databases, remote access, email, file storage, cloud.
 - ✅ **v3 lattice TUI** — nine-cell single-layer grid, role-token palette, sub-character progress bars, storm-proof live events; four-level degradation truecolor → 256-color → grayscale → pure ASCII (`--tui-ascii`).
 - ✅ **Byte-pinned rendering** — 27 golden frames (3 breakpoints × 6 states + ASCII) verified byte-for-byte in CI: the UI you see is the UI that ships.
-- ✅ **Project workspace** — persistent bbolt state per project: pause/resume, seen-hash pruning, export/import, scheduled runs (`--at` / `--in` / `--cron` / `--daemon`).
+- ✅ **Project workspace** — persistent bbolt state per project: pause/resume, seen-hash pruning, export/import.
+- ✅ **Built-in scheduler** — one-shot `--at` / `--in`, recurring `--cron` in any IANA time zone, or an always-on `--daemon` loop; `--schedule-dry-run` verifies fire times before you commit. Pair with project state for unattended recurring sweeps.
 - ✅ **Evidence-first outputs** — NDJSON / CSV / SARIF / TXT sinks in daily buckets; credentials redacted on console & result sinks unless `--show-creds`.
 - ✅ **Read-only enumeration** — SMB shares & FTP trees via null/anonymous sessions; metadata only, never downloads file contents.
 - ✅ **IPv6 first-class & scope-aware** — single IP / CIDR / list targets; out-of-scope hosts surfaced by protocol interactions are tracked with time + source (opt-in bounded re-scan).
