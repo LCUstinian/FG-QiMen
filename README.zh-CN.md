@@ -39,6 +39,23 @@ FG-QiMen 是一个纯 CLI 扫描器，通过 Go channel 管线解耦**端口扫�
 
 ---
 
+## ✨ 亮点
+
+- ✅ **零利用，设计使然** —— 只扫描、识别、验证凭据；不做利用、不留持久化。攻击流量是最吵的流量——这台扫描器不制造噪音。
+- ✅ **先测量，后扫描** —— RTT/丢包画像驱动 mean+4σ 自适应超时与 AIMD 拥塞控制线程池：健康内网快 ≈5×，丢包广域网自动退避。
+- ✅ **识别，而不只是连通** —— 每个命中带结构化 product/version/confidence；Web 命中附 title/server + TLS SAN/CN 身份；RDP 附 build/NLA/OS 姿态。
+- ✅ **44 插件 · 3,333 条 Web 指纹规则 · 84 条 UDP 探测** —— nmap 级服务识别（自定义规则兼容 EHole），覆盖数据库、远程访问、邮件、文件存储、云。
+- ✅ **v3 lattice TUI** —— 九格单层网格、角色令牌色板、亚字符进度条、抗风暴活体事件流；四级降级 truecolor → 256 色 → 灰度 → 纯 ASCII（`--tui-ascii`）。
+- ✅ **逐字节钉住的渲染** —— 27 个 golden 帧（三断点 × 六状态 + ASCII）在 CI 逐字节对钉：你看到的 UI 就是发布里的 UI。
+- ✅ **项目工作区** —— 每项目独立 bbolt 状态：暂停续扫、seen 哈希修剪、导出导入、定时调度（`--at` / `--in` / `--cron` / `--daemon`）。
+- ✅ **证据优先的输出** —— NDJSON / CSV / SARIF / TXT 多槽按日分桶；凭据在控制台与结果槽默认脱敏（`--show-creds` 显式开启）。
+- ✅ **只读枚举** —— SMB 共享与 FTP 目录走空会话/匿名；仅采元数据，绝不下载文件内容。
+- ✅ **IPv6 一等公民 & 范围感知** —— 单 IP / CIDR / 列表目标；协议交互浮出的域外主机带时间与来源全程记录（可选有界补扫）。
+- ✅ **供应链加固** —— cosign 无密钥签名、CycloneDX + SPDX 双 SBOM、SLSA L2 溯源、CI 动作 SHA 钉死。
+- ✅ **11 平台发布矩阵** —— 一条命令构建全部目标；`just` 配方从开发贯穿到发布。
+
+---
+
 ## 纯扫描器定位
 
 扫描器 + 凭据测试器，用于授权场景。FG-QiMen 止步于扫描、识别与凭据
@@ -247,8 +264,8 @@ fg-qimen scan --mode crack -f targets.txt -uf users.txt -pf pass.txt --project c
 - **三种运行模式**：`scan` / `crack` / `linked`（见 [CLI 参考](#cli-参考)）。
 - **项目工作区**：每个项目独立目录 + bbolt DB。
 - **增量追踪**：SHA-1 去重 + 可选 bbolt 持久化；`--resume` 重载 seen-set。
-- **TUI**：Bubbletea + Lipgloss 赛博朋克主题（黑底绿/琥珀/红）；非 TTY 自动
-  回退纯文本。
+- **TUI**：Bubbletea + Lipgloss v3 lattice——角色令牌色板、单一符号表、
+  四级降级（truecolor → 256 色 → 灰度 → `--tui-ascii`）；非 TTY 自动回退纯文本。
 
 完整架构文档：[`docs/ARCHITECTURE.zh-CN.md`](docs/ARCHITECTURE.zh-CN.md)。
 

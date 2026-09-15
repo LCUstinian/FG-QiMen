@@ -44,6 +44,23 @@ deduction — measure first, then scan.
 
 ---
 
+## ✨ Highlights
+
+- ✅ **Zero-exploit, by design** — scan, identify, verify credentials; never exploit, never persist. Attack traffic is the loudest traffic — this scanner doesn't make any.
+- ✅ **Measures before it scans** — RTT/loss profiling drives a mean+4σ adaptive timeout and an AIMD congestion-controlled pool: ≈5× faster on healthy LANs, self-limiting on lossy WANs.
+- ✅ **Identifies, not just connects** — every hit carries structured product/version/confidence; web hits add title/server + TLS SAN/CN identity; RDP adds build/NLA/OS posture.
+- ✅ **44 plugins · 3,333 web fingerprint rules · 84 UDP probes** — nmap-grade service identification (EHole-compatible custom rulesets) across databases, remote access, email, file storage, cloud.
+- ✅ **v3 lattice TUI** — nine-cell single-layer grid, role-token palette, sub-character progress bars, storm-proof live events; four-level degradation truecolor → 256-color → grayscale → pure ASCII (`--tui-ascii`).
+- ✅ **Byte-pinned rendering** — 27 golden frames (3 breakpoints × 6 states + ASCII) verified byte-for-byte in CI: the UI you see is the UI that ships.
+- ✅ **Project workspace** — persistent bbolt state per project: pause/resume, seen-hash pruning, export/import, scheduled runs (`--at` / `--in` / `--cron` / `--daemon`).
+- ✅ **Evidence-first outputs** — NDJSON / CSV / SARIF / TXT sinks in daily buckets; credentials redacted on console & result sinks unless `--show-creds`.
+- ✅ **Read-only enumeration** — SMB shares & FTP trees via null/anonymous sessions; metadata only, never downloads file contents.
+- ✅ **IPv6 first-class & scope-aware** — single IP / CIDR / list targets; out-of-scope hosts surfaced by protocol interactions are tracked with time + source (opt-in bounded re-scan).
+- ✅ **Supply-chain hardened** — cosign keyless signatures, CycloneDX + SPDX SBOMs, SLSA L2 provenance, SHA-pinned CI actions.
+- ✅ **11-platform release matrix** — one command builds every target; `just` recipes from dev to release.
+
+---
+
 ## Pure scanner, by design
 
 A scanner + credential tester for authorized work. FG-QiMen stops at
@@ -277,8 +294,9 @@ fg-qimen scan --mode crack -f targets.txt -uf users.txt -pf pass.txt --project c
 - **Project workspace**: each project gets its own directory + bbolt DB.
 - **Incremental tracking**: SHA-1-based dedup with optional bbolt persistence;
   `--resume` reloads the seen-set.
-- **TUI**: Bubbletea + Lipgloss cyberpunk theme (green / amber / red on
-  black); auto-fallback to plain text on non-TTY.
+- **TUI**: Bubbletea + Lipgloss v3 lattice — role-token palette, single
+  symbol table, four-level degradation (truecolor → 256-color → grayscale →
+  `--tui-ascii`); non-TTY auto-falls back to plain text.
 
 Full architecture write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
