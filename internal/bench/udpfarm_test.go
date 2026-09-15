@@ -12,14 +12,35 @@ package bench
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/LCUstinian/FG-QiMen/internal/fakeserver"
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
+
+// requireFarmLoopback skips on platforms where the 127/8
+// multi-address loopback is unavailable unprivileged: macOS routes
+// only 127.0.0.1 to lo0 (the rest of 127/8 needs manual aliases,
+// i.e. root), while Linux and Windows route the whole range. The
+// farm's cross-host accounting tests are meaningless on such
+// platforms — the plan degrades to zero responsive ports.
+// / requireFarmLoopback 在非特权下 127/8 多地址回环不可用的平台上跳
+// 过：macOS 只把 127.0.0.1 路由到 lo0（其余 127/8 需要手工别名，即
+// root），Linux 与 Windows 路由整个网段。此类平台上 farm 的跨主机
+// 记账测试没有意义——计划会退化成零响应式端口。
+func requireFarmLoopback(t *testing.T) {
+	t.Helper()
+	l, err := fakeserver.ListenUDP("127.66.0.3", 0, func([]byte, *net.UDPAddr) []byte { return nil })
+	if err != nil {
+		t.Skipf("127/8 multi-address loopback unavailable here: %v", err)
+	}
+	_ = l.Close()
+}
 
 // TestRunUDPFarmSmall runs the smallest farm the plan builder can
 // build and checks the headline invariants: every (host, farm-port)
@@ -35,6 +56,7 @@ func TestRunUDPFarmSmall(t *testing.T) {
 	if testing.Short() {
 		t.Skip("farm scan drives the real pipeline; skipped in -short")
 	}
+	requireFarmLoopback(t)
 	res, err := RunUDP(UDPOptions{
 		Runs:        1,
 		Timeout:     500 * time.Millisecond,
@@ -85,6 +107,7 @@ func TestRunUDPFarmSmall(t *testing.T) {
 // sizes honored, buckets disjoint. / TestBuildUDPFarmPlanBuckets 检查
 // 计划的桶纪律：数量到位、桶间不相交。
 func TestBuildUDPFarmPlanBuckets(t *testing.T) {
+	requireFarmLoopback(t)
 	plan, err := buildUDPFarmPlan(UDPOptions{RespPorts: 3, SilentPorts: 8, ClosedPorts: 2})
 	if err != nil {
 		t.Fatalf("buildUDPFarmPlan: %v", err)

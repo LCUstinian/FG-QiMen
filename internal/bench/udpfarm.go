@@ -214,6 +214,18 @@ func RunUDP(opts UDPOptions) (*UDPResult, error) {
 	if len(plan.SilentPorts) == 0 {
 		return nil, fmt.Errorf("bench: udp farm: no bindable silent ports (hint set too small or OS owns them all)")
 	}
+	// A degenerate run without responsive ports benchmarks nothing
+	// useful and confuses the accounting invariants, so fail fast.
+	// The usual cause: macOS routes only 127.0.0.1 to lo0 — the rest
+	// of 127/8 needs manual aliases (root) — and unprivileged binds
+	// of the classic <1024 responders fail there too.
+	// / 没有响应式端口的退化跑法测不出任何有用信息，还会扰乱记账不
+	// 变式，因此快速失败。常见原因：macOS 只把 127.0.0.1 路由到
+	// lo0——127/8 其余地址需要手工别名（root）——且经典 <1024 应答
+	// 端口在非特权下同样绑不上。
+	if len(plan.ResponsivePorts) == 0 {
+		return nil, fmt.Errorf("bench: udp farm: no bindable responsive ports — 127/8 multi-address loopback unavailable (macOS routes only 127.0.0.1 to lo0 without manual aliases)")
+	}
 
 	// Expand the farm hosts ONCE so the plan's Hosts and the actual
 	// target set agree even if ExpandTargets trims network/broadcast.
