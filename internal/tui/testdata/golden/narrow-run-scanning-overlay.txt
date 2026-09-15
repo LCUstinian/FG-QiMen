@@ -4,9 +4,9 @@
 │  PROGRESS                                                │
 │  alive    ░░░░░░░░░░ 18/0                                │
 │  ports    ░░░░░░░░░░ 142/0                               │
-│  results  23                                             │
-│  creds    2                                              │
-│  errors   7                                              │
+│                                                          │
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

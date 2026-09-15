@@ -770,13 +770,18 @@ func (m Model) totalPorts() int64 {
 
 // viewStage renders the PROGRESS cell: a panel title row, then alive
 // and ports with renderBar sub-character progress bars against their
-// State-cached totals; results / creds / errors stay as plain
-// counters (no denominator). The cell is capped to height from the
+// State-cached totals, and the done/inflight/deferred ledger rows
+// (§5.5, wide/medium only) with the stall detector. The legacy plain
+// results/creds/errors counters are retired — the spec §5.2 frames
+// pin PROGRESS to bars + ledger (creds surface as [*] events, errors
+// have their own ERRORS cell). The cell is capped to height from the
 // top so the title row survives; rows are truncated to width.
 // / viewStage 渲染 PROGRESS 格：面板标题行 + alive/ports 依据 State
-// 缓存总数画 renderBar 亚字符进度条；results / creds / errors 保持
-// 纯计数（无分母）。格从顶部按 height 截断，标题行存活；行裁到
-// width。
+// 缓存总数画 renderBar 亚字符进度条 + done/inflight/deferred 账本行
+// （§5.5，仅 wide/medium）+ 停滞检测。旧版 results/creds/errors 纯
+// 计数行退役——spec §5.2 框图钉死 PROGRESS = 条 + 账本（creds 以
+// [*] 事件呈现，errors 有专属 ERRORS 格）。格从顶部按 height 截断，
+// 标题行存活；行裁到 width。
 func (m Model) viewStage(height, width int) string {
 	if height <= 0 {
 		return ""
@@ -794,21 +799,80 @@ func (m Model) viewStage(height, width int) string {
 		fmt.Sprintf("  %-8s %s %d/%d", "ports",
 			renderBar(int(m.counters.Ports), int(m.totalPorts()), barW),
 			m.counters.Ports, m.totalPorts()),
-		fmt.Sprintf("  %-8s %d", "results", m.counters.Results),
-		fmt.Sprintf("  %-8s %d", "creds", m.counters.Creds),
-		fmt.Sprintf("  %-8s %d", "errors", m.counters.Errors),
+	}
+	// Progress ledger (spec §5.5): the ports row splits into
+	// done / inflight / deferred (done=Ports, inflight=pool mirror,
+	// deferred=total−done−inflight clamped ≥0) plus the stall
+	// detector. Wide renders two ledger rows (§5.2 frame), medium
+	// one, narrow none. The stall cell is pre-styled and must never
+	// pass through truncate (rune-counting cuts ANSI escapes), so
+	// each ledger row's PLAIN prefix is truncated to leave room and
+	// the styled cell is appended afterwards; the plain-row pass
+	// below skips them.
+	// / 进度账本（spec §5.5）：ports 行分解为 done / inflight /
+	// deferred（done=Ports，inflight=池镜像，deferred=total−done−
+	// inflight 钳 ≥0）+ 停滞检测。宽屏两行账本（§5.2 框图）、medium
+	// 一行、narrow 无。stall 单元预上色且绝不能过 truncate（按 rune
+	// 数切会断 ANSI 转义），因此每行账本的纯文本前缀先截出空间，再
+	// 追加上色单元；下方纯文本行截断循环跳过账本行。
+	ledgerStart, ledgerEnd := 0, 0
+	if bp != BreakNarrow {
+		done := m.counters.Ports
+		def := m.totalPorts() - done - m.counters.Inflight
+		if def < 0 {
+			def = 0
+		}
+		stall := m.stallCell()
+		stallW := lipgloss.Width(stall)
+		ledgerStart = len(rows)
+		if bp == BreakWide {
+			rows = append(rows,
+				fmt.Sprintf("  done %d   inflight %d", done, m.counters.Inflight),
+				truncate(fmt.Sprintf("  deferred %d   ", def), max(0, width-stallW))+stall,
+			)
+		} else {
+			rows = append(rows,
+				truncate(fmt.Sprintf("  done %d  inflight %d  deferred %d   ",
+					done, m.counters.Inflight, def), max(0, width-stallW))+stall,
+			)
+		}
+		ledgerEnd = len(rows)
 	}
 	if len(rows) > height {
 		rows = rows[:height]
 	}
 	// Truncate plain rows only — the styled title row must never pass
-	// through truncate (rune-counting would cut ANSI escapes).
-	// / 只截纯文本行——上色的标题行绝不能过 truncate（按 rune 数切
-	// 会切断 ANSI 转义序列）。
+	// through truncate (rune-counting would cut ANSI escapes), and the
+	// ledger rows carry the pre-styled stall cell (already
+	// width-safe). / 只截纯文本行——上色的标题行绝不能过 truncate
+	// （按 rune 数切会断 ANSI 转义序列），账本行携带预上色的 stall
+	// 单元（已保证宽度安全）。
 	for i := 1; i < len(rows); i++ {
+		if i >= ledgerStart && i < ledgerEnd {
+			continue
+		}
 		rows[i] = truncate(rows[i], width)
 	}
 	return strings.Join(rows, "\n")
+}
+
+// stallCell renders the stall read-out for the progress ledger
+// (spec §5.5): plain `stall 0s` while quiet, `stall Ns ▲` (warn) from
+// 15s of no done-count movement, `stall Ns !!` (err) from 60s. The ▲/
+// !! glyphs follow the char charter (⚠ was retired as scarce-width).
+// / stallCell 渲染进度账本的停滞读数（spec §5.5）：安静时纯文本
+// `stall 0s`，done 计数 15s 无变动起 `stall Ns ▲`（warn），60s 起
+// `stall Ns !!`（err）。▲/!! 字形遵循字符宪章（⚠ 因宽度稀缺已退役）。
+func (m Model) stallCell() string {
+	s := fmt.Sprintf("stall %ds", m.stallSec)
+	switch {
+	case m.stallSec >= 60:
+		return stErr.Render(s + " !!")
+	case m.stallSec >= 15:
+		return stWarn.Render(s + " ▲")
+	default:
+		return s
+	}
 }
 
 // viewTopPlugins renders the TOP PLUGINS cell: a panel title row plus

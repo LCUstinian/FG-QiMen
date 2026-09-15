@@ -311,6 +311,18 @@ type Model struct {
 	// 车行，被淘汰的以计数呈现。
 	critTotal int
 
+	// Stall detection (spec §5.5): the data beat (statsMsg, ~1Hz)
+	// compares the done count; stallSec = now − lastChange. ≥15s
+	// renders `stall Ns ▲`, ≥60s `stall Ns !!`; suppressed (reset to
+	// 0, baseline refreshed) while runIdle / runDone / paused.
+	// / 停滞检测（spec §5.5）：数据拍（statsMsg，~1Hz）比较 done 计
+	// 数；stallSec = now − lastChange。≥15s 渲染 `stall Ns ▲`，
+	// ≥60s `stall Ns !!`；runIdle / runDone / paused 时抑制（清零并
+	// 刷新基线）。
+	stallSec  int64
+	lastPorts int64
+	lastBeat  time.Time
+
 	// showLiveOverlay is the narrow-mode 'L' toggle: when the
 	// events region is hidden (height=0), the overlay reveals the
 	// last 5 events anyway. / showLiveOverlay 是 narrow 模式的 'L'
@@ -675,6 +687,33 @@ func (m *Model) recordRate(hitsPerSec float64) {
 	m.rateHead = (m.rateHead + 1) % m.rateCap
 	if m.rateHead == 0 {
 		m.rateFull = true
+	}
+}
+
+// noteStatsBeat folds one data beat (statsMsg, ~1Hz) into the stall
+// detector (spec §5.5): a done-count change re-baselines; a hold
+// accumulates stallSec. Suppressed while runIdle / runDone / paused —
+// those states are not stalls, so the counter resets and the baseline
+// refreshes (a resume must not instantly alarm on pre-pause silence).
+// / noteStatsBeat 把一拍数据（statsMsg，~1Hz）折进停滞检测器
+// （spec §5.5）：done 计数变化即重置基线；保持不变则累计 stallSec。
+// runIdle / runDone / paused 时抑制——这些状态不是停滞，计数清零、
+// 基线刷新（恢复后不得因暂停前的静默立即告警）。
+func (m *Model) noteStatsBeat(now time.Time, ports int64) {
+	if m.runState == runIdle || m.runState == runDone || m.uiMode == modePaused {
+		m.stallSec = 0
+		m.lastPorts = ports
+		m.lastBeat = now
+		return
+	}
+	if m.lastBeat.IsZero() || ports != m.lastPorts {
+		m.lastPorts = ports
+		m.lastBeat = now
+		m.stallSec = 0
+		return
+	}
+	if sec := int64(now.Sub(m.lastBeat).Seconds()); sec > m.stallSec {
+		m.stallSec = sec
 	}
 }
 

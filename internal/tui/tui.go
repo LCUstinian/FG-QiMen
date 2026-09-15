@@ -463,6 +463,15 @@ func (m Model) View() string {
 	bp := pickBreakpoint(w)
 	b := regionsV2(bp, h, m.errorsExpanded)
 
+	// Zone accent (spec §5.1): map the active stage to its region;
+	// DONE/IDLE/unknown map to zoneNone and every border stays plain.
+	// Pure restyle — glyph choices never change, so golden text is
+	// byte-identical with or without color.
+	// / zone accent（spec §5.1）：把活跃阶段映射到其区域；DONE/IDLE/
+	// 未知阶段映射为 zoneNone，所有边框保持素色。纯换色——字形选择
+	// 不变，golden 文本有无颜色都逐字节一致。
+	active := stageZone(m.counters.Stage)
+
 	// Narrow 'L' overlay: 5 event rows, paid for by PROGRESS (min 2
 	// so the cell keeps its title + one stat row).
 	// / narrow 的 'L' overlay：5 行事件，由 PROGRESS 支付（保底 2，
@@ -494,7 +503,12 @@ func (m Model) View() string {
 	switch bp {
 	case BreakWide:
 		leftW, rightW := wideSplit(w)
-		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, boxDn, leftW+1)))
+		// ┬: left half closes onto PROGRESS, right half onto LIVE
+		// EVENTS — each half takes its cell's zone style.
+		// / ┬：左半接 PROGRESS，右半接 LIVE EVENTS——两半各取所属格
+		// 的 zone 样式。
+		lines = append(lines, hBorderZone(w, boxLS, boxRS, boxDn, leftW+1,
+			frameStyle(zoneProgress, active), frameStyle(zoneEvents, active)))
 
 		// Left column: PROGRESS + blank separator + TOP PLUGINS; the
 		// compose loop pads (or caps) to the body height. Rows past the
@@ -516,7 +530,12 @@ func (m Model) View() string {
 			}
 			lines = append(lines, rowTwo(l, rightRows[i]))
 		}
-		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, boxUp, leftW+1)))
+		// ┴: left half closes the left column (TOP PLUGINS at the
+		// bottom), right half closes LIVE EVENTS.
+		// / ┴：左半闭合左列（底部是 TOP PLUGINS），右半闭合 LIVE
+		// EVENTS。
+		lines = append(lines, hBorderZone(w, boxLS, boxRS, boxUp, leftW+1,
+			frameStyle(zonePlugins, active), frameStyle(zoneEvents, active)))
 		lines = append(lines, borderedRows(cellRows(m.viewErrors(b.errors, cellW), b.errors, cellW))...)
 		lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
 		lines = append(lines, rowCell(padTo(m.viewFooter(b.footer, cellW), cellW)))
@@ -525,15 +544,18 @@ func (m Model) View() string {
 	default: // medium / narrow: stacked full-width cells, footer outside
 		if b.progress > 0 {
 			lines = append(lines, borderedRows(cellRows(m.viewStage(b.progress, cellW), b.progress, cellW))...)
-			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+			// Separator below a stacked cell closes that cell, so it
+			// takes the cell's zone style. / 堆叠布局里格下方的分隔线
+			// 闭合该格，取该格的 zone 样式。
+			lines = append(lines, frameStyle(zoneProgress, active).Render(hBorder(w, boxLS, boxRS, "", 0)))
 		}
 		if b.events > 0 {
 			lines = append(lines, borderedRows(cellRows(m.viewLiveEvents(b.events, cellW), b.events, cellW))...)
-			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+			lines = append(lines, frameStyle(zoneEvents, active).Render(hBorder(w, boxLS, boxRS, "", 0)))
 		}
 		if b.plugins > 0 {
 			lines = append(lines, borderedRows(cellRows(m.viewTopPlugins(b.plugins, cellW), b.plugins, cellW))...)
-			lines = append(lines, stFrame.Render(hBorder(w, boxLS, boxRS, "", 0)))
+			lines = append(lines, frameStyle(zonePlugins, active).Render(hBorder(w, boxLS, boxRS, "", 0)))
 		}
 		lines = append(lines, borderedRows(cellRows(m.viewErrors(b.errors, cellW), b.errors, cellW))...)
 		lines = append(lines, stFrame.Render(hBorder(w, boxBL, boxBR, "", 0)))

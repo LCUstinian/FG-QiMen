@@ -111,6 +111,18 @@ type PoolOptions struct {
 	// 非 nil 结构体内的零值字段保持各自默认。A3 bench 扫描的测量表
 	// 面——非操作员表面。
 	Tuning *AIMDTuning
+
+	// InflightSink, when non-nil, mirrors the pool's in-flight probe
+	// count (+1 on acquire, −1 on release). The TUI v3 spec (§7.3)
+	// wires it to types.State.Inflight so the PROGRESS ledger can
+	// split ports into done / inflight / deferred. nil = unwired;
+	// the pool keeps its own counter regardless, so Pool.Inflight()
+	// always works.
+	// / InflightSink 非 nil 时镜像池的在飞 probe 数（获取 +1，释放
+	// −1）。TUI v3 规格（§7.3）把它接到 types.State.Inflight，让
+	// PROGRESS 账本把 ports 分解为 done / inflight / deferred。
+	// nil = 未接线；池自身计数器无论如何都在，Pool.Inflight() 恒可用。
+	InflightSink *atomic.Int64
 }
 
 // DefaultPoolOptions returns a PoolOptions with sensible defaults.
@@ -156,7 +168,22 @@ type Pool struct {
 	// allocating a fresh Timer on every time.After call. / busyTimer
 	// 跨 busy-wait 迭代复用，避免每次 time.After 分配 Timer。
 	busyTimer *time.Timer
+
+	// inflight is the number of probes currently running (spec §7.3).
+	// It lives on the Pool — not as a Run-local — so the in-flight
+	// count survives across Run calls (UDP reuses the Scanner pattern
+	// with a fresh pool anyway) and Pool.Inflight() can expose it for
+	// tests and the optional InflightSink mirror.
+	// / inflight 是当前在跑的 probe 数（spec §7.3）。放在 Pool 上而
+	// 非 Run 局部——让在飞数跨 Run 调用存续（UDP 用独立 pool 反正无
+	// 复用），并让 Pool.Inflight() 能为测试与可选的 InflightSink 镜
+	// 像暴露它。
+	inflight atomic.Int32
 }
+
+// Inflight returns the number of probes currently in flight.
+// / Inflight 返回当前在飞的 probe 数。
+func (p *Pool) Inflight() int32 { return p.inflight.Load() }
 
 // NewPool constructs a Pool. InitialThreads is the AIMD target: the
 // pool is born at max(floor, target/4) and doubles up healthy
@@ -284,7 +311,6 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 	// worker 检查 `inflight` 与 `currentThreads` 的关系。resize 只改
 	// `currentThreads`，不重建信号量。
 	sem := make(chan struct{}, p.opts.MaxThreads)
-	var inflight atomic.Int32
 	var wg sync.WaitGroup
 
 	for {
@@ -330,7 +356,7 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 				return ctx.Err()
 			}
 			cur := p.currentThreads.Load()
-			if inflight.Load() < cur {
+			if p.inflight.Load() < cur {
 				// Try to acquire the semaphore without blocking forever;
 				// fall back to ctx-aware select on failure.
 				// 尝试非阻塞获取信号量；失败则走 ctx 感知 select。
@@ -372,12 +398,18 @@ func (p *Pool) Run(ctx context.Context, iter Iterator, out chan<- Result) error 
 		// 下一次迭代通过 `backoff *= 2; if backoff > backoffMax {
 		// backoff = backoffMax }` 从 backoffMin 重新开始；本标签
 		// 之后 `backoff` 不会被读取。
-		inflight.Add(1)
+		p.inflight.Add(1)
+		if p.opts.InflightSink != nil {
+			p.opts.InflightSink.Add(1)
+		}
 		wg.Add(1)
 		go func(item Item) {
 			defer wg.Done()
 			defer func() {
-				inflight.Add(-1)
+				p.inflight.Add(-1)
+				if p.opts.InflightSink != nil {
+					p.opts.InflightSink.Add(-1)
+				}
 				<-sem
 			}()
 			defer func() {

@@ -218,3 +218,58 @@ func TestRegionsV2_BreakpointShapes(t *testing.T) {
 		t.Errorf("regionsV2(narrow, 24) = %+v, want plugins=0 events=0 header=1 progress=17", b)
 	}
 }
+
+// TestStageZone pins the §5.1 stage→region mapping: ALIVE/PORT-SCAN
+// light PROGRESS, IDENTIFY lights TOP PLUGINS, CRED lights LIVE
+// EVENTS; DONE and unknown stages stay plain (zoneNone).
+// / TestStageZone 钉住 §5.1 阶段→区域映射：ALIVE/PORT-SCAN 点亮
+// PROGRESS，IDENTIFY 点亮 TOP PLUGINS，CRED 点亮 LIVE EVENTS；
+// DONE 与未知阶段保持素色（zoneNone）。
+func TestStageZone(t *testing.T) {
+	cases := []struct {
+		stage int64
+		want  zoneRegion
+	}{
+		{int64(types.StageAlive), zoneProgress},
+		{int64(types.StagePortScan), zoneProgress},
+		{int64(types.StageIdentify), zonePlugins},
+		{int64(types.StageCred), zoneEvents},
+		{int64(types.StageDone), zoneNone},
+	}
+	for _, c := range cases {
+		if got := stageZone(c.stage); got != c.want {
+			t.Errorf("stageZone(%d) = %v, want %v", c.stage, got, c.want)
+		}
+	}
+	if got := stageZone(99); got != zoneNone {
+		t.Errorf("stageZone(unknown) = %v, want zoneNone", got)
+	}
+}
+
+// TestHBorderZone_TextInvariance pins the zone-accent purity contract
+// (spec §5.1): the styled border changes COLOR only — its glyph layout
+// must be byte-identical to the plain hBorder, so golden frames
+// (ANSI-free in the test color profile) never move.
+// / TestHBorderZone_TextInvariance 钉住 zone accent 纯度契约（spec
+// §5.1）：上色边框只换颜色——字形布局必须与素色 hBorder 逐字节一致，
+// golden 帧（测试色彩 profile 下无 ANSI）才永不动。
+func TestHBorderZone_TextInvariance(t *testing.T) {
+	cases := []struct {
+		w           int
+		left, right string
+		junc        string
+		jx          int
+	}{
+		{40, boxLS, boxRS, "", 0},
+		{60, boxLS, boxRS, boxDn, 29},
+		{60, boxLS, boxRS, boxUp, 29},
+	}
+	for i, c := range cases {
+		plain := hBorder(c.w, c.left, c.right, c.junc, c.jx)
+		zoned := hBorderZone(c.w, c.left, c.right, c.junc, c.jx, stFrameZone, stFrame)
+		if plain != zoned {
+			t.Errorf("case %d: hBorderZone text diverges from hBorder:\n plain=%q\n zoned=%q",
+				i, plain, zoned)
+		}
+	}
+}

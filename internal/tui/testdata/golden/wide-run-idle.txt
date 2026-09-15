@@ -6,12 +6,12 @@
 │  PROGRESS                                      │  LIVE EVENTS                                                follow ▼│
 │  alive    ░░░░░░░░░░░░░░░░░░░░ 0/0             │  (no events yet)                                                    │
 │  ports    ░░░░░░░░░░░░░░░░░░░░ 0/0             │                                                                     │
-│  results  0                                    │                                                                     │
-│  creds    0                                    │                                                                     │
-│  errors   0                                    │                                                                     │
+│  done 0   inflight 0                           │                                                                     │
+│  deferred 0   stall 0s                         │                                                                     │
 │                                                │                                                                     │
 │  TOP PLUGINS                                   │                                                                     │
 │  (no hits yet)                                 │                                                                     │
+│                                                │                                                                     │
 │                                                │                                                                     │
 │                                                │                                                                     │
 │                                                │                                                                     │

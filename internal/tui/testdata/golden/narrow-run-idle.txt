@@ -4,9 +4,9 @@
 │  PROGRESS                                                │
 │  alive    ░░░░░░░░░░ 0/0                                 │
 │  ports    ░░░░░░░░░░ 0/0                                 │
-│  results  0                                              │
-│  creds    0                                              │
-│  errors   0                                              │
+│                                                          │
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

@@ -128,3 +128,58 @@ func TestClearErrors(t *testing.T) {
 		t.Error("errorsExpanded = true after clearErrors(), want false")
 	}
 }
+
+// TestNoteStatsBeat drives the §5.5 stall detector state machine: a
+// done-count change re-baselines, a hold accumulates stallSec, and
+// runIdle / runDone / paused suppress it (reset + baseline refresh, so
+// a resume never alarms on pre-pause silence).
+// / TestNoteStatsBeat 驱动 §5.5 停滞检测器状态机：done 计数变化即重
+// 置基线，保持不变则累计 stallSec；runIdle / runDone / paused 抑制
+// （清零 + 刷新基线，恢复后绝不因暂停前的静默告警）。
+func TestNoteStatsBeat(t *testing.T) {
+	base := time.Date(2026, 9, 15, 12, 0, 0, 0, time.Local)
+
+	t.Run("hold accumulates and change rebaselines", func(t *testing.T) {
+		m := newTestModel()
+		m.runState = runScanning
+		m.noteStatsBeat(base, 100)
+		m.noteStatsBeat(base.Add(time.Second), 100)
+		if m.stallSec != 1 {
+			t.Fatalf("hold: stallSec = %d, want 1", m.stallSec)
+		}
+		m.noteStatsBeat(base.Add(10*time.Second), 142) // ports moved
+		if m.stallSec != 0 || m.lastPorts != 142 {
+			t.Fatalf("change: stallSec = %d lastPorts = %d, want 0 / 142", m.stallSec, m.lastPorts)
+		}
+	})
+
+	t.Run("suppressed while idle/done/paused", func(t *testing.T) {
+		for _, setup := range []func(*Model){
+			func(m *Model) { m.runState = runIdle },
+			func(m *Model) { m.runState = runDone },
+			func(m *Model) { m.runState = runScanning; m.uiMode = modePaused },
+		} {
+			m := newTestModel()
+			setup(&m)
+			m.noteStatsBeat(base, 100)
+			m.noteStatsBeat(base.Add(90*time.Second), 100) // long silence
+			if m.stallSec != 0 {
+				t.Fatalf("suppressed state: stallSec = %d, want 0", m.stallSec)
+			}
+		}
+	})
+
+	t.Run("resume after pause starts from fresh baseline", func(t *testing.T) {
+		m := newTestModel()
+		m.runState = runScanning
+		m.noteStatsBeat(base, 100)
+		m.noteStatsBeat(base.Add(5*time.Second), 100) // 5s pre-pause stall
+		m.uiMode = modePaused
+		m.noteStatsBeat(base.Add(8*time.Second), 100) // paused beat resets
+		m.uiMode = modeRun
+		m.noteStatsBeat(base.Add(9*time.Second), 100) // resumed, still quiet
+		if m.stallSec != 1 {
+			t.Fatalf("post-resume stallSec = %d, want 1 (only post-resume silence counts)", m.stallSec)
+		}
+	})
+}

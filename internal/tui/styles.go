@@ -65,12 +65,6 @@ var (
 	cIdle = lipgloss.Color("#a78bfa")
 )
 
-// Compile-time references to palette tokens not yet wired to a renderer
-// (T3 zone accent). Keeps the tokens in the single palette without
-// tripping the unused linter. / 尚未接线到渲染器的调色板令牌的编译期
-// 引用（T3 zone accent）。让令牌留在唯一调色板里又不触发 unused。
-var _ = cZone
-
 // ── Symbols (spec §6.3, single table) ──
 // ── 符号表（spec §6.3，唯一一表）──
 const (
@@ -120,7 +114,9 @@ var (
 	stTitle       lipgloss.Style
 	stMuted       lipgloss.Style
 	stWarn        lipgloss.Style
+	stErr         lipgloss.Style
 	stFrame       lipgloss.Style
+	stFrameZone   lipgloss.Style
 	stPanelHeader lipgloss.Style
 	stKeyHint     lipgloss.Style
 	stHelp        lipgloss.Style
@@ -157,10 +153,26 @@ func init() {
 		Foreground(cWarn).
 		Bold(true)
 
+	// stErr: error-signal text (stall !!, hard failures). err red,
+	// bold to match stWarn's weight so the two alarm levels read as a
+	// pair. / stErr：错误信号文本（stall !!、硬失败）。err 红加粗，
+	// 与 stWarn 同字重，两级告警成对可读。
+	stErr = lipgloss.NewStyle().
+		Foreground(cErr).
+		Bold(true)
+
 	// Lattice frame glyphs (borders, separators, corners).
 	// lattice 框字形（边框、分隔线、角）。
 	stFrame = lipgloss.NewStyle().
 		Foreground(cBorder)
+
+	// stFrameZone: zone-accent variant of the frame glyphs — the only
+	// sanctioned border recolor (spec §5.1). The active stage's region
+	// borders render in cZone; everything else stays stFrame.
+	// / stFrameZone：框字形的 zone accent 变体——唯一被认可的边框
+	// 换色（spec §5.1）。活跃阶段的区域边框用 cZone，其余保持 stFrame。
+	stFrameZone = lipgloss.NewStyle().
+		Foreground(cZone)
 
 	// Panel header: accent bold. Single flush variant — the margin
 	// variant is retired; inside the lattice a margin would inject

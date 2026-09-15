@@ -11,6 +11,7 @@ package scan
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,6 +44,15 @@ type ScanOptions struct {
 	// sweep. / Tuning 覆写 AIMD 策略常量（见 aimd.go）。nil = 出厂
 	// 默认。A3 bench 扫描的测量表面。
 	Tuning *AIMDTuning
+	// InflightSink, when non-nil, mirrors the pool's in-flight probe
+	// count (spec TUI v3 §7.3: core/scanner.go wires &State.Inflight
+	// so the TUI PROGRESS ledger splits ports into done/inflight/
+	// deferred). Passed through to PoolOptions verbatim.
+	// / InflightSink 非 nil 时镜像池的在飞 probe 数（spec TUI v3
+	// §7.3：core/scanner.go 接 &State.Inflight，让 TUI PROGRESS 账本
+	// 把 ports 分解为 done/inflight/deferred）。原样透传给
+	// PoolOptions。
+	InflightSink *atomic.Int64
 	// OnProbeError forwards the pool's per-probe error signal to
 	// the caller. Same contract as PoolOptions.OnProbeError.
 	//
@@ -85,6 +95,9 @@ func NewScanner(opts ScanOptions) *Scanner {
 	}
 	if opts.Tuning != nil {
 		pOpts.Tuning = opts.Tuning
+	}
+	if opts.InflightSink != nil {
+		pOpts.InflightSink = opts.InflightSink
 	}
 	return &Scanner{pool: NewPool(pOpts)}
 }

@@ -19,6 +19,8 @@ package tui
 import (
 	"strings"
 
+	"github.com/LCUstinian/FG-QiMen/internal/types"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -59,6 +61,75 @@ func hBorder(w int, left, right, junc string, jx int) string {
 		}
 	}
 	sb.WriteString(right)
+	return sb.String()
+}
+
+// zoneRegion names the lattice cells that the zone accent (§5.1) can
+// light up. The stage→region mapping: ALIVE/PORT-SCAN → PROGRESS,
+// IDENTIFY → TOP PLUGINS, CRED → LIVE EVENTS, DONE/IDLE → none.
+// / zoneRegion 枚举 zone accent（§5.1）可点亮的格子。阶段→区域映射：
+// ALIVE/PORT-SCAN → PROGRESS，IDENTIFY → TOP PLUGINS，CRED →
+// LIVE EVENTS，DONE/IDLE → 无。
+type zoneRegion uint8
+
+const (
+	zoneNone zoneRegion = iota
+	zoneProgress
+	zonePlugins
+	zoneEvents
+)
+
+// stageZone maps a State stage value to its accented region (§5.1).
+// / stageZone 把 State 阶段值映射到其 accent 区域（§5.1）。
+func stageZone(stage int64) zoneRegion {
+	switch {
+	case stage == int64(types.StageAlive) || stage == int64(types.StagePortScan):
+		return zoneProgress
+	case stage == int64(types.StageIdentify):
+		return zonePlugins
+	case stage == int64(types.StageCred):
+		return zoneEvents
+	default:
+		return zoneNone
+	}
+}
+
+// frameStyle picks the border style for a cell: zone accent when the
+// cell is the active stage's region, plain border otherwise. The
+// returned style is applied per border glyph so golden text (ANSI-
+// free) is byte-identical either way.
+// / frameStyle 为格子选边框样式：该格是活跃阶段区域时用 zone
+// accent，否则用普通 border。返回的样式逐字形施加，golden 文本（无
+// ANSI）两种情况下逐字节一致。
+func frameStyle(cell, active zoneRegion) lipgloss.Style {
+	if cell != zoneNone && cell == active {
+		return stFrameZone
+	}
+	return stFrame
+}
+
+// hBorderZone renders hBorder with per-segment styles: glyphs left of
+// jx use styleL, glyphs from jx on use styleR (jx ≤ 0 → whole line in
+// styleL). The wide separators split into a left and a right half that
+// close different cells, so each half takes its cell's border style.
+// / hBorderZone 渲染分段样式的 hBorder：jx 左侧字形用 styleL，jx 起
+// 用 styleR（jx ≤ 0 → 整行 styleL）。宽屏分隔线左右两半闭合不同的
+// 格，各自取所属格的边框样式。
+func hBorderZone(w int, left, right, junc string, jx int, styleL, styleR lipgloss.Style) string {
+	var sb strings.Builder
+	sb.WriteString(styleL.Render(left))
+	for i := 1; i < w-1; i++ {
+		st := styleL
+		if jx > 0 && i >= jx {
+			st = styleR
+		}
+		if jx > 0 && i == jx {
+			sb.WriteString(st.Render(junc))
+		} else {
+			sb.WriteString(st.Render(boxH))
+		}
+	}
+	sb.WriteString(styleR.Render(right))
 	return sb.String()
 }
 

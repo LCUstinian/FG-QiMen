@@ -690,3 +690,94 @@ func TestViewFrameFitsTerminal(t *testing.T) {
 		}
 	}
 }
+
+// TestViewStage_Ledger pins the §5.5 progress ledger shape: wide two
+// rows (done/inflight, then deferred/stall), medium one row, narrow
+// none — and the retired results/creds/errors counters absent
+// everywhere (spec §5.2 frames: creds surface as [*] events, errors
+// own the ERRORS cell).
+// / TestViewStage_Ledger 钉住 §5.5 进度账本形状：宽屏两行
+// （done/inflight 与 deferred/stall）、medium 一行、narrow 无——退役
+// 的 results/creds/errors 计数行处处不在（spec §5.2 框图：creds 以
+// [*] 事件呈现，errors 归 ERRORS 格）。
+func TestViewStage_Ledger(t *testing.T) {
+	st := newTestState(t)
+	st.TotalHosts.Store(24)
+	st.TotalPorts.Store(8000)
+	m := newTestModelWithState(st)
+	m.counters.AliveProbed = 18
+	m.counters.Ports = 142
+	m.counters.Inflight = 3
+
+	m.width = 140 // wide
+	wide := m.viewStage(12, 140)
+	for _, want := range []string{"done 142   inflight 3", "deferred 7855", "stall 0s"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf("wide ledger missing %q:\n%s", want, wide)
+		}
+	}
+	if strings.Contains(wide, "results") || strings.Contains(wide, "creds") ||
+		strings.Contains(wide, "errors") {
+		t.Errorf("wide ledger still renders retired counters:\n%s", wide)
+	}
+
+	m.width = 100 // medium
+	medium := m.viewStage(12, 100)
+	if !strings.Contains(medium, "done 142  inflight 3  deferred 7855   stall 0s") {
+		t.Errorf("medium ledger row missing:\n%s", medium)
+	}
+
+	m.width = 60 // narrow
+	narrow := m.viewStage(6, 60)
+	if strings.Contains(narrow, "done") || strings.Contains(narrow, "inflight") ||
+		strings.Contains(narrow, "stall") {
+		t.Errorf("narrow must not render the ledger:\n%s", narrow)
+	}
+}
+
+// TestViewStage_Ledger_DeferredClamped pins the ≥0 clamp: counters are
+// sampled at slightly different moments, so inflight can transiently
+// exceed total−done; deferred must never go negative.
+// / TestViewStage_Ledger_DeferredClamped 钉住 ≥0 钳位：各计数采样时
+// 刻略有先后，inflight 可能瞬时超过 total−done；deferred 绝不为负。
+func TestViewStage_Ledger_DeferredClamped(t *testing.T) {
+	st := newTestState(t)
+	st.TotalPorts.Store(100)
+	m := newTestModelWithState(st)
+	m.width = 140
+	m.counters.Ports = 90
+	m.counters.Inflight = 50 // 100−90−50 < 0
+	got := m.viewStage(12, 140)
+	if strings.Contains(got, "deferred -") {
+		t.Errorf("deferred went negative:\n%s", got)
+	}
+	if !strings.Contains(got, "deferred 0") {
+		t.Errorf("deferred not clamped to 0:\n%s", got)
+	}
+}
+
+// TestStallCell_Thresholds pins the stall read-out ladder (spec §5.5):
+// quiet → plain seconds, ≥15s warn ▲, ≥60s err !!. String equality
+// holds because the test color profile renders styles as plain text.
+// / TestStallCell_Thresholds 钉住停滞读数阶梯（spec §5.5）：安静 →
+// 纯秒数，≥15s warn ▲，≥60s err !!。测试色彩 profile 把样式渲染成
+// 纯文本，字符串相等成立。
+func TestStallCell_Thresholds(t *testing.T) {
+	m := newTestModel()
+	cases := []struct {
+		sec  int64
+		want string
+	}{
+		{0, "stall 0s"},
+		{14, "stall 14s"},
+		{15, "stall 15s ▲"},
+		{59, "stall 59s ▲"},
+		{60, "stall 60s !!"},
+	}
+	for _, c := range cases {
+		m.stallSec = c.sec
+		if got := m.stallCell(); got != c.want {
+			t.Errorf("stallCell(%d) = %q, want %q", c.sec, got, c.want)
+		}
+	}
+}

@@ -6,14 +6,14 @@
 │  PROGRESS                                      │  LIVE EVENTS                                                follow ▼│
 │  alive    ░░░░░░░░░░░░░░░░░░░░ 18/0            │  ▲ 620 ev/s · 60% hits · critical only                              │
 │  ports    ░░░░░░░░░░░░░░░░░░░░ 142/0           │  + 9 more criticals                                                 │
-│  results  23                                   │  14:23:03  [*]  10.0.0.4:443           https         svc-backup:*...│
-│  creds    2                                    │  14:23:04  [~]  10.0.0.5:445           smb           null session...│
-│  errors   7                                    │                                                                     │
+│  done 142   inflight 0                         │  14:23:03  [*]  10.0.0.4:443           https         svc-backup:*...│
+│  deferred 0   stall 0s                         │  14:23:04  [~]  10.0.0.5:445           smb           null session...│
 │                                                │                                                                     │
 │  TOP PLUGINS                                   │                                                                     │
 │  9          ██████░░░░░░  http-title           │                                                                     │
 │  6          ██████░░░░░░  ssh-banner           │                                                                     │
 │  3          ██████░░░░░░  redis                │                                                                     │
+│                                                │                                                                     │
 │                                                │                                                                     │
 │                                                │                                                                     │
 │                                                │                                                                     │

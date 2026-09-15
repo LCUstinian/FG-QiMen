@@ -145,6 +145,10 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		hits, ports := d.inner.rate.update(now, m.view.Creds, m.view.Ports)
 		d.inner.rateHits = hits
 		d.inner.ratePorts = ports
+		// Stall detector (spec §5.5): the data beat compares the done
+		// (Ports) count. / 停滞检测器（spec §5.5）：数据拍比较 done
+		// （Ports）计数。
+		d.inner.noteStatsBeat(now, m.view.Ports)
 		// computeETA needs TotalHosts / TotalPorts which the
 		// CountersView doesn't carry (those live on the State
 		// directly — see types/state.go). Pass them in alongside

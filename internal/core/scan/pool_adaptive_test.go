@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -251,4 +253,79 @@ func TestAdjust_HealthRTTTrendShrinksOnWAN(t *testing.T) {
 	if got := p.currentThreads.Load(); got >= 400 {
 		t.Fatalf("RTT-trend stress: concurrency = %d, want < 400", got)
 	}
+}
+
+// gateProbe parks every probe on a channel so the test can pin the
+// in-flight count while workers are blocked inside Probe.
+// / gateProbe 把每个 probe 停泊在 channel 上，让测试能在 worker 阻
+// 塞在 Probe 内时钉住在飞计数。
+type gateProbe struct{ release chan struct{} }
+
+func (g *gateProbe) Name() string     { return "gate" }
+func (g *gateProbe) Method() Method   { return MethodTCPConnect }
+func (g *gateProbe) Available() error { return nil }
+
+func (g *gateProbe) Probe(_ context.Context, _ string, _ int, _ time.Duration) (Result, error) {
+	<-g.release
+	return Result{State: StateOpen, Method: MethodTCPConnect}, nil
+}
+
+// TestPool_InflightSinkBalance pins the §7.3 ledger wiring: the sink
+// tracks workers parked inside Probe and returns to exactly zero once
+// Run drains — the TUI PROGRESS ledger's inflight column is only
+// credible if the mirror is leak-free on both sides.
+// / TestPool_InflightSinkBalance 钉住 §7.3 账本接线：sink 跟踪停泊
+// 在 Probe 内的 worker，Run 排空后必须精确归零——只有镜像两侧都无
+// 泄漏，TUI PROGRESS 账本的 inflight 列才可信。
+func TestPool_InflightSinkBalance(t *testing.T) {
+	var sink atomic.Int64
+	g := &gateProbe{release: make(chan struct{})}
+	p := NewPool(PoolOptions{
+		Probe:          g,
+		Timeout:        time.Second,
+		MinThreads:     2,
+		MaxThreads:     2,
+		InitialThreads: 2,
+		AdjustInterval: time.Hour, // keep the controller out of the way
+		InflightSink:   &sink,
+	})
+
+	hosts := make([]string, 6)
+	for i := range hosts {
+		hosts[i] = "10.0.0.1"
+	}
+	iter := NewCrossIterator(hosts, []int{80})
+	out := make(chan Result, 6)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Run(context.Background(), iter, out) }()
+
+	// Wait until both workers are parked in Probe and mirrored.
+	// / 等两个 worker 都停泊进 Probe 并完成镜像。
+	waitForInflight(t, &sink, 2)
+
+	close(g.release)
+	if err := <-errCh; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := sink.Load(); got != 0 {
+		t.Fatalf("sink after Run = %d, want 0 (mirror leak)", got)
+	}
+	if got := p.Inflight(); got != 0 {
+		t.Fatalf("Pool.Inflight after Run = %d, want 0 (pool counter leak)", got)
+	}
+}
+
+// waitForInflight polls until the sink reaches want or times out.
+// / waitForInflight 轮询直到 sink 达到 want 或超时。
+func waitForInflight(t *testing.T, sink *atomic.Int64, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := sink.Load(); got == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("sink never reached %d (now %d)", want, sink.Load())
 }

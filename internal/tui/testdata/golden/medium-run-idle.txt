@@ -5,9 +5,9 @@
 │  PROGRESS                                                                                        │
 │  alive    ░░░░░░░░░░░░░░░░░░░░ 0/0                                                               │
 │  ports    ░░░░░░░░░░░░░░░░░░░░ 0/0                                                               │
-│  results  0                                                                                      │
-│  creds    0                                                                                      │
-│  errors   0                                                                                      │
+│  done 0  inflight 0  deferred 0   stall 0s                                                       │
+│                                                                                                  │
+│                                                                                                  │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  LIVE EVENTS                                                                             follow ▼│
 │  (no events yet)                                                                                 │

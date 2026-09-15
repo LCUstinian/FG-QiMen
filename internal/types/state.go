@@ -79,6 +79,17 @@ type State struct {
 	TotalPorts      atomic.Int64
 	PluginHits      sync.Map // string → *atomic.Int64
 	ErrorCategories sync.Map // string → *atomic.Int64
+
+	// Inflight mirrors the scan worker pool(s)' in-flight probe count
+	// (spec §7.3 — the design's only engine-side change). The pool
+	// writes it through PoolOptions.InflightSink; Snapshot() folds it
+	// into CountersView so the TUI ledger needs no extra plumbing.
+	// Unwired States just read zero.
+	// / Inflight 镜像扫描 worker 池的在飞 probe 数（spec §7.3——本设
+	// 计唯一的引擎侧改动）。池经 PoolOptions.InflightSink 写入；
+	// Snapshot() 把它折进 CountersView，TUI 账本无需额外管道。未接
+	// 线的 State 读到的恒为 0。
+	Inflight atomic.Int64
 }
 
 // Counters is a struct of atomic counters.
@@ -151,6 +162,16 @@ type CountersView struct {
 	IdentNone   int64 // identification quality: no-claim open ports
 	ProbePorts  int64 // active-probe economics: silent ports probed (cost)
 	ProbeHits   int64 // active-probe economics: probes yielding a claim (return)
+	// Inflight is the number of probes currently in flight in the
+	// scan worker pool(s) (spec §7.3 — the only engine-side change the
+	// TUI v3 design makes). The PROGRESS ledger splits the ports row
+	// into done / inflight / deferred with it; when a State leaves it
+	// unwired the ledger degrades to done/total.
+	// / Inflight 是扫描 worker 池中当前在飞的 probe 数（spec §7.3
+	// ——TUI v3 设计唯一的引擎侧改动）。PROGRESS 账本用它把 ports 行
+	// 分解为 done / inflight / deferred；State 未接线时账本退化为
+	// done/total。
+	Inflight int64
 }
 
 // NewState creates a fresh State with counters zeroed.
@@ -212,6 +233,7 @@ func (s *State) Snapshot() CountersView {
 		IdentNone:   s.Counters.IdentNone.Load(),
 		ProbePorts:  s.Counters.ProbePorts.Load(),
 		ProbeHits:   s.Counters.ProbeHits.Load(),
+		Inflight:    s.Inflight.Load(),
 	}
 }
 

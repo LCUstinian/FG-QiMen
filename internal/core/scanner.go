@@ -653,6 +653,13 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 			// sets it per round. / 零保持池默认（500ms）；bench 扫描
 			// 逐轮设置。
 			AdjustInterval: cfg.AIMDAdjustInterval,
+			// TUI v3 §7.3 (the design's only engine-side change):
+			// mirror in-flight probes into State so the PROGRESS
+			// ledger can show done / inflight / deferred.
+			// / TUI v3 §7.3（本设计唯一的引擎侧改动）：把在飞 probe 数
+			// 镜像进 State，让 PROGRESS 账本显示 done / inflight /
+			// deferred。
+			InflightSink: &sess.State.Inflight,
 			// P3 / F12 audit fix: surface probe errors (ctx cancel,
 			// conn reset, etc.) to the session log instead of
 			// silently dropping them. The pool worker records the
@@ -782,6 +789,14 @@ func runFullPipelineRound(ctx context.Context, sess *session.Session, targets []
 				Threads:    udpThreads,
 				MaxThreads: udpMax,
 				Env:        poolEnv,
+				// Same ledger mirror as the TCP pool: the UDP phase is
+				// strictly serial after TCP, so sharing one sink is
+				// race-free and keeps the PROGRESS ledger live during
+				// the UDP phase too.
+				// / 与 TCP 池同一账本镜像：UDP 阶段严格串行于 TCP 之后，
+				// 共享一个 sink 无竞态，还能让 PROGRESS 账本在 UDP 阶段
+				// 保持活跃。
+				InflightSink: &sess.State.Inflight,
 				OnProbeError: func(_ scan.Item, err error) {
 					sess.Log.Warn("udp probe error: %v", err)
 				},
