@@ -9,7 +9,7 @@
 
 > [中文版本](FLAGS.zh-CN.md)
 
-62 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
+63 flags in 10 groups, rendered from the live flag registry (the same set `fg-qimen --help` prints). The tables below are the
 authoritative machine-checked reference; add a flag by editing
 cmd/flags.go, then run `just docs-gen`.
 
@@ -114,6 +114,7 @@ cmd/flags.go, then run `just docs-gen`.
 | — | `--plugins` | — | comma-separated plugin names to enable (default: all) |
 | — | `--share-enum` | `false` | enable read-only SMB null-session share enumeration on open port 445: list share names, mount what an anonymous session allows, record directory metadata (names, sizes, mtimes). Evidence-only — file contents are NEVER downloaded. Findings go to fgqm_shares.ndjson/txt |
 | — | `--silent` | `false` | suppress info log to console; file output still works |
+| — | `--tui-ascii` | `false` | render the TUI with a pure-ASCII symbol table (borders -\|+, bars #-, no box-drawing/braille glyphs) — for terminals that control the cursor fine but garble Unicode line-drawing (legacy conhost raster fonts, limited SSH clients) |
 | `-v` | `--verbose` | `false` | verbose debug logging |
 
 ## Safety

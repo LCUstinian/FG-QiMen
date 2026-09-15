@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // ── Role tokens (spec §6.1) ──
@@ -67,9 +68,18 @@ var (
 
 // ── Symbols (spec §6.3, single table) ──
 // ── 符号表（spec §6.3，唯一一表）──
-const (
-	spinnerFrames = "◐◓◑◒"
-
+//
+// The table has TWO renders: Unicode (default) and pure-ASCII
+// (§6.2 ladder level 4, TERM=dumb / --tui-ascii). Every ASCII
+// replacement is exactly one display column so the lattice width law
+// survives degradation. Glyphs are vars (not consts) for exactly this
+// reason — SetASCIIFallback swaps the table before the first frame.
+//
+// 符号表有两套渲染：Unicode（默认）与纯 ASCII（§6.2 阶梯第 4 级，
+// TERM=dumb / --tui-ascii）。每个 ASCII 替换恰好占 1 显示列，宽度律
+// 在降级后依然成立。字形是 var 而非 const 正是为此——SetASCIIFallback
+// 在首帧前换表。
+var (
 	// Event severity symbols. Every token is a fixed 3-column bracket
 	// tag: pure ASCII, unambiguous width in every monospace font (the
 	// old ✓/✗ glyphs are ambiguous-width in some fonts and sized
@@ -83,15 +93,69 @@ const (
 	symMiss        = "[-]" // refused/timeout/dns (gray)
 	symWarn        = "[~]" // partial / TLS handshake fail
 
-	// Pipeline state symbols. / 管线状态符号。
-	symActive = "▶"
-	symDone   = "●"
-	symIdle   = "○"
+	// Pipeline state symbols + spinner. / 管线状态符号 + spinner。
+	spinnerFrames = "◐◓◑◒"
+	symActive     = "▶"
+	symDone       = "●"
+	symIdle       = "○"
+
+	// straggler Unicode glyphs outside the three families above.
+	// / 上述三族之外的零散 Unicode 字形。
+	symCheck     = "✓" // stage badge, StageDone
+	glWarn       = "▲" // stall warn mark (spec: ⚠ retired for width)
+	glChipFollow = "▼" // follow-mode chip
+	glChipBrowse = "▲" // browse-mode chip
+	glLag        = "↓" // browse "↓N new" lag counter
+	glUp         = "↑" // help overlay key hints
+	glDown       = "↓"
+	glFold       = "×" // ×N merge suffix
+	glMid        = "·" // in-row separator
+	glBarEmpty   = "░" // progress bar empty cell
+	glBarFull    = "█" // progress bar full cell
+)
+
+// ASCII render of the symbol table (§6.2 level 4). One column per
+// glyph, all bytes < 0x80. Box junctions (┌├┬…) all collapse to '+'
+// per the spec mapping (─→-, │→|).
+// / 符号表的 ASCII 渲染（§6.2 第 4 级）。每字形一列，字节全 < 0x80。
+// 框交接字符（┌├┬…）按 spec 映射全部折叠为 '+'（─→-，│→|）。
+const (
+	aSpinnerFrames = "****"
+	aSymActive     = ">"
+	aSymDone       = "*"
+	aSymIdle       = "o"
+	aSymCheck      = "+"
+	aGlWarn        = "!"
+	aGlChipFollow  = "v"
+	aGlChipBrowse  = "^"
+	aGlLag         = "v"
+	aGlUp          = "^"
+	aGlDown        = "v"
+	aGlFold        = "x"
+	aGlMid         = "."
+	aGlBarEmpty    = "-"
+	aGlBarFull     = "#"
+
+	aBoxH  = "-"
+	aBoxV  = "|"
+	aBoxTL = "+"
+	aBoxTR = "+"
+	aBoxBL = "+"
+	aBoxBR = "+"
+	aBoxLS = "+"
+	aBoxRS = "+"
+	aBoxDn = "+"
+	aBoxUp = "+"
 )
 
 // ── Lattice box drawing (spec §5.1, shared borders) ──
 // ── Lattice 框字符（spec §5.1，共享边框）──
-const (
+//
+// Vars, not consts — the ASCII fallback (§6.2 level 4) swaps them for
+// -|+ one-column equivalents before the first frame.
+// 用 var 而非 const——ASCII 回退（§6.2 第 4 级）在首帧前把它们换成
+// 单列的 -|+ 等价物。
+var (
 	boxH  = "─"
 	boxV  = "│"
 	boxTL = "┌"
@@ -105,9 +169,18 @@ const (
 )
 
 // barFracs is the eighth-fraction glyph family used between ░ (empty)
-// and █ (full), index 0 = 1/8 filled. / barFracs 是 ░（空）与 █（满）
-// 之间的八分块字族，索引 0 = 1/8 填充。
-const barFracs = "▏▎▍▌▋▊▉"
+// and █ (full), index 0 = 1/8 filled. Var — ASCII fallback maps every
+// fraction to '#'. / barFracs 是 ░（空）与 █（满）之间的八分块字族，
+// 索引 0 = 1/8 填充。是 var——ASCII 回退把每个八分块映射为 '#'。
+var barFracs = "▏▎▍▌▋▊▉"
+
+// glSpark is the sparkline glyph ramp (index 0 = silent, 7 = peak),
+// paired with sparkline()'s P95 scale (§6.4). Var — ASCII fallback
+// gives a coarse two-level ramp: low half '.', high half '#'.
+// / glSpark 是 sparkline 字形坡（索引 0 = 无速率，7 = 峰值），配合
+// sparkline() 的 P95 尺度（§6.4）。是 var——ASCII 回退给粗两级坡：
+// 低半 '.'，高半 '#'。
+var glSpark = "▁▂▃▄▅▆▇█"
 
 // Styles. / 样式。
 var (
@@ -126,19 +199,12 @@ var (
 )
 
 func init() {
-	if isNoColor() {
-		// Signal + focus roles degrade to dim; neutrals stay. The
-		// finer truecolor→256→grayscale ladder is lipgloss's job
-		// (spec §6.2); NO_COLOR is the explicit kill switch.
-		// 信号与焦点角色降为 dim；中性不变。truecolor→256→灰度的
-		// 细阶梯由 lipgloss 负责（spec §6.2）；NO_COLOR 是显式总闸。
-		cAccent = cDim
-		cOk = cDim
-		cErr = cDim
-		cWarn = cDim
-		cZone = cDim
-		cIdle = cDim
-	}
+	// Color half of the §6.2 ladder (NO_COLOR kill switch + grayscale
+	// for 16-color ANSI profiles); the truecolor→256 step below it is
+	// lipgloss's own.
+	// / §6.2 阶梯的颜色半边（NO_COLOR 总闸 + 16 色 ANSI profile 的灰
+	// 度映射）；其下的 truecolor→256 一步由 lipgloss 自己完成。
+	applyColorLadder(lipgloss.DefaultRenderer().ColorProfile())
 
 	// Title text inside the lattice top border: accent bold.
 	// lattice 顶边框内的标题文本：accent 加粗。
@@ -232,20 +298,167 @@ func isNoColor() bool {
 	return true
 }
 
+// applyColorLadder is the color half of the §6.2 degradation ladder:
+// NO_COLOR dims every signal/focus token (explicit kill switch); a
+// 16-color ANSI profile remaps the signal domain to grayscale so the
+// semantic hues never quantize to unpredictable palette entries.
+// Tests may call it with a forced profile; styles must be rebuilt
+// (buildStyles) afterwards to pick up the new tokens.
+// / applyColorLadder 是 §6.2 降级阶梯的颜色半边：NO_COLOR 把一切信
+// 号/焦点令牌降为 dim（显式总闸）；16 色 ANSI profile 把信号域映射
+// 为灰度，语义色不会被量化到不可预测的调色板条目。测试可强制传入
+// profile 调用；之后需重建样式（buildStyles）才能用到新令牌。
+func applyColorLadder(profile termenv.Profile) {
+	if isNoColor() {
+		// Signal + focus roles degrade to dim; neutrals stay.
+		// / 信号与焦点角色降为 dim；中性不变。
+		cAccent = cDim
+		cOk = cDim
+		cErr = cDim
+		cWarn = cDim
+		cZone = cDim
+		cIdle = cDim
+		return
+	}
+	if profile == termenv.ANSI {
+		// Grayscale: err keeps its bold weight via stErr/stWarn, warn
+		// drops to the light-gray token, everything else goes plain
+		// white. cIdle keeps its token — the IDLE chip stays
+		// distinguishable on a monochrome scan surface.
+		// / 灰度：err 靠 stErr/stWarn 保留加粗字重，warn 降到浅灰
+		// 令牌，其余全部转纯白。cIdle 保留——IDLE 芯片在单色扫描面
+		// 上仍可分辨。
+		cAccent = cText
+		cOk = cText
+		cErr = cText
+		cWarn = cDim
+		cZone = cText
+	}
+}
+
+// SetASCIIFallback swaps the symbol table to its pure-ASCII render
+// (§6.2 ladder level 4). Idempotent; must run before the first frame —
+// the production entry point is cmd/scan.go, which honours --tui-ascii
+// (TERM=dumb routes to TextUI upstream and never reaches the TUI).
+// Also rebuilds the help-overlay border, whose glyphs come from
+// lipgloss's Border struct rather than the symbol table. Tests call it
+// directly and restore the glyph table via glyphSnapshot.
+// / SetASCIIFallback 把符号表换成纯 ASCII 渲染（§6.2 阶梯第 4 级）。
+// 幂等；必须在首帧前调用——生产入口在 cmd/scan.go，尊重 --tui-ascii
+// （TERM=dumb 在上游就路由到 TextUI，不会进 TUI）。帮助浮层边框的字
+// 形来自 lipgloss 的 Border 结构而非符号表，因此一并重建。测试直接
+// 调用并用 glyphSnapshot 恢复。
+func SetASCIIFallback(on bool) {
+	if !on {
+		return
+	}
+	spinnerFrames = aSpinnerFrames
+	symActive, symDone, symIdle = aSymActive, aSymDone, aSymIdle
+	symCheck = aSymCheck
+	glWarn = aGlWarn
+	glChipFollow, glChipBrowse = aGlChipFollow, aGlChipBrowse
+	glUp, glDown, glLag = aGlUp, aGlDown, aGlLag
+	glFold = aGlFold
+	glMid = aGlMid
+	glBarEmpty, glBarFull = aGlBarEmpty, aGlBarFull
+	boxH, boxV = aBoxH, aBoxV
+	boxTL, boxTR, boxBL, boxBR = aBoxTL, aBoxTR, aBoxBL, aBoxBR
+	boxLS, boxRS, boxDn, boxUp = aBoxLS, aBoxRS, aBoxDn, aBoxUp
+	barFracs = strings.Repeat(aGlBarFull, barFracsUnicode)
+	glSpark = strings.Repeat(aGlBarEmpty, sparkLow) +
+		strings.Repeat(aGlBarFull, glSparkUnicode-sparkLow)
+	// Help overlay border glyphs live in lipgloss's Border struct, not
+	// in the symbol table — rebuild the style with the ASCII border.
+	// / 帮助浮层边框字形在 lipgloss 的 Border 结构里而非符号表——用
+	// ASCII 边框重建该样式。
+	stHelp = stHelp.Border(lipgloss.Border{
+		Top: aBoxH, Bottom: aBoxH, Left: aBoxV, Right: aBoxV,
+		TopLeft: aBoxTL, TopRight: aBoxTR,
+		BottomLeft: aBoxBL, BottomRight: aBoxBR,
+	})
+}
+
+// glyphSnapshot / restoreGlyphTable bracket glyph-table mutations in
+// tests so package-global swaps never leak between test cases.
+// / glyphSnapshot / restoreGlyphTable 在测试中夹住符号表突变，包级
+// 全局换表绝不泄漏到别的用例。
+type glyphSnapshot struct {
+	vals []string
+}
+
+// glyphNames lists every glyph table var in one place — a new glyph
+// var must be added here AND to SetASCIIFallback.
+// / glyphNames 把所有字形表 var 集中在一处——新增字形 var 必须同时
+// 加进这里和 SetASCIIFallback。
+var glyphNames = []string{
+	"spinnerFrames", "symActive", "symDone", "symIdle", "symCheck",
+	"glWarn", "glChipFollow", "glChipBrowse", "glUp", "glDown", "glLag",
+	"glFold", "glMid", "glBarEmpty", "glBarFull", "barFracs", "glSpark",
+	"boxH", "boxV", "boxTL", "boxTR", "boxBL", "boxBR", "boxLS", "boxRS",
+	"boxDn", "boxUp",
+}
+
+// glyphPointers maps names → var addresses for snapshot/restore.
+// / glyphPointers 把名字映射到 var 地址，供快照/恢复。
+var glyphPointers = map[string]*string{
+	"spinnerFrames": &spinnerFrames, "symActive": &symActive,
+	"symDone": &symDone, "symIdle": &symIdle, "symCheck": &symCheck,
+	"glWarn": &glWarn, "glChipFollow": &glChipFollow,
+	"glChipBrowse": &glChipBrowse, "glUp": &glUp, "glDown": &glDown,
+	"glLag": &glLag, "glFold": &glFold, "glMid": &glMid,
+	"glBarEmpty": &glBarEmpty, "glBarFull": &glBarFull,
+	"barFracs": &barFracs, "glSpark": &glSpark,
+	"boxH": &boxH, "boxV": &boxV, "boxTL": &boxTL, "boxTR": &boxTR,
+	"boxBL": &boxBL, "boxBR": &boxBR, "boxLS": &boxLS, "boxRS": &boxRS,
+	"boxDn": &boxDn, "boxUp": &boxUp,
+}
+
+func glyphSnapshotFn() glyphSnapshot {
+	s := glyphSnapshot{vals: make([]string, 0, len(glyphNames))}
+	for _, n := range glyphNames {
+		s.vals = append(s.vals, *glyphPointers[n])
+	}
+	return s
+}
+
+func (s glyphSnapshot) restore() {
+	for i, n := range glyphNames {
+		*glyphPointers[n] = s.vals[i]
+	}
+	// stHelp is a style, not a glyph var — restore its Unicode border
+	// explicitly (SetASCIIFallback replaces it with the ASCII border).
+	// / stHelp 是样式而非字形 var——显式恢复其 Unicode 边框
+	// （SetASCIIFallback 会把它换成 ASCII 边框）。
+	stHelp = stHelp.Border(lipgloss.NormalBorder())
+}
+
+// Lengths of the Unicode originals, captured at init so the ASCII
+// ramp strings keep the same RUNE count (index compatibility for
+// barFracs fractions and sparkline levels).
+// / Unicode 原串的长度，init 时捕获，让 ASCII 坡串保持相同 RUNE 数
+// （barFracs 八分块与 sparkline 层级的索引兼容）。
+var (
+	barFracsUnicode = len([]rune(barFracs))
+	glSparkUnicode  = len([]rune(glSpark))
+	sparkLow        = 4 // glSpark indexes 0-3 → '.', 4-7 → '#' / 低半 '.' 高半 '#'
+)
+
 // renderBar renders a width-w progress bar with sub-character
-// precision: full cells are █, a fractional cell takes the nearest
-// eighth glyph (▏▎▍▌▋▊▉), the rest are ░. filled/total=0 (unknown
+// precision: full cells are glBarFull, a fractional cell takes the
+// nearest eighth glyph (barFracs), the rest are glBarEmpty. ASCII
+// fallback renders #-ramps (§6.2 level 4). filled/total=0 (unknown
 // denominator) renders w empty cells; over-fill clamps to 100%.
 //
-// renderBar 以亚字符精度渲染宽度 w 的进度条：整格 █，小数格取最
-// 接近的八分块字形（▏▎▍▌▋▊▉），其余 ░。filled/total=0（未知分母）
-// 渲染 w 个空格；超填钳到 100%。
+// renderBar 以亚字符精度渲染宽度 w 的进度条：整格 glBarFull，小数格
+// 取最接近的八分块字形（barFracs），其余 glBarEmpty。ASCII 回退渲染
+// #-坡（§6.2 第 4 级）。filled/total=0（未知分母）渲染 w 个空格；
+// 超填钳到 100%。
 func renderBar(filled, total, w int) string {
 	if w <= 0 {
 		return ""
 	}
 	if total <= 0 {
-		return strings.Repeat("░", w)
+		return strings.Repeat(glBarEmpty, w)
 	}
 	ratio := float64(filled) / float64(total)
 	if ratio > 1 {
@@ -259,36 +472,35 @@ func renderBar(filled, total, w int) string {
 	frac := pos - float64(full)
 
 	var sb strings.Builder
-	sb.WriteString(strings.Repeat("█", full))
+	sb.WriteString(strings.Repeat(glBarFull, full))
 	if full < w {
 		used := full
 		if eighths := int(frac * 8); eighths > 0 {
 			// barFracs is a string, so slicing is byte-based; go through
-			// []rune to grab one whole 3-byte glyph.
-			// / barFracs 是 string，切片按字节；经 []rune 取完整的
-			// 3 字节字形。
+			// []rune to grab one whole glyph.
+			// / barFracs 是 string，切片按字节；经 []rune 取完整字形。
 			sb.WriteRune([]rune(barFracs)[eighths-1])
 			used++
 		}
-		sb.WriteString(strings.Repeat("░", w-used))
+		sb.WriteString(strings.Repeat(glBarEmpty, w-used))
 	}
 	return sb.String()
 }
 
-// sparkline returns a string of `width` Unicode block-element glyphs
-// representing the samples normalized to [0, 1]. Empty samples or
-// width<=0 → empty string. Samples shorter than width are padded
-// with the lowest glyph. (Fixed-scale P95 normalization lands in T3 —
-// spec §6.4; the windowed max keeps T0 visually unchanged.)
+// sparkline returns a string of `width` ramp glyphs (glSpark) repres-
+// enting the samples normalized to [0, 1]. Empty samples or width<=0
+// → empty string. Samples shorter than width are padded with the
+// lowest glyph. (Fixed-scale P95 normalization lands in T3 — spec
+// §6.4; the windowed max keeps T0 visually unchanged.)
 //
-// sparkline 返回 `width` 个 Unicode 块元素字符的字符串，表示归一化
+// sparkline 返回 `width` 个坡形字形（glSpark）的字符串，表示归一化
 // 到 [0, 1] 的样本。（P95 固定尺度归一化 T3 落地——spec §6.4；
 // T0 沿用窗口 max，视觉不变。）
 func sparkline(samples []float64, width int) string {
 	if len(samples) == 0 || width <= 0 {
 		return ""
 	}
-	glyphs := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+	glyphs := []rune(glSpark)
 
 	// Take last `width` samples.
 	n := len(samples)

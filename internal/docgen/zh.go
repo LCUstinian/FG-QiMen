@@ -116,6 +116,7 @@ var flagDescZh = map[string]string{
 	"no-icmp":      "跳过 ICMP 探测，仅用 TCP-ping 兜底",
 	"no-prescreen": "禁用 /24 网段预筛（存活发现前跳过网关静默的网段；仅对大规模多 /24 输入生效，单网段输入永不过滤）",
 	"no-tui":       "强制纯文本模式，即使 stdout 是 TTY",
+	"tui-ascii":    "TUI 降级为纯 ASCII 字形（边框 -|+、进度条 #-、braille→#.），适用于 legacy conhost 点阵字体、框线渲染损坏的受限 SSH 客户端",
 	"plugins":      "要启用的插件名（逗号分隔，默认全部）",
 	"share-enum":   "开启只读 SMB 匿名会话共享枚举（445 端口开放时）：列共享名，挂载匿名会话允许的共享，记录目录元数据（名/大小/修改时间）。仅取证——绝不下载文件内容。结果写入 fgqm_shares.ndjson/txt",
 	"silent":       "不在控制台输出 info 日志；文件输出不受影响",

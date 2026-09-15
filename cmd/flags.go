@@ -128,6 +128,7 @@ var (
 	// 8. Behaviour / 行为
 	flagSilent        bool
 	flagNoTUI         bool
+	flagTUIASCII      bool
 	flagNoICMP        bool
 	flagNoBatch       bool
 	flagNoPrescreen   bool
@@ -406,6 +407,15 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 		"suppress info log to console; file output still works")
 	pf.BoolVar(&flagNoTUI, "no-tui", false,
 		"force plain-text mode even when stdout is a TTY")
+	// T4: ASCII glyph fallback (spec §6.2 ladder level 4). For
+	// terminals with ANSI control but broken box-drawing / eighth-
+	// fraction rendering (legacy conhost raster fonts, limited SSH
+	// clients). TERM=dumb still routes to TextUI via ShouldUseTUI.
+	// / T4：ASCII 字形回退（spec §6.2 阶梯第 4 级）。供有 ANSI 控制
+	// 但框线/八分块渲染损坏的终端（legacy conhost 点阵字体、受限 SSH
+	// 客户端）。TERM=dumb 仍经 ShouldUseTUI 路由到 TextUI。
+	pf.BoolVar(&flagTUIASCII, "tui-ascii", false,
+		"render the TUI with a pure-ASCII symbol table (borders -|+, bars #-, no box-drawing/braille glyphs) — for terminals that control the cursor fine but garble Unicode line-drawing (legacy conhost raster fonts, limited SSH clients)")
 	pf.BoolVar(&flagNoBatch, "no-batch", false,
 		"disable bbolt batched writes; fall back to per-write fsync")
 	pf.BoolVar(&flagNoICMP, "no-icmp", false,
@@ -455,7 +465,7 @@ func registerGlobalFlags(pf *pflag.FlagSet) {
 	annotate(pf, []string{"user", "pass", "user-file", "pass-file",
 		"http-form-url", "http-form-fields", "http-form-success", "http-form-failure", "http-form-redirect"}, groupCreds)
 	annotate(pf, []string{"output-txt", "output-json", "output-csv", "output-sarif", "alive-format", "rotate-bytes", "rotate-files"}, groupOutput)
-	annotate(pf, []string{"silent", "no-tui", "no-batch", "no-icmp", "no-prescreen", "verbose", "plugins", "share-enum", "ftp-enum"}, groupBehavior)
+	annotate(pf, []string{"silent", "no-tui", "tui-ascii", "no-batch", "no-icmp", "no-prescreen", "verbose", "plugins", "share-enum", "ftp-enum"}, groupBehavior)
 	annotate(pf, []string{"at", "in", "cron", "tz", "daemon", "schedule-dry-run"}, groupSchedule)
 	annotate(pf, []string{"show-creds", "insecure-tls", "insecure-ssh", "known-hosts"}, groupSafety)
 }

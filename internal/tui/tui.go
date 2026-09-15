@@ -490,8 +490,8 @@ func (m Model) View() string {
 	if m.uiMode == modePaused {
 		chip += " " + stWarn.Render("[PAUSED]")
 	}
-	title := fmt.Sprintf("FG-QIMEN %s ─ project: %s ─ mode: %s",
-		version.Value, m.project, m.mode)
+	title := fmt.Sprintf("FG-QIMEN %s %s project: %s %s mode: %s",
+		version.Value, boxH, m.project, boxH, m.mode)
 
 	cellW := w - 2
 	lines := []string{titleRow(w, title, chip)}
@@ -641,11 +641,11 @@ func (m Model) renderHelp() string {
 		{"q / Ctrl-C", "quit the scan"},
 		{"p", "pause the dashboard display (pipeline keeps running)"},
 		{"r", "resume the dashboard display"},
-		{"↑/k · ↓/j", "scroll the events panel (enters browse)"},
+		{glUp + "/k " + glMid + " " + glDown + "/j", "scroll the events panel (enters browse)"},
 		{"PgUp / PgDn", "page the events panel"},
 		{"g / G", "events panel top / bottom (G = follow)"},
 		{"f / Esc", "events panel back to follow"},
-		{"Enter", "expand a ×N folded event row (browse)"},
+		{"Enter", "expand a " + glFold + "N folded event row (browse)"},
 		{"e", "toggle the errors panel (collapsed summary / expanded bars)"},
 		{"E", "collapse the errors panel"},
 		{"L", "toggle the live-events overlay (narrow mode)"},

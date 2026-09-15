@@ -94,6 +94,7 @@ var expectedFlagGroups = map[string]string{
 	// Behavior
 	"silent":       "Behavior",
 	"no-tui":       "Behavior",
+	"tui-ascii":    "Behavior",
 	"no-batch":     "Behavior",
 	"no-icmp":      "Behavior",
 	"no-prescreen": "Behavior",

@@ -248,69 +248,121 @@ func TestGoldenFrames(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			m := f.build()
 			view := ansiRe.ReplaceAllString(m.View(), "")
+			runGoldenGuards(t, f, view)
+			compareGolden(t, f.name, view)
+		})
+	}
+}
 
-			// Guard 1: exactly one line per terminal row.
-			// / 守卫 1：帧行数恰好等于终端行数。
-			lines := strings.Split(view, "\n")
-			if len(lines) != f.height {
-				t.Errorf("frame has %d lines, want exactly %d (height reconciliation contract)",
-					len(lines), f.height)
+// runGoldenGuards runs the §11.1 structural guards shared by the
+// Unicode and ASCII golden harnesses: line-count reconciliation,
+// lattice width law, no trailing newline, frame purity.
+// / runGoldenGuards 跑 Unicode 与 ASCII golden 夹具共用的 §11.1 结构
+// 守卫：行数对账、lattice 宽度律、无尾随换行、帧纯度。
+func runGoldenGuards(t *testing.T, f goldenFrame, view string) {
+	t.Helper()
+
+	// Guard 1: exactly one line per terminal row.
+	// / 守卫 1：帧行数恰好等于终端行数。
+	lines := strings.Split(view, "\n")
+	if len(lines) != f.height {
+		t.Errorf("frame has %d lines, want exactly %d (height reconciliation contract)",
+			len(lines), f.height)
+	}
+	// Guard 2: lattice width law. / 守卫 2：帧宽度律。
+	for i, ln := range lines {
+		if w := lipgloss.Width(ln); w > f.width {
+			t.Errorf("line %d width %d > terminal %d: %q", i+1, w, f.width, ln)
+		}
+	}
+	// Guard 3: no trailing newline. / 守卫 3：无尾随换行。
+	if strings.HasSuffix(view, "\n") {
+		t.Errorf("frame has a trailing newline (bubbletea would clip the top row)")
+	}
+	// Guard 4: frame purity — no CJK, no control bytes.
+	// / 守卫 4：帧纯度——无 CJK、无控制字节。
+	for _, r := range view {
+		if r >= 0x4E00 && r <= 0x9FFF || r >= 0xFF00 && r <= 0xFFEF {
+			t.Errorf("frame contains a CJK character %q (frame purity law)", r)
+			break
+		}
+		if r < ' ' && r != '\n' {
+			t.Errorf("frame contains a control byte %q (frame purity law)", r)
+			break
+		}
+	}
+}
+
+// compareGolden diffs view against testdata/golden/<name>.txt (or
+// rewrites it under -update). / compareGolden 把 view 与 testdata/
+// golden/<name>.txt 对比（-update 时改写）。
+func compareGolden(t *testing.T, name string, view string) {
+	t.Helper()
+	path := filepath.Join(goldenDir, name+".txt")
+	if *goldenUpdate {
+		if err := os.MkdirAll(goldenDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", goldenDir, err)
+		}
+		if err := os.WriteFile(path, []byte(view), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("golden missing (run `go test ./internal/tui/ -run TestGolden -update`): %v", err)
+	}
+	if view != string(want) {
+		lines := strings.Split(view, "\n")
+		wantLines := strings.Split(string(want), "\n")
+		for i := 0; i < len(lines) || i < len(wantLines); i++ {
+			var gotLn, wantLn string
+			if i < len(lines) {
+				gotLn = lines[i]
 			}
-			// Guard 2: lattice width law. / 守卫 2：帧宽度律。
-			for i, ln := range lines {
-				if w := lipgloss.Width(ln); w > f.width {
-					t.Errorf("line %d width %d > terminal %d: %q", i+1, w, f.width, ln)
-				}
+			if i < len(wantLines) {
+				wantLn = wantLines[i]
 			}
-			// Guard 3: no trailing newline. / 守卫 3：无尾随换行。
-			if strings.HasSuffix(view, "\n") {
-				t.Errorf("frame has a trailing newline (bubbletea would clip the top row)")
+			if gotLn != wantLn {
+				t.Fatalf("golden mismatch at line %d:\n  got:  %q\n  want: %q",
+					i+1, gotLn, wantLn)
 			}
-			// Guard 4: frame purity — no CJK, no control bytes.
-			// / 守卫 4：帧纯度——无 CJK、无控制字节。
+		}
+		t.Fatalf("golden mismatch (line counts differ: got %d, want %d)",
+			len(lines), len(wantLines))
+	}
+}
+
+// TestGolden_ASCII pins the §6.2 level-4 ASCII frames: the same
+// deterministic models rendered under the swapped symbol table. The
+// whole-frame ASCII purity check is stricter than the Unicode guards —
+// one stray non-ASCII rune defeats the fallback's purpose.
+// / TestGolden_ASCII 钉住 §6.2 第 4 级的 ASCII 帧：同一批确定性
+// model 在换表后渲染。整帧 ASCII 纯度检查比 Unicode 守卫更严——一个
+// 漏网的非 ASCII rune 就让回退失去意义。
+func TestGolden_ASCII(t *testing.T) {
+	pick := map[string]bool{
+		"wide-run-scanning": true, // ┬/┴ 三通、bar、sparkline、follow 芯片
+		"medium-help":       true, // 帮助浮层的 ↑↓·× 键位提示
+	}
+	for _, f := range goldenMatrix() {
+		if !pick[f.name] {
+			continue
+		}
+		f := f
+		t.Run(f.name+"-ascii", func(t *testing.T) {
+			defer snapshotGlyphTable()()
+			SetASCIIFallback(true)
+
+			m := f.build()
+			view := ansiRe.ReplaceAllString(m.View(), "")
+			runGoldenGuards(t, f, view)
 			for _, r := range view {
-				if r >= 0x4E00 && r <= 0x9FFF || r >= 0xFF00 && r <= 0xFFEF {
-					t.Errorf("frame contains a CJK character %q (frame purity law)", r)
-					break
-				}
-				if r < ' ' && r != '\n' {
-					t.Errorf("frame contains a control byte %q (frame purity law)", r)
-					break
+				if r >= 0x80 {
+					t.Fatalf("ASCII frame contains non-ASCII rune %q", r)
 				}
 			}
-
-			path := filepath.Join(goldenDir, f.name+".txt")
-			if *goldenUpdate {
-				if err := os.MkdirAll(goldenDir, 0o755); err != nil {
-					t.Fatalf("mkdir %s: %v", goldenDir, err)
-				}
-				if err := os.WriteFile(path, []byte(view), 0o644); err != nil {
-					t.Fatalf("write %s: %v", path, err)
-				}
-				return
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("golden missing (run `go test ./internal/tui/ -run TestGolden -update`): %v", err)
-			}
-			if view != string(want) {
-				wantLines := strings.Split(string(want), "\n")
-				for i := 0; i < len(lines) || i < len(wantLines); i++ {
-					var gotLn, wantLn string
-					if i < len(lines) {
-						gotLn = lines[i]
-					}
-					if i < len(wantLines) {
-						wantLn = wantLines[i]
-					}
-					if gotLn != wantLn {
-						t.Fatalf("golden mismatch at line %d:\n  got:  %q\n  want: %q",
-							i+1, gotLn, wantLn)
-					}
-				}
-				t.Fatalf("golden mismatch (line counts differ: got %d, want %d)",
-					len(lines), len(wantLines))
-			}
+			compareGolden(t, f.name+"-ascii", view)
 		})
 	}
 }

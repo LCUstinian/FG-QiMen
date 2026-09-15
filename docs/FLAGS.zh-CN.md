@@ -9,7 +9,7 @@
 
 > [English version](FLAGS.md)
 
-62 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
+63 个 flag，分 10 组，由活体 flag registry 渲染（与 `fg-qimen --help` 输出
 同一集合）。下表为机器校验的权威参考；新增 flag 请改 cmd/flags.go
 并在 internal/docgen/zh.go 配中文说明，然后跑 `just docs-gen`。
 
@@ -114,6 +114,7 @@
 | — | `--plugins` | — | 要启用的插件名（逗号分隔，默认全部） |
 | — | `--share-enum` | `false` | 开启只读 SMB 匿名会话共享枚举（445 端口开放时）：列共享名，挂载匿名会话允许的共享，记录目录元数据（名/大小/修改时间）。仅取证——绝不下载文件内容。结果写入 fgqm_shares.ndjson/txt |
 | — | `--silent` | `false` | 不在控制台输出 info 日志；文件输出不受影响 |
+| — | `--tui-ascii` | `false` | TUI 降级为纯 ASCII 字形（边框 -\|+、进度条 #-、braille→#.），适用于 legacy conhost 点阵字体、框线渲染损坏的受限 SSH 客户端 |
 | `-v` | `--verbose` | `false` | 详细 debug 日志 |
 
 ## 安全

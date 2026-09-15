@@ -123,6 +123,16 @@ func buildSession(ctx context.Context, cfg *types.Config, proj *workspace.Projec
 	}
 
 	// TUI path. / TUI 路径。
+	// ASCII glyph fallback (§6.2 level 4): --tui-ascii forces the
+	// pure-ASCII symbol table for terminals with ANSI control but
+	// broken box-drawing/braille rendering (legacy conhost raster
+	// fonts, limited SSH clients). TERM=dumb never reaches here —
+	// ShouldUseTUI already routed it to TextUI above.
+	// / ASCII 字形回退（§6.2 第 4 级）：--tui-ascii 强制纯 ASCII 符号
+	// 表，供有 ANSI 控制但框线/八分块字形渲染损坏的终端（legacy
+	// conhost 点阵字体、受限 SSH 客户端）。TERM=dumb 到不了这里——
+	// 上方 ShouldUseTUI 已把它路由到 TextUI。
+	tui.SetASCIIFallback(cfg.TUIASCII)
 	p := tui.NewProgram(cfg)
 	sess.UI = p
 

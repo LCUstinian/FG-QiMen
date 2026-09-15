@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 > [中文版本](CHANGELOG.zh-CN.md)
 
@@ -6,6 +6,53 @@ All notable changes to FG-QiMen are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- **TUI v3: role-token lattice interface** — the old mixed-palette
+  dual-bar panel is rebuilt as a single-layer lattice grid (shared
+  borders, title inside the top rule, nine fixed cells: TITLE /
+  PROGRESS / LIVE EVENTS / TOP PLUGINS / ENGINE / SUBNET / ERRORS /
+  FOOTER) on a four-domain role-token palette (background / neutral /
+  signal / focus). One symbol table, one bar implementation:
+  sub-character progress via the single glyph family
+  {░▏▎▍▌▋▊▉█}, a sparkline ramp for hit-rate history, fixed-width
+  event columns (ts / severity token / host:port / service) that never
+  drift, IPv6 hosts RFC5952-compressed. Golden-frame tests pin 25
+  Unicode renderings byte-for-byte across three breakpoints and six
+  states.
+- **EVENTS live behavior** — follow/browse two-mode scrolling (↑↓ to
+  browse, End back to follow, `↓N` lag counter capped at 999+),
+  same-source merge (same host:service within 1 s folds to `×N`,
+  Enter replays up to 10 originals), cross-day date separator rows,
+  storm degradation (>500 ev/s for 2 s switches to a summary view; a
+  critical sidecar keeps the last 8 cred/critical/warn events visible
+  in full), pause viewport freeze with an exact `N hidden while
+  paused` count, and column-width hysteresis so IPv6 churn cannot
+  jitter the grid.
+- **Progress ledger & engine instruments** — PROGRESS shows
+  done / inflight / deferred plus a stall warning (`stall Ns ▲` after
+  15 s, `!!` after 60 s); the scan pool mirrors its in-flight count to
+  the TUI every beat; the active pipeline stage accents its region
+  borders — the only sanctioned border recolor.
+- **Four-level rendering ladder** — truecolor → 256 colors (lipgloss)
+  → 16-color grayscale remap → NO_COLOR dims every signal/focus token.
+  New `--tui-ascii` flag forces level 4: the whole symbol table swaps
+  to pure ASCII (borders -|+, bars #-, braille→#.) for terminals that
+  handle cursor control fine but garble Unicode line-drawing (legacy
+  conhost raster fonts, limited SSH clients). `TERM=dumb` never
+  reaches the TUI — it routes to plain-text mode upstream.
+
+### Changed
+
+- **Retired visuals** — the ✓ / ✗ / ⚠ event glyphs (uneven or
+  ambiguous widths in some fonts) are replaced by fixed 3-column
+  bracket tokens ([+] / [*] / [~] / [-] / [!]); the ▓/░ dual-glyph
+  bars, the old STAGE panel and the results/creds/errors count rows
+  are gone — credential hits surface as [*] events and errors have
+  their own cell.
 
 ## [0.9.0] - 2026-09-13
 

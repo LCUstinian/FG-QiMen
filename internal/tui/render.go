@@ -155,14 +155,16 @@ func computeETA(start, now time.Time, stage int32, view types.CountersView, tota
 
 // stageBadge returns the existing "[ ▶ STAGE ]" prefix. Format
 // kept verbatim from tui.go View() line 451 so callers don't see a
-// visual regression. The spinner glyph is ▶ while scanning and ✓
-// once StageDone. / stageBadge 返回旧的 "[ ▶ STAGE ]" 前缀。格式
-// 与 tui.go View() 第 451 行保持一致，避免视觉回归。
+// visual regression. The spinner glyph is symActive while scanning
+// and symCheck once StageDone (both degrade via the symbol table).
+// / stageBadge 返回旧的 "[ ▶ STAGE ]" 前缀。格式与 tui.go View()
+// 第 451 行保持一致，避免视觉回归。扫描中用 symActive，StageDone
+// 后用 symCheck（两者都随符号表降级）。
 func (m Model) stageBadge() string {
 	stage := types.StageName(int32(m.counters.Stage))
-	spinner := "▶"
+	spinner := symActive
 	if int64(m.counters.Stage) == int64(types.StageDone) {
-		spinner = "✓"
+		spinner = symCheck
 	}
 	return fmt.Sprintf("  [ %s %s ]", spinner, stage)
 }
@@ -463,7 +465,8 @@ func decorateEvents(events []eventEntry, expandedRun, gapAfterID uint64, gapCoun
 		rows = append(rows, row)
 		if gapCount > 0 && rep.ID <= gapAfterID && gapAfterID <= events[last].ID {
 			rows = append(rows, evRow{typ: rowGapSep,
-				label: fmt.Sprintf("··· %d hidden while paused ···", gapCount)})
+				label: fmt.Sprintf("%s %d hidden while paused %s",
+					strings.Repeat(glMid, 3), gapCount, strings.Repeat(glMid, 3))})
 		}
 		i = last + 1
 	}
@@ -491,30 +494,31 @@ func (m Model) eventLine(e eventEntry) string {
 
 // eventsTitle builds the LIVE EVENTS title row: hub counters on the
 // left (spec §7.2 — drop>0 must surface), the scroll-state chip on
-// the right (follow ▼ / browse ▲ ↓N new).
+// the right (follow / browse + lag). Separator and chip glyphs come
+// from the symbol table so ASCII fallback holds here too.
 // / eventsTitle 构建 LIVE EVENTS 标题行：左侧 hub 计数（spec §7.2
-// ——drop>0 必须上屏），右侧滚动状态芯片（follow ▼ / browse ▲
-// ↓N new）。
+// ——drop>0 必须上屏），右侧滚动状态芯片（follow / browse + 滞后计
+// 数）。分隔与芯片字形走符号表，ASCII 回退同样成立。
 func (m Model) eventsTitle(width, merged int) string {
 	left := "  LIVE EVENTS"
 	if m.ingested > 0 {
-		left += fmt.Sprintf(" · %d in", m.ingested)
+		left += fmt.Sprintf(" %s %d in", glMid, m.ingested)
 	}
 	if m.dropped > 0 {
-		left += fmt.Sprintf(" · %d dropped", m.dropped)
+		left += fmt.Sprintf(" %s %d dropped", glMid, m.dropped)
 	}
 	if merged > 0 {
-		left += fmt.Sprintf(" · %d merged", merged)
+		left += fmt.Sprintf(" %s %d merged", glMid, merged)
 	}
-	chip := "follow ▼"
+	chip := "follow " + glChipFollow
 	if m.browse {
-		chip = "browse ▲"
+		chip = "browse " + glChipBrowse
 		if m.browseLag > 0 {
 			n := fmt.Sprintf("%d", m.browseLag)
 			if m.browseLag > 999 {
 				n = "999+"
 			}
-			chip += " ↓" + n + " new"
+			chip += " " + glLag + n + " new"
 		}
 	}
 	leftS := stPanelHeader.Render(left)
@@ -581,7 +585,8 @@ func (m Model) viewLiveEvents(height, width int) string {
 		switch r.typ {
 		case rowDateSep:
 			out = append(out, lipgloss.NewStyle().Foreground(cDim).
-				Render(truncate("  ── "+r.label+" ──", width)))
+				Render(truncate("  "+strings.Repeat(boxH, 2)+" "+r.label+" "+
+					strings.Repeat(boxH, 2), width)))
 		case rowGapSep:
 			out = append(out, lipgloss.NewStyle().Foreground(cDim).
 				Render(truncate("  "+r.label, width)))
@@ -596,7 +601,7 @@ func (m Model) viewLiveEvents(height, width int) string {
 			}
 			line := m.eventLine(r.entry)
 			if r.run > 1 {
-				line += fmt.Sprintf(" ×%d", r.run)
+				line += fmt.Sprintf(" %s%d", glFold, r.run)
 			}
 			out = append(out, lipgloss.NewStyle().
 				Foreground(m.severityColor(r.entry)).
@@ -631,7 +636,8 @@ func (m Model) viewStormEvents(height, width int) string {
 		pct = hits * 100 / total
 	}
 	summary := lipgloss.NewStyle().Foreground(cWarn).Render(truncate(
-		fmt.Sprintf("  ▲ %d ev/s · %d%% hits · critical only", m.stormRate, pct), width))
+		fmt.Sprintf("  %s %d ev/s %s %d%% hits %s critical only",
+			glWarn, m.stormRate, glMid, pct, glMid), width))
 	rows := []string{title, summary}
 	crit := m.critOrdered()
 	if m.critTotal > len(crit) {
@@ -858,18 +864,20 @@ func (m Model) viewStage(height, width int) string {
 
 // stallCell renders the stall read-out for the progress ledger
 // (spec §5.5): plain `stall 0s` while quiet, `stall Ns ▲` (warn) from
-// 15s of no done-count movement, `stall Ns !!` (err) from 60s. The ▲/
-// !! glyphs follow the char charter (⚠ was retired as scarce-width).
+// 15s of no done-count movement, `stall Ns !!` (err) from 60s. Glyphs
+// come from the symbol table (glWarn → '!' under ASCII fallback) and
+// follow the char charter (⚠ was retired as scarce-width).
 // / stallCell 渲染进度账本的停滞读数（spec §5.5）：安静时纯文本
 // `stall 0s`，done 计数 15s 无变动起 `stall Ns ▲`（warn），60s 起
-// `stall Ns !!`（err）。▲/!! 字形遵循字符宪章（⚠ 因宽度稀缺已退役）。
+// `stall Ns !!`（err）。字形走符号表（ASCII 回退下 glWarn → '!'），
+// 遵循字符宪章（⚠ 因宽度稀缺已退役）。
 func (m Model) stallCell() string {
 	s := fmt.Sprintf("stall %ds", m.stallSec)
 	switch {
 	case m.stallSec >= 60:
 		return stErr.Render(s + " !!")
 	case m.stallSec >= 15:
-		return stWarn.Render(s + " ▲")
+		return stWarn.Render(s + " " + glWarn)
 	default:
 		return s
 	}

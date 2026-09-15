@@ -363,6 +363,7 @@ func buildConfig(pf *pflag.FlagSet) (*types.Config, error) {
 		OutputCSV:        flagOutputCSV,
 		Silent:           flagSilent,
 		NoTUI:            flagNoTUI,
+		TUIASCII:         flagTUIASCII,
 		NoICMP:           flagNoICMP,
 		NoBatch:          flagNoBatch,
 		NoSubnetProbe:    flagNoPrescreen,

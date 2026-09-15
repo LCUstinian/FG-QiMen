@@ -237,9 +237,19 @@ type Config struct {
 	OutputRotateMaxFiles int
 
 	// UI / 界面
-	Silent  bool
-	NoTUI   bool
-	Verbose bool
+	Silent bool
+	NoTUI  bool
+	// TUIASCII forces the TUI's pure-ASCII symbol table (spec §6.2
+	// degradation ladder, level 4) — for terminals with ANSI control
+	// but broken Unicode line-drawing (legacy conhost raster fonts,
+	// limited SSH clients). TERM=dumb never reaches the TUI (it is
+	// routed to TextUI first).
+	// / TUIASCII 强制 TUI 使用纯 ASCII 符号表（spec §6.2 降级阶梯第
+	// 4 级）——供有 ANSI 控制但 Unicode 框线渲染损坏的终端（legacy
+	// conhost 点阵字体、受限 SSH 客户端）。TERM=dumb 到不了 TUI（先
+	// 被路由到 TextUI）。
+	TUIASCII bool
+	Verbose  bool
 	// ShowCleartext forces credentials to be rendered in cleartext
 	// in the UI (stderr / TUI / result.txt). Default is OFF — passwords
 	// and usernames are redacted to a length-only fingerprint (see
