@@ -13,16 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **TUI v3: role-token lattice interface** — the old mixed-palette
   dual-bar panel is rebuilt as a single-layer lattice grid (shared
-  borders, title inside the top rule, nine fixed cells: TITLE /
-  PROGRESS / LIVE EVENTS / TOP PLUGINS / ENGINE / SUBNET / ERRORS /
-  FOOTER) on a four-domain role-token palette (background / neutral /
-  signal / focus). One symbol table, one bar implementation:
-  sub-character progress via the single glyph family
+  borders, title inside the top rule; cells TITLE / PROGRESS /
+  LIVE EVENTS / TOP PLUGINS / ERRORS / FOOTER, zero-count cells
+  vanishing) on a four-domain role-token palette
+  (background / neutral / signal / focus). One symbol table, one bar
+  implementation: sub-character progress via the single glyph family
   {░▏▎▍▌▋▊▉█}, a sparkline ramp for hit-rate history, fixed-width
   event columns (ts / severity token / host:port / service) that never
-  drift, IPv6 hosts RFC5952-compressed. Golden-frame tests pin 25
-  Unicode renderings byte-for-byte across three breakpoints and six
-  states.
+  drift, IPv6 hosts RFC5952-compressed. Golden-frame tests pin 27
+  renderings byte-for-byte: 25 Unicode across three breakpoints and
+  eight states (plus a narrow overlay variant) and 2 pure-ASCII
+  frames.
 - **EVENTS live behavior** — follow/browse two-mode scrolling (↑↓ to
   browse, End back to follow, `↓N` lag counter capped at 999+),
   same-source merge (same host:service within 1 s folds to `×N`,
@@ -37,13 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   15 s, `!!` after 60 s); the scan pool mirrors its in-flight count to
   the TUI every beat; the active pipeline stage accents its region
   borders — the only sanctioned border recolor.
-- **Four-level rendering ladder** — truecolor → 256 colors (lipgloss)
-  → 16-color grayscale remap → NO_COLOR dims every signal/focus token.
-  New `--tui-ascii` flag forces level 4: the whole symbol table swaps
-  to pure ASCII (borders -|+, bars #-, braille→#.) for terminals that
-  handle cursor control fine but garble Unicode line-drawing (legacy
-  conhost raster fonts, limited SSH clients). `TERM=dumb` never
-  reaches the TUI — it routes to plain-text mode upstream.
+- **Four-level rendering ladder** — truecolor → 256 colors (quantized
+  by lipgloss) → 16-color grayscale remap → pure-ASCII glyphs;
+  `NO_COLOR` is a separate master switch that dims every
+  signal/focus token at any level. The new `--tui-ascii` flag forces
+  level 4: the whole symbol table swaps to pure ASCII (borders -|+,
+  bars #-, braille→#.) for terminals that handle cursor control fine
+  but garble Unicode line-drawing (legacy conhost raster fonts,
+  limited SSH clients). `TERM=dumb` never reaches the TUI — it routes
+  to plain-text mode upstream.
 
 ### Changed
 

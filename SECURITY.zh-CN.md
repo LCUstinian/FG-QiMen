@@ -56,7 +56,8 @@ SBOM 附件的发布物共同强制。
 
 ## 加密（TL;DR）
 
-设置 `FG_QIMEN_PROJECT_KEY` 后，项目 DB
+通过 `--project-key`（或回退的 `FG_QIMEN_PROJECT_KEY` 环境变量）设置密钥后，
+项目 DB
 （`fgqm_workspace/projects/<name>/fgqm.db`）静态存储为 AES-256-GCM。密钥派生：
 v0.3.x 用 SHA-256（遗留，仍可读）；v0.4+ 用 OWASP-2024 参数的 Argon2id。
 magic 字节 AAD 绑定防止位翻转 → "明文"混淆。完整磁盘格式与 KDF 分发见

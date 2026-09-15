@@ -63,7 +63,7 @@ Scanner 通过 `internal/types.State` 上的一个小状态机上报进度，让
   类型化 sentinel）留的安全网。
 - **`alive.Progress()`**（`internal/core/alive/cmd.go`）：外部调用
   方观察 mid-alive-sweep 探测数的公共 API，不用耦合到 scanner 的
-  channel 布局。TUI 的 "alive N/M" 计数器从这里取数。
+  channel 布局。TUI 的进度账本从这里取数。
 
 为什么这么做：上面 channel 解耦的流水线吞吐好，但对"扫描现在
 在干嘛"的可观测性很差。`Stage` 枚举 + `CountersView` 投影就是
@@ -89,7 +89,7 @@ cmd/                                Cobra 命令
     │   ├── credential/             凭证喷射调度
     │   ├── errors/                 ClassifyError(err) → 类别桶
     │   ├── plugins/                Plugin 接口 + 注册表
-    │   │   └── adapted/            30 个内置 plugin
+    │   │   └── adapted/            44 个内置 plugin（8 个类目包）
     │   ├── portscan/fingerprint/   Nmap PSL 服务指纹
     │   ├── discovery/              仅 LAN 的 ARP + NetBIOS
     │   ├── fakeserver/             适配 plugin 测试用的共享 in-process
@@ -210,13 +210,14 @@ TCP 连接（refused 也算有效 RTT），把路径分类为 LAN（中位
   避免 17 次 log-2 重新分配。
 - Output sink 用 6 个 per-sink 互斥锁，慢 sink 不会
   head-of-line 阻塞其他 sink。
-- UDP 阶段在 TCP 之后串行执行，用自己的固定池（128/200
+- UDP 阶段在 TCP 之后串行执行，用自己的固定池（800/800
   线程、2s 探测超时），UDP 的长静默等待不会扰动 TCP 控制器。
 
 ## 取舍
 
 - **Pool dedup key 走 HMAC 哈希，但明文还在堆里** —— 进程内存 dump
   可以在 GC 前拿到字符串。已记入 `docs/SECURITY.md`。
-- **TUI 默认按需启用。** 非 TTY stdout（CI、脚本）走 text logger。
+- **TTY stdout 下 TUI 默认开启。** 非 TTY stdout（CI、脚本）走
+  text logger；`--no-tui` 可在任何场景强制纯文本。
 - **`RawTCPIdentify` 是薄包装** —— 没有抽象所有协议。UDP fallback
   （SNMP）和 TLS probe（HTTPS）还各自写自己的 dial 循环。

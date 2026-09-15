@@ -33,7 +33,7 @@ fg-qimen scan --help           # 子命令专属
 | Credentials | 内联 user/pass、字典文件、HTTP 表单爆破 |
 | Output | txt / NDJSON / CSV / SARIF sink、轮转、存活清单格式 |
 | Schedule | `--at` / `--in` / `--cron` / `--tz` / `--daemon` / dry-run |
-| Behavior | silent、TUI、批量模式、ICMP、预筛、详细度、插件过滤 |
+| Behavior | silent、TUI（含 `--tui-ascii`）、批量模式、ICMP、预筛、详细度、插件过滤、只读共享/FTP 枚举开关 |
 | Safety | 凭据脱敏、insecure-TLS/SSH 退出项、known_hosts |
 
 ## 环境变量

@@ -37,7 +37,7 @@ cobra reserves).
 | Credentials | inline user/pass, dictionary files, HTTP form brute |
 | Output | txt / NDJSON / CSV / SARIF sinks, rotation, alive-list format |
 | Schedule | `--at` / `--in` / `--cron` / `--tz` / `--daemon` / dry-run |
-| Behavior | silent, TUI, batch mode, ICMP, prescreen, verbosity, plugin filter |
+| Behavior | silent, TUI (incl. `--tui-ascii`), batch mode, ICMP, prescreen, verbosity, plugin filter, read-only share/FTP enumeration gates |
 | Safety | credential redaction, insecure-TLS/SSH opt-outs, known_hosts |
 
 ## Environment variables

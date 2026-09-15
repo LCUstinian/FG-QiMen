@@ -47,8 +47,8 @@ FG-QiMen 是一个纯 CLI 扫描器，通过 Go channel 管线解耦**端口扫�
 - ✅ **44 插件 · 3,333 条 Web 指纹规则 · 84 条 UDP 探测** —— nmap 级服务识别（自定义规则兼容 EHole），覆盖数据库、远程访问、邮件、文件存储、云。
 - ✅ **凭据验证矩阵** —— 44 个插件中 27 个支持凭据验证（SSH、SMB、数据库、邮件、消息队列、云），判定显式分类；默认脱敏（`--show-creds` 显式开启）。
 - ✅ **识别质量是被测量的** —— 合成指纹语料库每次 CI 回归精度，垃圾字节守卫对抗性 banner：已知误报保持为零。
-- ✅ **v3 lattice TUI** —— 九格单层网格、角色令牌色板、亚字符进度条、抗风暴活体事件流；四级降级 truecolor → 256 色 → 灰度 → 纯 ASCII（`--tui-ascii`）。
-- ✅ **逐字节钉住的渲染** —— 27 个 golden 帧（三断点 × 六状态 + ASCII）在 CI 逐字节对钉：你看到的 UI 就是发布里的 UI。
+- ✅ **v3 lattice TUI** —— 单层 lattice 网格、角色令牌色板、亚字符进度条、抗风暴活体事件流；四级降级 truecolor → 256 色 → 灰度 → 纯 ASCII（`--tui-ascii`）。
+- ✅ **逐字节钉住的渲染** —— 27 个 golden 帧（三断点 × 八状态 + overlay + ASCII 变体）在 CI 逐字节对钉：你看到的 UI 就是发布里的 UI。
 - ✅ **项目工作区** —— 每项目独立 bbolt 状态、`--project-key` 静态加密：暂停续扫、seen 哈希修剪、导出导入。
 - ✅ **内置调度器** —— 一次性 `--at` / `--in`、任意 IANA 时区的周期 `--cron`、常驻 `--daemon` 循环；`--schedule-dry-run` 先验证触发时间再真跑。配合项目状态实现无人值守的周期扫描。
 - ✅ **证据优先的输出** —— NDJSON / CSV / SARIF / TXT 多槽按日分桶、按大小/数量轮转；凭据在控制台与结果槽默认脱敏（`--show-creds` 显式开启）。
@@ -207,27 +207,34 @@ fg-qimen projects prune corp-intranet --before 2026-09-01 --compact --yes
 
 ### TUI
 
-stdout 为 TTY 时 TUI **默认开启**。用 `--no-tui` 强制纯文本输出。
+stdout 为 TTY 时 TUI **默认开启**。`--no-tui` 强制纯文本输出；`--tui-ascii`
+强制纯 ASCII 字形集（针对点阵控制台字体、渲染框线会花屏的 SSH 客户端）。
+非 TTY stdout（CI、管道）始终走文本日志。
 
-仪表盘由 3 断点响应式布局（窄 <80 / 中 80–119 / 宽 ≥120 列）驱动的六个区域
-组成；宽终端把 STAGE 与 TOP PLUGINS 并排放，窄终端堆叠：
+仪表盘是一个**单层 lattice 网格**，共享边框一次绘制，按 3 断点响应式
+布局（窄 <80 / 中 80–119 / 宽 ≥120 列）。宽屏左列 PROGRESS 在上、
+TOP PLUGINS 在下，右列 LIVE EVENTS 占满，ERRORS 通栏在底部；更窄的
+屏幕全部堆叠。计数为零的格子整格消失。活跃阶段以 zone accent 点亮
+其区域边框——唯一被认可的边框换色。
 
-- **Header**：右侧带 ETA 的分阶段 `[ ▶ STAGE ]` 徽标（`[ ▶ ALIVE ]   ETA ~12s`）；
-  扫描速率 hits/s 与 ports/s（EWMA 平滑）加 60 样本 hits/s 迷你走势图；
-  alive 扫描进行中 "alive N/M" 计数随探测完成实时跳动（不再是直到 alive
-  阶段结束才从 0 跳变）。
-- **LIVE EVENTS**：固定环形缓冲的最后 20 条事件（永不增长），按严重度着色
-  （`✓` 凭据命中、`✗` 错误、`⚠` 警告）；每条命中红色闪烁约 200ms。窄终端隐藏；
-  `L` 叠层显示最近 5 条。
-- **STAGE**（左/上）：alive 与 ports 以 `▓/░` 进度条对照总量渲染；
-  results / creds / errors 保持纯计数。
-- **TOP PLUGINS**（右/下）：本轮命中最多的 5 个插件，固定宽度条形图，左侧
-  `[plugin N]` 名称 + `████░░` 占比条。
-- **ERRORS**（底部）：紧凑的 `ERRORS: timeout 42  refused 15` 一行；`e` 展开为
-  top-4 分类条形，`E` 收回。分类来自 `core.ClassifyError`（先 errors.Is /
-  errors.As，退化为子串匹配）。
-- **Footer**：按键提示——`[q] quit  [p] pause  e errors panel
-  L live overlay  ? toggle help`（`?` 打开完整帮助叠层）。
+- **头部带**：阶段徽标 + ETA + 60 样本命中率 sparkline；速率行
+  （`rate: 28.5 hits/s  ports: 142.0/s  probed 18 / 0`）随 alive 扫描
+  实时跳动。
+- **PROGRESS**：分阶段进度条 + 实时账本（done / in-flight / deferred）+
+  停滞读数（池子静默 ≥15s 显示 `stall 15s ▲`，超过 1 分钟 `!!`）。
+- **TOP PLUGINS**：本轮命中最多的插件，条形图渲染。
+- **LIVE EVENTS**：固定环形缓冲的最近 64 条事件，定宽严重度令牌（`[+]`
+  命中、`[*]` 凭据、`[!]` critical、`[~]` 警告、`[-]` miss）；follow/browse
+  双滚动（`↑↓` 进入浏览，`End` 回到跟随）、同源折叠（`×N`）、超 500 ev/s
+  自动切换风暴摘要、critical 侧车在风暴中保持关键行可见。跨零点的运行
+  自动插入日期分隔行；窄终端 `L` 叠层显示最近 5 条。
+- **ERRORS**：紧凑的分类计数行；`e` 展开为 top 分类条形，`E` 收回。分类
+  来自 `core.ClassifyError`（先 errors.Is / errors.As，退化为子串匹配）。
+- **Footer**：按键提示；`?` 打开完整帮助叠层。
+
+渲染由 27 个 golden 帧（三断点 × 八状态 + overlay + ASCII 变体）在 CI
+逐字节对钉，并按四级阶梯降级——truecolor → 256 色 → 灰度 → 纯 ASCII——
+同一布局在任何终端都保持可读。
 
 以上全部读取 `internal/types.State` 上的 `CountersView` 投影，视图层与扫描器
 内部 channel 布局解耦。
@@ -371,7 +378,7 @@ fg-qimen completion bash                        # 生成 shell 补全
 -H 1.0.0.0/8 -u admin -p root,toor              # 主机 + 内联凭据
 -H 1.0.0.0/8 -uf users.txt -pf passes.txt       # 主机 + 字典
 -H 1.0.0.0/8 -f targets.txt -a                  # 主机文件 + 仅存活
--H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv      # 三种输出 sink 全开
+-H 1.0.0.0/8 -ot r.txt -oj r.ndjson -oc r.csv    # 三种输出 sink 全开
 ```
 
 具体配方：
@@ -383,7 +390,7 @@ fg-qimen -H 10.0.0.0/24
 # 命名项目 + 字典 + 小线程数
 fg-qimen --project corp -H 10.0.0.0/24 -uf users.txt -pf pass.txt -t 50
 
-# 对已保存项目先前见过的主机再次攻击
+# 对已保存项目先前见过的主机重新扫描
 fg-qimen resume --project corp
 
 # 纯爆破：跳过存活 + 端口扫描，直接试凭据
@@ -491,7 +498,8 @@ sha256sum fg-qimen-local
   （[README.zh-CN.md](README.zh-CN.md)）。
 - **CLI flag 名**：英文。
 - **生成文档**（[FLAGS.md](docs/FLAGS.md)、[PLUGINS.md](docs/PLUGINS.md)）：
-  英文，与终端输出政策一致——它们是 registry 的渲染物，不是散文。
+  由 registry 生成的英文表格，附简体中文镜像
+  （[FLAGS.zh-CN.md](docs/FLAGS.zh-CN.md)、[PLUGINS.zh-CN.md](docs/PLUGINS.zh-CN.md)）。
 
 ---
 

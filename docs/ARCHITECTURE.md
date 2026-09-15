@@ -74,8 +74,8 @@ internals:
 - **`alive.Progress()`** (`internal/core/alive/cmd.go`):
   public API for external callers to observe the
   mid-alive-sweep probe count without coupling to the
-  scanner's channel layout. The TUI's "alive N/M" counter
-  ticks off this.
+  scanner's channel layout. The TUI's progress ledger ticks
+  off this.
 
 Why this matters: the channel-decoupled pipeline above is
 great for throughput but terrible for "what is the scan
@@ -103,7 +103,7 @@ cmd/                                Cobra commands
     │   ├── credential/             spray scheduler
     │   ├── errors/                 ClassifyError(err) -> category bucket
     │   ├── plugins/                Plugin interface + registry
-    │   │   └── adapted/            30 built-in plugins
+    │   │   └── adapted/            44 built-in plugins (8 category packages)
     │   ├── portscan/fingerprint/   Nmap PSL service fingerprint
     │   ├── discovery/              LAN-only ARP + NetBIOS
     │   ├── fakeserver/             shared in-process test doubles for
@@ -244,7 +244,7 @@ is `PrescreenOptions.Phase2=false`.
 - Output sink uses 6 per-sink mutexes so a slow sink doesn't
   head-of-line block the others.
 - The UDP phase is serial after TCP with its own fixed pool
-  (128/200 threads, 2 s probe timeout), so UDP's long silent
+  (800/800 threads, 2 s probe timeout), so UDP's long silent
   waits can't perturb the TCP controller.
 
 ## Tradeoffs
@@ -252,8 +252,8 @@ is `PrescreenOptions.Phase2=false`.
 - **Pool dedup key is HMAC-hashed, but cleartext is still in the
   heap** — process memory dumps can recover pre-GC strings.
   Documented in `docs/SECURITY.md`.
-- **TUI is opt-in by default.** Non-TTY stdout (CI, scripts) get
-  the text logger.
+- **TUI is on by default on TTY stdout.** Non-TTY stdout (CI,
+  scripts) gets the text logger; `--no-tui` forces it anywhere.
 - **`RawTCPIdentify` is a thin wrapper** — doesn't abstract every
   protocol. UDP fallback (SNMP) and TLS probe (HTTPS) still write
   their own dial loop.

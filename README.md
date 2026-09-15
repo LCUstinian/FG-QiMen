@@ -52,8 +52,8 @@ deduction — measure first, then scan.
 - ✅ **44 plugins · 3,333 web fingerprint rules · 84 UDP probes** — nmap-grade service identification (EHole-compatible custom rulesets) across databases, remote access, email, file storage, cloud.
 - ✅ **Credential verification matrix** — 27 of 44 plugins verify credentials (SSH, SMB, databases, email, messaging, cloud) with explicit typed verdicts; output is masked unless `--show-creds`.
 - ✅ **Identification quality is measured** — a synthetic fingerprint corpus regresses precision every CI run, with a garbage-byte guard on adversarial banners: known false positives stay at zero.
-- ✅ **v3 lattice TUI** — nine-cell single-layer grid, role-token palette, sub-character progress bars, storm-proof live events; four-level degradation truecolor → 256-color → grayscale → pure ASCII (`--tui-ascii`).
-- ✅ **Byte-pinned rendering** — 27 golden frames (3 breakpoints × 6 states + ASCII) verified byte-for-byte in CI: the UI you see is the UI that ships.
+- ✅ **v3 lattice TUI** — single-layer lattice grid, role-token palette, sub-character progress bars, storm-proof live events; four-level degradation truecolor → 256-color → grayscale → pure ASCII (`--tui-ascii`).
+- ✅ **Byte-pinned rendering** — 27 golden frames (3 breakpoints × 8 states + overlay + ASCII variants) verified byte-for-byte in CI: the UI you see is the UI that ships.
 - ✅ **Project workspace** — persistent bbolt state per project, encrypted at rest with `--project-key`: pause/resume, seen-hash pruning, export/import.
 - ✅ **Built-in scheduler** — one-shot `--at` / `--in`, recurring `--cron` in any IANA time zone, or an always-on `--daemon` loop; `--schedule-dry-run` verifies fire times before you commit. Pair with project state for unattended recurring sweeps.
 - ✅ **Evidence-first outputs** — NDJSON / CSV / SARIF / TXT sinks in daily buckets with size/count rotation; credentials redacted on console & result sinks unless `--show-creds`.
@@ -229,33 +229,43 @@ fg-qimen projects prune corp-intranet --before 2026-09-01 --compact --yes
 ### TUI
 
 The TUI is **on by default** when stdout is a TTY. Force plain text with
-`--no-tui`.
+`--no-tui`; force the pure-ASCII glyph set with `--tui-ascii` (for
+dot-matrix console fonts and SSH clients that mangle box drawing). A
+non-TTY stdout (CI, pipes) always gets the text logger.
 
-The dashboard composes six regions driven by a 3-breakpoint responsive
-layout (narrow <80 / medium 80–119 / wide ≥120 columns); wide terminals
-place STAGE and TOP PLUGINS side-by-side, narrower ones stack them:
+The dashboard is a **single-layer lattice** drawn with shared borders
+over a 3-breakpoint responsive layout (narrow <80 / medium 80–119 /
+wide ≥120 columns). Wide screens put PROGRESS above TOP PLUGINS in the
+left column, LIVE EVENTS fills the right, and ERRORS runs full-width
+below; narrower screens stack everything. Cells whose counters are
+zero vanish entirely. The active stage lights up its region borders
+with a zone accent — the only sanctioned border recolor.
 
-- **Header**: per-stage `[ ▶ STAGE ]` badge with ETA on the right
-  (`[ ▶ ALIVE ]   ETA ~12s`); scan rate in hits/s and ports/s
-  (EWMA-smoothed) plus a 60-sample hits/s sparkline; mid-alive-sweep
-  "alive N/M" counter ticks up as probes complete (no more
-  stuck-at-zero until alive finishes).
-- **LIVE EVENTS**: the last 20 events in a fixed ring buffer (never
-  grows), severity-coloured (`✓` cred hit, `✗` error, `⚠` warning);
-  each hit flashes red for ~200ms. Hidden on narrow terminals; `L`
-  overlays the last 5.
-- **STAGE** (left / upper): alive and ports rendered as `▓/░` progress
-  bars against their totals; results / creds / errors stay as plain
-  counters.
-- **TOP PLUGINS** (right / lower): the 5 plugins with the most hits
-  this run, rendered as a fixed-width bar chart with the
-  `[plugin N]` name on the left and a `████░░` bar showing share.
-- **ERRORS** (bottom): a compact `ERRORS: timeout 42  refused 15` line;
-  `e` expands it to the top-4 category bars, `E` collapses it back.
-  Categories come from `core.ClassifyError` (errors.Is / errors.As
-  first, substring fallback).
-- **Footer**: keymap hints — `[q] quit  [p] pause  e errors panel
-  L live overlay  ? toggle help` (`?` opens the full help overlay).
+- **Header band**: stage badge with ETA plus a 60-sample hit-rate
+  sparkline; a rate line (`rate: 28.5 hits/s  ports: 142.0/s  probed
+  18 / 0`) that ticks up mid-alive-sweep.
+- **PROGRESS**: per-stage bar plus a live ledger (done / in-flight /
+  deferred) and a stall readout (`stall 15s ▲` when the pool goes
+  quiet, `!!` past a minute).
+- **TOP PLUGINS**: the plugins with the most hits this run, as a bar
+  chart.
+- **LIVE EVENTS**: the last 64 events in a fixed ring buffer with
+  fixed-width severity tokens (`[+]` hit, `[*]` cred, `[!]` critical,
+  `[~]` warn, `[-]` miss); follow/browse scrolling (`↑↓` browse,
+  `End` back to follow), same-source folding (`×N`), an automatic
+  storm summary above 500 ev/s, and a sidecar that keeps critical
+  lines visible through storms. Runs crossing midnight get date
+  separator rows; on narrow terminals `L` overlays the last 5.
+- **ERRORS**: a compact category line; `e` expands it to the top
+  categories, `E` collapses it back. Categories come from
+  `core.ClassifyError` (errors.Is / errors.As first, substring
+  fallback).
+- **Footer**: keymap hints; `?` opens the full help overlay.
+
+Rendering is pinned by 27 golden frames (3 breakpoints × 8 states +
+overlay + ASCII variants) verified byte-for-byte in CI, and degrades
+through a four-level ladder — truecolor → 256-color → grayscale →
+pure ASCII — so the same layout stays readable on any terminal.
 
 All of this is read off a `CountersView` projection on
 `internal/types.State` so the view layer is decoupled from the
@@ -415,7 +425,7 @@ The four most common pairings:
 -H 1.0.0.0/8 -u admin -p root,toor              # host + inline creds
 -H 1.0.0.0/8 -uf users.txt -pf passes.txt       # host + wordlists
 -H 1.0.0.0/8 -f targets.txt -a                  # hosts file + alive-only
--H 1.0.0.0/8 -ot r.txt -oj r.json -oc r.csv      # all three output sinks
+-H 1.0.0.0/8 -ot r.txt -oj r.ndjson -oc r.csv    # all three output sinks
 ```
 
 Concrete recipes:
@@ -427,7 +437,7 @@ fg-qimen -H 10.0.0.0/24
 # Named project with dictionaries + small thread count
 fg-qimen --project corp -H 10.0.0.0/24 -uf users.txt -pf pass.txt -t 50
 
-# Re-attack a saved project against its previously-seen hosts
+# Re-run a saved project against its previously-seen hosts
 fg-qimen resume --project corp
 
 # Crack-only: skip alive + port scan, just try creds
@@ -541,8 +551,9 @@ output and the tag you tried.
   ([README.zh-CN.md](README.zh-CN.md)).
 - **CLI flag names**: English.
 - **Generated docs** ([FLAGS.md](docs/FLAGS.md), [PLUGINS.md](docs/PLUGINS.md)):
-  English, matching the terminal-output policy — they are renderings of
-  the registry, not prose.
+  English tables generated from the registry, with Simplified Chinese
+  mirrors ([FLAGS.zh-CN.md](docs/FLAGS.zh-CN.md),
+  [PLUGINS.zh-CN.md](docs/PLUGINS.zh-CN.md)).
 
 ---
 

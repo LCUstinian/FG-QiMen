@@ -8,13 +8,14 @@
 ### Added 新增
 
 - **TUI v3：角色令牌 lattice 界面** —— 旧的双条形混色面板重建为单层
-  格子网格（共享边框、标题入顶线、九个固定格子：TITLE / PROGRESS /
-  LIVE EVENTS / TOP PLUGINS / ENGINE / SUBNET / ERRORS / FOOTER），
-  配色采用四域角色令牌（背景 / 中性 / 信号 / 焦点）。一套符号表、一
-  套进度条：单字族 {░▏▎▍▌▋▊▉█} 亚字符精度进度、命中率历史 sparkline
-  坡、永不漂移的事件定宽列（ts / 严重度令牌 / host:port / 服务），
-  IPv6 主机按 RFC5952 压缩。golden 帧测试逐字节钉住 25 帧 Unicode
-  渲染（三断点 × 六状态）。
+  格子网格（共享边框、标题入顶线；格子 TITLE / PROGRESS /
+  LIVE EVENTS / TOP PLUGINS / ERRORS / FOOTER，零计数格子自动隐藏），
+  配色采用四域角色令牌（背景 / 中性 / 信号 / 焦
+  点）。一套符号表、一套进度条：单字族 {░▏▎▍▌▋▊▉█} 亚字符精度进度、
+  命中率历史 sparkline 坡、永不漂移的事件定宽列（ts / 严重度令牌 /
+  host:port / 服务），IPv6 主机按 RFC5952 压缩。golden 帧测试逐字节
+  钉住 27 帧：25 帧 Unicode（三断点 × 八状态 + narrow overlay 附加）
+  + 2 帧纯 ASCII。
 - **EVENTS 动态行为** —— follow/browse 双滚动模式（↑↓ 进 browse、
   End 回 follow、`↓N` 滞后计数上限 999+）、同源折叠（同
   host:service 1s 窗口折为 `×N`，Enter 重放至多 10 条原文）、跨日日
@@ -25,12 +26,13 @@
   deferred 加停滞告警（15s 起 `stall Ns ▲`，60s 起 `!!`）；扫描池
   每拍镜像在飞数到 TUI；活跃管线阶段为其区域边框着色——唯一被认可
   的边框换色。
-- **四级渲染阶梯** —— truecolor → 256 色（lipgloss）→ 16 色灰度映
-  射 → NO_COLOR 把一切信号/焦点令牌降为 dim。新增 `--tui-ascii`
-  flag 强制第 4 级：整表换纯 ASCII 字形（边框 -|+、进度条 #-、
-  braille→#.），适用于光标控制正常但框线渲染损坏的终端（legacy
-  conhost 点阵字体、受限 SSH 客户端）。`TERM=dumb` 不会进 TUI——
-  上游直接路由到纯文本模式。
+- **四级渲染阶梯** —— truecolor → 256 色（lipgloss 自动量化）→
+  16 色灰度映射 → 纯 ASCII 字形；`NO_COLOR` 是独立总闸，任意层级
+  都把一切信号/焦点令牌降为 dim。新增 `--tui-ascii` flag 强制第 4
+  级：整表换纯 ASCII 字形（边框 -|+、进度条 #-、braille→#.），适用
+  于光标控制正常但框线渲染损坏的终端（legacy conhost 点阵字体、
+  受限 SSH 客户端）。`TERM=dumb` 不会进 TUI——上游直接路由到纯文
+  本模式。
 
 ### Changed 变更
 
