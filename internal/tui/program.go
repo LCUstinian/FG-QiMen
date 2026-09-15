@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -165,13 +166,18 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 	case eventMsg:
-		// Stream straight into the model's v0.7.0 event ring buffer
-		// (pushEvent). Kind mapping: "cred" tags are credential
-		// successes; everything else is an info hit. A 200ms flash
-		// is set by pushEvent for hit-family kinds.
-		// 直接流入 model 的 v0.7.0 事件 ring buffer（pushEvent）。
-		// Kind 映射："cred" 标签是凭据成功；其余是信息命中。
-		// hit 类 kind 的 200ms flash 由 pushEvent 设置。
+		// Stream into the model's event ring via appendBatch — the
+		// same ingestion path the Telemetry Hub uses. Kind mapping:
+		// "cred" tags are credential successes; everything else is an
+		// info hit. Text is cleaned here too (this path exists for
+		// direct-dispatch tests; the production path cleans at the
+		// hub). A 200ms flash is set by pushEvent for hit-family
+		// kinds.
+		// 经 appendBatch 流入 model 的事件 ring——与 Telemetry Hub
+		// 同一条摄入路径。Kind 映射："cred" 标签是凭据成功；其余是
+		// 信息命中。Text 在这里也清洗（此路径仅供直接派发的测试用；
+		// 生产路径在 hub 清洗）。hit 类 kind 的 200ms flash 由
+		// pushEvent 设置。
 		// An event arriving before any statsMsg is also a sign of
 		// life (the first cred or open port often lands before
 		// the first 1Hz tick). Promote runState here too.
@@ -200,7 +206,28 @@ func (d dispatcher) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			at = time.Now()
 		}
-		d.inner.pushEvent(toEntry(m.host, m.port, m.svc, kind, at))
+		entry := toEntry(m.host, m.port, m.svc, kind, at)
+		entry.Text = cleanText(m.text)
+		d.inner.appendBatch([]eventEntry{entry}, 1, 0)
+		return d, nil
+	case eventsBatchMsg:
+		// Telemetry Hub per-beat delivery (spec §3.2): append the
+		// whole batch through the single ingestion path, mirror the
+		// storm snapshot, and promote runState on first contact.
+		// Paused mode drops the batch on the floor for now — the
+		// "hidden while paused" semantics upgrade is T2 scope.
+		// Telemetry Hub 每拍投递（spec §3.2）：整批经唯一摄入路径追
+		// 加，镜像风暴快照，首次接触提升 runState。暂停态暂时整批丢
+		// 弃——"隐藏于暂停"的语义升级是 T2 范畴。
+		if d.inner.runState == runIdle {
+			d.inner.runState = runScanning
+		}
+		if d.inner.uiMode == modePaused {
+			return d, nil
+		}
+		d.inner.appendBatch(m.entries, m.ingested, m.dropped)
+		d.inner.storm = m.storm
+		d.inner.stormRate = m.stormRate
 		return d, nil
 	case doneMsg:
 		d.inner.finalSummary = m.summary
@@ -253,6 +280,16 @@ func (d dispatcher) View() string { return d.inner.View() }
 type Program struct {
 	p  *tea.Program
 	mu sync.Mutex
+	// hub is the Telemetry Hub (spec §3.2): pipeline goroutines push
+	// raw events into its bounded queue via Event / CredFound; its
+	// goroutine (started by Run) cleans and coalesces them into
+	// per-beat batches on the Bubbletea loop. Created with the
+	// program; idle until Run starts it.
+	// hub 是 Telemetry Hub（spec §3.2）：管线 goroutine 经 Event /
+	// CredFound 把原始事件推进它的有界队列；它的 goroutine（由 Run
+	// 启动）清洗并合帧为每批投递到 Bubbletea 循环。随 program 创建；
+	// Run 启动前处于空闲。
+	hub *Hub
 	// doneOnce tracks whether Done() has fired; the bubbletea program
 	// is single-use, so a second Done() would send a doneMsg into a
 	// dying program. Guards against the success + early-error double
@@ -328,11 +365,19 @@ func NewProgramWithOptions(cfg *types.Config, opts ...tea.ProgramOption) *Progra
 	d := &dispatcher{inner: &m}
 	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithAltScreen()}
 	p := tea.NewProgram(*d, append(base, opts...)...)
-	return &Program{
+	prog := &Program{
 		p:   p,
 		ran: time.Now(),
 		cfg: cfg,
 	}
+	// The hub delivers into the Bubbletea loop via p.Send. Created
+	// here so Event / CredFound can enqueue before Run starts; the
+	// queue holds everything until the hub goroutine spins up.
+	// hub 经 p.Send 把 batch 送进 Bubbletea 循环。在这里创建让
+	// Event / CredFound 能在 Run 启动前入队；队列会兜住一切直到
+	// hub goroutine 转起来。
+	prog.hub = NewHub(p.Send)
+	return prog
 }
 
 // Send forwards an arbitrary message into the bubbletea event loop —
@@ -348,9 +393,16 @@ func NewProgramWithOptions(cfg *types.Config, opts ...tea.ProgramOption) *Progra
 func (p *Program) Send(msg tea.Msg) { p.p.Send(msg) }
 
 // Run blocks until the bubbletea program exits. Returns the final
-// program state or any error.
-// Run 阻塞到 bubbletea program 退出。返回最终 program 状态或错误。
+// program state or any error. The Telemetry Hub goroutine lives for
+// exactly the duration of the run — its batches keep flowing until
+// the loop unwinds, then the context cancel reclaims the goroutine.
+// / Run 阻塞到 bubbletea program 退出。返回最终 program 状态或错
+// 误。Telemetry Hub goroutine 与本次运行同生命周期——它的 batch 一
+// 直流到循环收尾，然后 context 取消回收 goroutine。
 func (p *Program) Run() (tea.Model, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.hub.Run(ctx)
 	return p.p.Run()
 }
 
@@ -430,43 +482,60 @@ func (p *Program) Stats(s *types.State) {
 	p.p.Send(statsMsg{view: view, elapsed: elapsed, when: now, state: st})
 }
 
-// Event implements ui.UI — push a non-cred live event.
-// Event 实现 ui.UI——推送非凭据类的实时事件。
+// Event implements ui.UI — push a non-cred live event. The raw event
+// lands in the hub's bounded queue; cleaning happens on the hub beat
+// (spec §3.2 写时清洗). Non-blocking even during a render stall.
+// / Event 实现 ui.UI——推送非凭据类的实时事件。原始事件落入 hub 的
+// 有界队列；清洗在 hub 拍上进行（spec §3.2 写时清洗）。渲染阻塞时
+// 也不阻塞调用方。
 func (p *Program) Event(r *types.Result) {
 	if r == nil {
 		return
 	}
-	p.p.Send(eventMsg{
-		when: r.Time.Format("15:04:05"),
-		tag:  "scan",
+	at := r.Time
+	if at.IsZero() {
+		at = time.Now()
+	}
+	p.hub.Enqueue(rawEvent{
+		kind: "hit",
 		host: r.Host,
 		port: r.Port,
 		svc:  r.Service,
 		text: r.Banner,
+		at:   at,
 	})
 }
 
 // CredFound implements ui.UI — push a high-priority cred event.
-// Renders via types.ShowUserPassword so cfg.ShowCleartext controls
-// whether the cleartext pair or a redacted fingerprint is shown on
-// the dashboard. Cleartext on screen is risky in shared-screen /
-// screen-recording / bug-report contexts (P0#3); default is redact.
+// Text renders via types.ShowUserPassword so cfg.ShowCleartext
+// controls whether the cleartext pair or a redacted fingerprint is
+// shown. This is the redact gate (spec §7.4): it fires at enqueue, so
+// the hub never holds cleartext when the gate is off, and everything
+// downstream (queue, ring, sidecar, screen) inherits the decision.
+// Cleartext on screen is risky in shared-screen / screen-recording /
+// bug-report contexts (P0#3); default is redact.
 //
-// CredFound 实现 ui.UI——推送高优先级凭据事件。
-// 走 types.ShowUserPassword 渲染，cfg.ShowCleartext 决定 dashboard
-// 上显示明文对还是脱敏指纹。屏幕上的明文在共享屏幕 / 屏幕录制 / bug
-// 报告场景有风险（P0#3）；默认 redact。
+// CredFound 实现 ui.UI——推送高优先级凭据事件。Text 经
+// types.ShowUserPassword 渲染，cfg.ShowCleartext 决定显示明文对还
+// 是脱敏指纹。这就是 redact 门（spec §7.4）：它在入队时生效，门关
+// 闭时 hub 里根本不会有明文，下游（队列、环、侧车、屏幕）全部继承
+// 该决策。屏幕上的明文在共享屏幕 / 屏幕录制 / bug 报告场景有风险
+// （P0#3）；默认 redact。
 func (p *Program) CredFound(r *types.Result) {
 	if r == nil || r.Cred == nil {
 		return
 	}
-	p.p.Send(eventMsg{
-		when: r.Time.Format("15:04:05"),
-		tag:  "cred",
+	at := r.Time
+	if at.IsZero() {
+		at = time.Now()
+	}
+	p.hub.Enqueue(rawEvent{
+		kind: "cred_success",
 		host: r.Host,
 		port: r.Port,
 		svc:  r.Service,
 		text: types.ShowUserPassword(p.cfg, r.Cred.User, r.Cred.Pass),
+		at:   at,
 	})
 }
 

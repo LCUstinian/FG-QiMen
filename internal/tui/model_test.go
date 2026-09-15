@@ -9,11 +9,14 @@ import (
 )
 
 // TestEventRingBuffer_PushAndOrder verifies the ring buffer wraps
-// and returns chronological order. / 验证 ring buffer 回绕并返回
-// 时间顺序。
+// and returns chronological order. Cap is eventCap (64, spec §10);
+// pushing cap+5 must evict the 5 oldest.
+// / 验证 ring buffer 回绕并返回时间顺序。cap 为 eventCap（64，
+// spec §10）；推 cap+5 条必须淘汰最老 5 条。
 func TestEventRingBuffer_PushAndOrder(t *testing.T) {
 	m := Model{}
-	for i := 0; i < 25; i++ {
+	const pushed = eventCap + 5
+	for i := 0; i < pushed; i++ {
 		m.pushEvent(eventEntry{
 			Host: fmt.Sprintf("10.0.0.%d", i),
 			Port: 80,
@@ -21,20 +24,22 @@ func TestEventRingBuffer_PushAndOrder(t *testing.T) {
 			At:   time.Unix(int64(i), 0),
 		})
 	}
-	// Cap 20, pushed 25 → should hold events 5..24.
+	// Cap 64, pushed 69 → should hold events 5..68.
+	// / cap 64，推 69 条 → 应保留事件 5..68。
 	got := m.eventsOrdered()
-	if len(got) != 20 {
-		t.Fatalf("len(eventsOrdered) = %d, want 20", len(got))
+	if len(got) != eventCap {
+		t.Fatalf("len(eventsOrdered) = %d, want %d", len(got), eventCap)
 	}
-	// First should be 10.0.0.5, last should be 10.0.0.24.
+	// First should be 10.0.0.5, last should be 10.0.0.68.
+	// / 首条应为 10.0.0.5，末条应为 10.0.0.68。
 	if got[0].Host != "10.0.0.5" {
 		t.Errorf("got[0].Host = %q, want 10.0.0.5", got[0].Host)
 	}
-	if got[19].Host != "10.0.0.24" {
-		t.Errorf("got[19].Host = %q, want 10.0.0.24", got[19].Host)
+	if last := got[eventCap-1]; last.Host != fmt.Sprintf("10.0.0.%d", pushed-1) {
+		t.Errorf("got[%d].Host = %q, want 10.0.0.%d", eventCap-1, last.Host, pushed-1)
 	}
 	if !m.eventsFull {
-		t.Error("eventsFull = false after 25 pushes into cap-20, want true")
+		t.Error("eventsFull = false after pushing past cap, want true")
 	}
 }
 

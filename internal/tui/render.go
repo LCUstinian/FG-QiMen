@@ -343,20 +343,32 @@ func formatHostPort(host string, port, maxW int) string {
 // the last N events with severity colors and status symbols. Fixed
 // columns per the spec §5.1 law: 2-space pad, timestamp (8), 2-space
 // gap, symbol (3), 2-space gap, host:port (21), 2-space gap, service
-// (12). Rows are truncated to width BEFORE styling so the cell can
-// never overflow. height=0 hides the cell (narrow mode) unless the
+// (12), then the evidence text when present (elastic, outer-truncated).
+// The title row carries the hub counters (spec §7.2): `· N in` once
+// ingesting and `· N dropped` whenever drops occurred — silent loss is
+// forbidden. Rows are truncated to width BEFORE styling so the cell
+// can never overflow. height=0 hides the cell (narrow mode) unless the
 // 'L' overlay is on, in which case the last 5 rows show anyway.
 // / viewLiveEvents 渲染 LIVE EVENTS 格：面板标题行 + 最近 N 个事件
 // （带 severity 颜色与状态符号）。按 spec §5.1 固定列律：2 空格缩
 // 进、时间戳（8）、2 空格间隔、符号（3）、2 空格间隔、host:port
-// （21）、2 空格间隔、协议名（12）。行在上色**前**裁到 width，格永
-// 不溢出。height=0 隐藏（narrow 模式），除非 'L' overlay 开启——此
-// 时强制显示最近 5 条。
+// （21）、2 空格间隔、协议名（12），有证据文本时接 text 列（弹性，
+// 外层截断）。标题行携带 hub 计数（spec §7.2）：开始摄入后显示
+// `· N in`，发生丢弃就显示 `· N dropped`——禁止静默丢失。行在上色
+// **前**裁到 width，格永不溢出。height=0 隐藏（narrow 模式），除非
+// 'L' overlay 开启——此时强制显示最近 5 条。
 func (m Model) viewLiveEvents(height, width int) string {
 	if height <= 0 {
 		return ""
 	}
-	rows := []string{stPanelHeader.Render("  LIVE EVENTS")}
+	title := "  LIVE EVENTS"
+	if m.ingested > 0 {
+		title += fmt.Sprintf(" · %d in", m.ingested)
+	}
+	if m.dropped > 0 {
+		title += fmt.Sprintf(" · %d dropped", m.dropped)
+	}
+	rows := []string{stPanelHeader.Render(title)}
 	events := m.eventsOrdered()
 	if len(events) == 0 {
 		rows = append(rows, lipgloss.NewStyle().
@@ -377,8 +389,15 @@ func (m Model) viewLiveEvents(height, width int) string {
 		ts := e.At.Format("15:04:05")
 		hostPort := formatHostPort(e.Host, e.Port, evHostW)
 		svc := padTo(truncate(e.Service, evSvcW), evSvcW)
+		line := fmt.Sprintf("  %s  %s  %s  %s", ts, sym, hostPort, svc)
+		if e.Text != "" {
+			// Evidence text trails the fixed columns; the outer
+			// truncate caps it to the cell width. / 证据文本缀在定宽
+			// 列之后；外层 truncate 负责裁到格宽。
+			line += "  " + e.Text
+		}
 		rows = append(rows, lipgloss.NewStyle().Foreground(c).Render(
-			truncate(fmt.Sprintf("  %s  %s  %s  %s", ts, sym, hostPort, svc), width)))
+			truncate(line, width)))
 	}
 	return strings.Join(rows, "\n")
 }

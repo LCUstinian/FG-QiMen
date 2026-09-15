@@ -14,14 +14,24 @@ import (
 	"github.com/LCUstinian/FG-QiMen/internal/types"
 )
 
-// eventEntry is one row in the LIVE EVENTS panel. / eventEntry
-// 是 LIVE EVENTS 面板的一行。
+// eventEntry is one row in the LIVE EVENTS panel (spec §7.1).
+// / eventEntry 是 LIVE EVENTS 面板的一行（spec §7.1）。
 type eventEntry struct {
 	Host    string
 	Port    int
 	Service string
 	Kind    string // "hit" | "miss" | "cred_success" | "warn" | "critical_hit"
 	At      time.Time
+	// Text is the evidence snippet (credential pair, banner summary).
+	// Cleaned + redacted at the hub (写时清洗) — the render layer
+	// never mutates it. / Text 是证据片段（凭据对、banner 摘要）。
+	// 在 hub 完成清洗 + redact（写时清洗）——渲染层从不改它。
+	Text string
+	// ID is a monotonic sequence assigned at push time; browse-mode
+	// anchoring (T2) uses it. ×N same-source merging is a render-layer
+	// view, never stored. / ID 是 push 时赋予的单调序号；browse 模式
+	// 锚定（T2）用。×N 同源合并是渲染层派生视图，不入结构体。
+	ID uint64
 }
 
 // Model is the Bubbletea model for the dashboard.
@@ -188,6 +198,48 @@ type Model struct {
 	// 完成）。默认 false（折叠）。
 	errorsExpanded bool
 
+	// ── v0.10.0 T1: Telemetry Hub contracts (spec §3.2/§7.2) ──
+	// v0.10.0 T1：Telemetry Hub 契约（spec §3.2/§7.2）。
+
+	// critBuf is the critical sidecar ring (cap critSidecarCap):
+	// cred_success / critical_hit / warn rows survive main-ring
+	// flushes during event storms. Same ring discipline as eventsBuf.
+	// / critBuf 是 critical 侧车环（cap critSidecarCap）：事件风暴
+	// 冲刷主环时，cred_success / critical_hit / warn 行仍可在侧车
+	// 中追溯。与 eventsBuf 同一套环形纪律。
+	critBuf []eventEntry
+
+	// critCap is cap(critBuf). / critCap 是 cap(critBuf)。
+	critCap int
+
+	// critHead is the next write index into critBuf. / critHead 是
+	// critBuf 下一个写入索引。
+	critHead int
+
+	// critFull is true once critBuf has wrapped. / critFull 在
+	// critBuf 回绕后为 true。
+	critFull bool
+
+	// ingested / dropped are the cumulative hub counters shown in the
+	// EVENTS title row (dropped>0 must surface — silent loss is
+	// forbidden). / ingested / dropped 是 EVENTS 标题行显示的 hub
+	// 累计计数（dropped>0 必须上屏——禁止静默丢失）。
+	ingested int
+	dropped  int
+
+	// storm / stormRate mirror the hub's storm detector: active flag
+	// + current ev/s. Display (storm summary row) lands in T2.
+	// / storm / stormRate 镜像 hub 的风暴判定器：激活标志 + 当前
+	// ev/s。显示（风暴汇总行）在 T2 落地。
+	storm     bool
+	stormRate int
+
+	// nextEventID is the monotonic ID source for pushEvent. Kept on
+	// the model so all mutations stay in the Update goroutine.
+	// / nextEventID 是 pushEvent 的单调 ID 源。放在 model 上让所有
+	// 突变都留在 Update goroutine 内。
+	nextEventID uint64
+
 	// showLiveOverlay is the narrow-mode 'L' toggle: when the
 	// events region is hidden (height=0), the overlay reveals the
 	// last 5 events anyway. / showLiveOverlay 是 narrow 模式的 'L'
@@ -208,23 +260,28 @@ type Model struct {
 	// spinner.Model`。
 }
 
-// eventCap is the fixed size of the event ring buffer. Cap 20 =
-// ~20s of history at 1Hz, which fits a typical 24-row terminal with
-// room to spare for older context. Package-level so tests can assert
-// the cap contract. / eventCap 是事件 ring buffer 的固定大小。
-// Cap 20 = 1Hz 下约 20s 历史，能塞进典型 24 行终端并留出给旧上下文
-// 的余地。放在包级让测试能断言 cap 契约。
-const eventCap = 20
+// eventCap is the fixed size of the main event ring buffer (spec §10:
+// 64). Package-level so tests can assert the cap contract.
+// / eventCap 是主事件 ring buffer 的固定大小（spec §10：64）。放在
+// 包级让测试能断言 cap 契约。
+const eventCap = 64
+
+// critSidecarCap is the fixed size of the critical sidecar ring
+// (spec §3.2: 8). During storms the main ring flushes, but credential
+// rows stay recoverable here. / critSidecarCap 是 critical 侧车环的
+// 固定大小（spec §3.2：8）。风暴冲刷主环时，凭据行仍可在此追溯。
+const critSidecarCap = 8
 
 // ── v0.7.0 helpers ──
 
-// pushEvent appends to the event ring buffer. If Kind is a hit-family
-// kind ("hit" / "critical_hit" / "cred_success"), sets a 200ms flash
-// expiry keyed by host:port so the row paints red for one render cycle
-// regardless of its underlying severity. / pushEvent 追加到事件 ring
-// buffer。Kind 是 hit 类（"hit" / "critical_hit" / "cred_success"）
-// 时设 200ms flash 过期，以 host:port 为键让该行在一帧内画红，不
-// 管底层 severity。
+// pushEvent appends to the main event ring buffer, assigning the
+// monotonic ID. If Kind is a hit-family kind ("hit" / "critical_hit" /
+// "cred_success"), sets a 200ms flash expiry keyed by host:port so the
+// row paints red for one render cycle regardless of its underlying
+// severity. / pushEvent 追加到主事件 ring buffer 并赋单调 ID。Kind
+// 是 hit 类（"hit" / "critical_hit" / "cred_success"）时设 200ms
+// flash 过期，以 host:port 为键让该行在一帧内画红，不管底层
+// severity。
 func (m *Model) pushEvent(e eventEntry) {
 	if m.eventsBuf == nil {
 		// First push: lazy-init the ring buffer. / 首次 push：懒初始化
@@ -232,6 +289,8 @@ func (m *Model) pushEvent(e eventEntry) {
 		m.eventsBuf = make([]eventEntry, eventCap)
 		m.eventsCap = eventCap
 	}
+	m.nextEventID++
+	e.ID = m.nextEventID
 	m.eventsBuf[m.eventsHead] = e
 	m.eventsHead = (m.eventsHead + 1) % m.eventsCap
 	if m.eventsHead == 0 {
@@ -256,6 +315,67 @@ func isHitKind(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// isCriticalKind returns true for the severity-faithful kinds that
+// must also land in the critical sidecar (spec §3.2).
+// / isCriticalKind 对必须同时进入 critical 侧车的严重度保真 kind
+// 返回 true（spec §3.2）。
+func isCriticalKind(kind string) bool {
+	switch kind {
+	case "cred_success", "critical_hit", "warn":
+		return true
+	}
+	return false
+}
+
+// pushCritical appends to the critical sidecar ring. / pushCritical
+// 追加到 critical 侧车环。
+func (m *Model) pushCritical(e eventEntry) {
+	if m.critBuf == nil {
+		m.critBuf = make([]eventEntry, critSidecarCap)
+		m.critCap = critSidecarCap
+	}
+	m.critBuf[m.critHead] = e
+	m.critHead = (m.critHead + 1) % m.critCap
+	if m.critHead == 0 {
+		m.critFull = true
+	}
+}
+
+// critOrdered iterates the critical sidecar chronologically (oldest →
+// newest). / critOrdered 按时间顺序迭代 critical 侧车。
+func (m *Model) critOrdered() []eventEntry {
+	if m.critBuf == nil {
+		return nil
+	}
+	if !m.critFull {
+		return m.critBuf[:m.critHead]
+	}
+	out := make([]eventEntry, 0, m.critCap)
+	out = append(out, m.critBuf[m.critHead:]...)
+	out = append(out, m.critBuf[:m.critHead]...)
+	return out
+}
+
+// appendBatch is the single ingestion path from the Telemetry Hub
+// (spec §3.2): counters accumulate, entries land in the main ring,
+// and severity-faithful kinds land in the critical sidecar. The
+// dispatcher is the only production caller; all mutations stay in the
+// Bubbletea Update goroutine (single-writer contract).
+// / appendBatch 是 Telemetry Hub 的唯一摄入路径（spec §3.2）：计数
+// 累加，条目进主环，严重度保真 kind 进 critical 侧车。dispatcher
+// 是唯一生产调用方；所有突变都留在 Bubbletea Update goroutine 内
+// （单写者契约）。
+func (m *Model) appendBatch(entries []eventEntry, ingested, dropped int) {
+	m.ingested += ingested
+	m.dropped += dropped
+	for _, e := range entries {
+		m.pushEvent(e)
+		if isCriticalKind(e.Kind) {
+			m.pushCritical(e)
+		}
+	}
 }
 
 // eventsOrdered iterates the ring buffer in chronological order
