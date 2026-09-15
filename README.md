@@ -19,7 +19,7 @@ deduction — measure first, then scan.
 [中文文档](README.zh-CN.md) · [Releases](https://github.com/LCUstinian/FG-QiMen/releases) · [Changelog](CHANGELOG.md)
 
 ```
-┌ FG-QIMEN 0.9.0 ─ project: demo ─ mode: scan──────────────────────────────────────────────────────────────  SCANNING  ┐
+┌ FG-QIMEN 0.10.0 ─ project: demo ─ mode: scan─────────────────────────────────────────────────────────────  SCANNING  ┐
 │  [ ▶ IDENTIFY ]  ~30s  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▃▃▄▅▅▆▆▇█│
 │  rate: 28.5 hits/s    ports: 142.0/s    probed 18 / 0                                                                │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤

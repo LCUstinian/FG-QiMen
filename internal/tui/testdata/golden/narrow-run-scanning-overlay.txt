@@ -1,4 +1,4 @@
-┌ FG-QIMEN 0.9.0 ─ project: demo ─ mode: scan──  SCANNING  ┐
+┌ FG-QIMEN 0.10.0 ─ project: demo ─ mode: scan─  SCANNING  ┐
 │  [ ▶ IDENTIFY ]  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▃▃▄▅▅▆▆▇█│
 ├──────────────────────────────────────────────────────────┤
 │  PROGRESS                                                │

@@ -20,6 +20,12 @@ is fully automated; a tag push is the only manual trigger.
    `TestValueDefault` must match the new `Value` — it is a separate
    literal and will NOT follow the bump. (v0.8.0 shipped its first
    red tag CI because of exactly this.)
+6. **Regenerate the TUI golden frames**: the dashboard title bar
+   embeds `version.Value`, so a version bump invalidates every
+   golden frame. Run `go test ./internal/tui/ -run TestGolden
+   -update`, then rebuild the root READMEs' TUI figure from the
+   refreshed `wide-run-scanning.txt` line 1. (v0.10.0 shipped its
+   first red CI because of exactly this.)
 
 ## Cutting a release
 

@@ -19,6 +19,11 @@
 5. **同步钉死的测试常量**：`internal/version/version_test.go` 的
    `TestValueDefault` 必须与新 `Value` 一致——它是独立的字面量，
    不会跟着 bump 走。（v0.8.0 的 tag CI 首次变红就是因为这个。）
+6. **重新生成 TUI golden 帧**：仪表盘标题栏内嵌 `version.Value`，
+   版本号 bump 会让所有 golden 帧失效。执行
+   `go test ./internal/tui/ -run TestGolden -update`，然后用刷新后的
+   `wide-run-scanning.txt` 第 1 行重建根目录 README 的 TUI 图。
+   （v0.10.0 的 CI 首次变红就是因为这个。）
 
 ## 发布步骤
 
